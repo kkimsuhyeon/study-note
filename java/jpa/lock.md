@@ -508,6 +508,36 @@ public void decreaseStock(Long productId, int qty) {
 - `@Retryable`이 `@Transactional`보다 **바깥쪽**에서 동작해야(재시도마다 새 트랜잭션) 의미가 있다.
 - **self-invocation 금지**: 같은 클래스 내부 메서드 호출은 프록시를 안 타서 재시도/트랜잭션이 적용되지 않는다.
 
+### 그런데 재시도하면 "또 같은 version으로 또 실패"하는 거 아닌가?
+
+**아니다. 재시도는 `UPDATE`만 다시 하는 게 아니라 `findById`(조회)부터 통째로 다시 한다.** 그래서 매 시도마다 **그 시점의 최신 version을 새로 읽어온다.** 같은 version으로 무한 박치기하는 게 아니다.
+
+마지막 재고 2개를 T1, T2가 동시에 차감하는 예:
+```
+[1차 시도]
+T1: findById → version=1 읽음
+T2: findById → version=1 읽음          (둘 다 version=1을 봄)
+T2: UPDATE ... version=2 WHERE version=1  → 성공 ✅  (DB는 이제 version=2)
+T1: UPDATE ... version=2 WHERE version=1  → 0건! ❌  (이미 2라 안 맞음)
+    → ObjectOptimisticLockingFailureException → T1 롤백
+
+[2차 시도 — T1이 새 트랜잭션으로 다시]
+T1: findById → version=2 읽음           ← 이번엔 "최신값"을 읽음! (T2가 바꾼 결과)
+T1: UPDATE ... version=3 WHERE version=2  → 성공 ✅
+```
+
+**왜 결국 성공하나?** 충돌은 "두 트랜잭션이 겹친 그 찰나"에만 일어난다. 재시도 시점에는 앞선 T2가 **이미 커밋을 끝낸 뒤**라, 다시 읽으면 최신 version을 가져오고 그걸로 `UPDATE`하면 조건이 맞아 통과한다.
+
+**그럼 무한히 실패할 수도 있나?** 두 경우를 구분해야 한다.
+
+| 상황 | 재시도하면 |
+|------|-----------|
+| **version 충돌** (동시 접근이 찰나에 겹침) | 다시 읽으면 최신 version → 보통 1~2회 내 성공 |
+| **비즈니스 실패** (예: 재고가 진짜 0) | 재시도해도 계속 실패 → 이건 version 문제가 아니라 "재고 부족"으로 정상 처리해야 함 |
+
+- 충돌이 **너무 잦으면**(같은 row에 수천 명 동시) `maxAttempts`를 다 쓰고도 실패할 수 있다.
+- 그래서 **낙관적 락은 "충돌이 드문 경우"에 적합**하고, 충돌이 빈번하면 비관적 락(처음부터 잠그고 줄 세우기)이 낫다.
+
 ---
 
 ## 3-7. 벌크 UPDATE는 @Version을 우회한다
