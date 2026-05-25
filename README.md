@@ -7,6 +7,9 @@
 ### JPA
 - [@Lock - 비관적 락 어노테이션](./java/jpa/lock.md)
 
+### Jackson
+- [Jackson 어노테이션 종합 정리](./java/jackson/annotations.md)
+
 ---
 
 ## 작성 규칙
