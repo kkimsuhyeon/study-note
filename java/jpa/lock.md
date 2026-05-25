@@ -95,6 +95,37 @@ SELECT version FROM product WHERE id = 1;
 
 > 요약: `@Version`은 락의 전제 조건(필수). `@Lock(OPTIMISTIC)`은 "읽기만 하는 데이터도 트랜잭션 끝까지 안 변했는지 보장"하고 싶을 때 추가로 명시.
 
+**그럼 `@Version` 없이 `@Lock(OPTIMISTIC)`만 쓰면? → 예외 발생 (동작 자체 불가)**
+
+낙관적 락은 version 컬럼을 비교하는 게 본질이라, 비교할 version이 없으면 락이 성립하지 않는다. JPA는 무시하고 넘어가는 게 아니라 **예외를 던진다.**
+```java
+@Entity
+public class Product {
+    @Id private Long id;
+    private int stock;
+    // @Version 없음!
+}
+
+@Lock(LockModeType.OPTIMISTIC)  // version 없는데 낙관적 락 → 예외
+Optional<Product> findById(Long id);
+```
+```
+PersistenceException / IllegalArgumentException
+  → "Entity has no version attribute" 류 (구현체·버전마다 메시지 다름)
+```
+
+**비관적 락과의 결정적 차이**
+
+| | 무엇으로 락을 거나 | `@Version` 필요? |
+|---|---|---|
+| 낙관적 락 (`OPTIMISTIC`) | 엔티티의 version 컬럼 비교 | **필수** (없으면 예외) |
+| 비관적 락 (`PESSIMISTIC_WRITE` 등) | DB의 물리적 락 (`FOR UPDATE`) | 불필요 |
+
+- **낙관적 락**: 충돌 감지 기준이 version밖에 없음 → 없으면 동작 불가능
+- **비관적 락**: DB가 직접 row를 잠그므로 애플리케이션 레벨 값이 불필요 → `@Version` 없이도 동작
+
+> 즉 `@Version`은 "있으면 좋은 것"이 아니라, **없으면 낙관적 락 자체가 불가능한 필수 전제**. 반면 비관적 락은 `@Version` 없이도 DB 락으로 동작한다.
+
 ### (2) 공유 락(Shared) vs 배타 락(Exclusive)
 
 비관적 락(DB 레벨 락) 얘기.
