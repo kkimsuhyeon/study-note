@@ -1,0 +1,138 @@
+# 데드락(Deadlock, 교착 상태) 정리
+
+> **한 줄 요약**: 둘 이상의 주체가 서로가 가진 자원을 기다리며 아무도 진행하지 못하고 영원히 멈추는 상태. OS·스레드·DB 락 모두에 동일하게 적용되는 CS 고전 개념.
+
+관련 노트: [락 개념 종합](./locks.md) · [JPA @Lock](../jpa/lock.md)
+
+---
+
+## 1. 데드락이란
+
+> 둘 이상의 트랜잭션/스레드가 **서로가 점유한 자원을 기다리며** 무한정 멈추는 상태.
+
+가장 쉬운 비유 — **좁은 골목에서 마주친 두 차**:
+```
+차 A: 앞으로 가려면 B가 비켜야 함 → B를 기다림
+차 B: 앞으로 가려면 A가 비켜야 함 → A를 기다림
+→ 둘 다 영원히 멈춤 💥
+```
+
+---
+
+## 2. 데드락 발생 4가지 조건 (Coffman Conditions)
+
+운영체제 이론의 고전. **아래 4가지가 동시에 성립할 때만** 데드락이 발생한다. 락이든 스레드든 DB든 동일.
+
+| 조건 | 의미 | 락에 대입하면 |
+|------|------|---------------|
+| **① 상호 배제** (Mutual Exclusion) | 자원을 한 번에 하나만 점유 가능 | 배타락은 하나만 가짐 |
+| **② 점유와 대기** (Hold and Wait) | 자원을 쥔 채 다른 자원을 기다림 | A락 쥐고 B락 대기 |
+| **③ 비선점** (No Preemption) | 남이 쥔 자원을 강제로 뺏지 못함 | 락은 보유자가 풀어야만 해제 |
+| **④ 순환 대기** (Circular Wait) | 대기가 원형으로 물림 (A→B→A) | T1→T2, T2→T1 |
+
+> **핵심**: 4개 중 **하나라도 깨면** 데드락은 발생하지 않는다. 그래서 예방법은 보통 ②(점유와 대기)나 ④(순환 대기)를 깨는 방향이다.
+
+---
+
+## 3. 락에서의 데드락 사례
+
+### 사례 1 — 락 획득 순서 꼬임 (순환 대기)
+```
+T1: lock(A) 쥠 → lock(B) 대기  ┐
+T2: lock(B) 쥠 → lock(A) 대기  ┘ → 원형으로 물림 💥
+```
+
+### 사례 2 — 공유락 → 배타락 업그레이드
+```
+T1, T2 둘 다 FOR SHARE 쥠 (공유락 공존)
+→ 둘 다 UPDATE(배타락) 시도
+→ 서로 상대의 공유락 해제를 대기 💥
+```
+> 그래서 "읽고 곧 수정할 거면 처음부터 `FOR UPDATE`(배타락)를 써라"가 정설.
+
+### 사례 3 — JVM 락 (ReentrantLock / synchronized)
+DB만의 문제가 아니다. 멀티스레드에서도 동일하게 발생.
+```java
+// T1
+synchronized (lockA) { synchronized (lockB) { ... } }
+// T2
+synchronized (lockB) { synchronized (lockA) { ... } }  // 순서 반대 → 데드락 위험
+```
+
+---
+
+## 4. 예방법
+
+### ④ 순환 대기 깨기 — "락 획득 순서 통일" (가장 흔하고 효과적)
+```
+규칙: 항상 ID 오름차순으로 락을 잡는다
+T1: lock(A) → lock(B)   ┐ 둘 다 A를 먼저 잡으니
+T2: lock(A) → lock(B)   ┘ 원형이 생기지 않음 ✅
+```
+
+### 그 외
+| 방법 | 깨는 조건 | 설명 |
+|------|-----------|------|
+| 락 한 번에 모두 획득 | ② 점유와 대기 | 필요한 락을 한꺼번에 잡거나, 못 잡으면 가진 것도 다 놓기 |
+| 락 타임아웃 | ③ 비선점 (유사) | 일정 시간 못 잡으면 포기 → 영원한 대기 방지 |
+| 처음부터 배타락 | - | 공유락 업그레이드 데드락 회피 |
+| 트랜잭션 짧게 유지 | - | 락 보유 시간이 짧으면 충돌·교착 확률 감소 |
+
+```java
+// 타임아웃 예시 (JPA)
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@QueryHints({@QueryHint(name = "jakarta.persistence.lock.timeout", value = "3000")})
+Optional<UserPoint> findByUserIdForUpdate(@Param("userId") Long userId);
+```
+```java
+// 타임아웃 예시 (ReentrantLock)
+if (lock.tryLock(3, TimeUnit.SECONDS)) {
+    try { ... } finally { lock.unlock(); }
+} else {
+    // 락 획득 실패 처리 (데드락/경합 회피)
+}
+```
+
+---
+
+## 5. DB는 데드락을 자동 감지한다
+
+다행히 **MySQL InnoDB, PostgreSQL은 데드락을 자동 탐지**한다. 순환 대기를 감지하면 **희생자(victim) 트랜잭션 하나를 강제 롤백**시켜 교착을 푼다.
+
+```
+순환 대기 감지 → 한 트랜잭션 강제 롤백 (나머지는 진행)
+→ 롤백당한 쪽은 예외를 받음
+   - MySQL: "Deadlock found when trying to get lock"
+   - Spring: DeadlockLoserDataAccessException / CannotAcquireLockException
+→ 보통 재시도로 처리 (낙관적 락 재시도와 유사한 패턴)
+```
+
+> 즉 영원히 멈추진 않고 한 명이 희생되고 나머지는 진행된다. 단, **희생된 트랜잭션의 재시도 처리는 개발자 몫**이다.
+
+### 데드락 vs 락 타임아웃 (헷갈리기 쉬움)
+| | 데드락 | 락 타임아웃 |
+|---|---|---|
+| 원인 | 순환 대기 (서로 물림) | 단순히 오래 기다림 (락 못 잡음) |
+| 감지 주체 | DB가 자동 감지 후 victim 롤백 | 설정한 시간 초과 시 예외 |
+| 예외 | DeadlockLoserDataAccessException 등 | LockTimeoutException |
+
+---
+
+## 6. 정리
+
+- 데드락 = **서로가 가진 자원을 기다리며 멈춘 상태** (OS 고전 개념과 동일).
+- **4조건(상호배제·점유와대기·비선점·순환대기)** 이 모두 성립할 때만 발생 → 하나만 깨면 예방.
+- 실무 1순위 예방책: **락 획득 순서 통일**(순환 대기 제거) + **타임아웃** + **트랜잭션 짧게**.
+- DB는 자동 감지해 한쪽을 롤백 → 개발자는 **재시도**로 대응.
+
+---
+
+## 7. 참고
+- [Coffman conditions - Wikipedia](https://en.wikipedia.org/wiki/Deadlock#Necessary_conditions)
+- [MySQL - Deadlocks in InnoDB](https://dev.mysql.com/doc/refman/8.0/en/innodb-deadlocks.html)
+- 관련 노트: [락 개념 종합](./locks.md) · [JPA @Lock](../jpa/lock.md)
+
+---
+
+**학습 날짜**: 2026-05-25
+**계기**: JPA 락을 공부하다 공유락 업그레이드 데드락을 접하고, 데드락이 OS의 기본 개념(교착 상태)과 같은 것인지 궁금해서 정리

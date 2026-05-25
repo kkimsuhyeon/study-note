@@ -6,6 +6,7 @@
 
 ### Concurrency (동시성)
 - [락 개념 종합 - 낙관적/비관적/분산 락](./java/concurrency/locks.md)
+- [데드락(교착 상태) - Coffman 4조건/예방/DB 자동 감지](./java/concurrency/deadlock.md)
 
 ### JPA
 - [@Lock - 비관적 락 어노테이션](./java/jpa/lock.md)
