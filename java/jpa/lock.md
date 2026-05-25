@@ -126,6 +126,29 @@ PersistenceException / IllegalArgumentException
 
 > 즉 `@Version`은 "있으면 좋은 것"이 아니라, **없으면 낙관적 락 자체가 불가능한 필수 전제**. 반면 비관적 락은 `@Version` 없이도 DB 락으로 동작한다.
 
+**반대로 `@Version`만 쓰고 `@Lock`은 안 써도 되나? → 된다. 오히려 가장 일반적인 패턴.**
+
+`@Version`만 붙여도 **수정(UPDATE) 시 자동으로 낙관적 락이 동작**한다. `@Lock(OPTIMISTIC)`은 "읽기만 하는 값도 검증"하고 싶은 특수한 경우에만 추가로 쓰는 보조 장치일 뿐.
+
+```java
+@Transactional
+public void decreaseStock(Long id, int qty) {
+    Product p = repository.findById(id).orElseThrow();  // @Lock 없음
+    p.setStock(p.getStock() - qty);                     // 수정함
+    // 커밋 시 자동: UPDATE ... WHERE id=? AND version=1 → 안 맞으면 OptimisticLockException
+}
+```
+
+**세 경우 비교**
+
+| 조합 | 결과 |
+|---|---|
+| `@Version`만 | ✅ 정상 — 수정 시 자동 낙관적 락 (**가장 흔한 패턴**) |
+| `@Version` + `@Lock(OPTIMISTIC)` | ✅ 정상 — 읽기 검증까지 확장 |
+| `@Lock(OPTIMISTIC)`만 (Version 없음) | ❌ 예외 — 비교할 version이 없음 |
+
+> `@Version`이 주인공, `@Lock(OPTIMISTIC)`은 읽기 전용 보조. `@Version`만 써도 의미 있고(수정 시 동작), 오히려 `@Lock`만 쓰는 게 불가능한 조합이다.
+
 ### (2) 공유 락(Shared) vs 배타 락(Exclusive)
 
 비관적 락(DB 레벨 락) 얘기.
