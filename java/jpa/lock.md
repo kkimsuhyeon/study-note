@@ -179,7 +179,14 @@ public void decreaseStock(Long id, int qty) {
 둘 다 낙관적 락. 차이는 **version을 증가시키냐 마냐**.
 
 - **`OPTIMISTIC`**: 읽은 엔티티가 안 바뀌었는지 **확인만** 함. 내가 수정 안 했으면 version 그대로.
-- **`OPTIMISTIC_FORCE_INCREMENT`**: 그 엔티티 자체를 수정하지 않았어도 **version을 강제로 +1**.
+- **`OPTIMISTIC_FORCE_INCREMENT`**: 그 엔티티 자체를 수정하지 않고 **읽기만 해도 version을 강제로 +1** 한다. ← 이게 핵심 포인트.
+
+**읽기만 했을 때 두 모드의 차이**
+
+| | 읽기만 했을 때 (수정 X) | 커밋 시 실제 SQL |
+|---|---|---|
+| `OPTIMISTIC` | version **체크만** (그대로 유지) | `SELECT version ...` (확인) |
+| `OPTIMISTIC_FORCE_INCREMENT` | version **강제 +1** | `UPDATE ... SET version = version + 1` |
 
 **왜 강제 증가가 필요한가? → "연관된 자식이 바뀌면 부모의 버전도 올리고 싶을 때"**
 
