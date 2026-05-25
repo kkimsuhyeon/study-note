@@ -51,9 +51,26 @@ T2: UPDATE balance = 1000 - 500  → 500  ← T1의 차감이 사라짐
 |------|-----------|-----------|
 | 전제 | "충돌은 자주 일어난다" | "충돌은 드물다" |
 | 방식 | DB 락으로 선점 | version 컬럼 비교 |
+| **충돌 시 동작** | **대기(blocking)**, 타임아웃 시 예외 | **즉시 예외**(`OptimisticLockException`), 대기 X |
+| 해결 방법 | DB가 순서대로 처리 (재시도 불필요) | 애플리케이션에서 **재시도(retry)** |
 | 비용 | DB 락 보유 → 성능 저하, 데드락 가능 | 충돌 시 재시도 비용 |
 | 적합한 경우 | 충돌 빈도 높음, 정확성 최우선 | 충돌 빈도 낮음, 처리량 중요 |
 | 예시 | 포인트 차감, 재고 | 게시글 수정, 프로필 변경 |
+
+> **version이 틀리면 대기? 에러?** → 낙관적 락은 락을 실제로 걸지 않고 커밋 시점에 version만 비교한다. 안 맞으면 **기다리지 않고 즉시 `OptimisticLockException`** → 롤백 → 애플리케이션에서 재시도해야 함. 반면 비관적 락은 DB가 row를 잠그므로 다른 트랜잭션이 **대기**하고, 락 해제 시 순서대로 진행된다 (무한 대기 방지용 타임아웃 초과 시에만 `LockTimeoutException`).
+
+```java
+// 낙관적 락 재시도 예시
+int retry = 0;
+while (true) {
+    try {
+        return pointService.charge(userId, amount);
+    } catch (OptimisticLockException e) {
+        if (++retry >= 3) throw e;
+        // 다시 읽어서 최신 version으로 재시도 (스프링은 @Retryable로도 처리)
+    }
+}
+```
 
 ---
 
