@@ -42,8 +42,10 @@ T2: UPDATE balance = 1000 - 500  → 500  ← T1의 차감이 사라짐
 | `OPTIMISTIC` | 낙관적 락. @Version 컬럼으로 충돌 감지 | 커밋 시점에 version 체크 |
 | `OPTIMISTIC_FORCE_INCREMENT` | 낙관적 락 + 무조건 version 증가 | UPDATE ... version+1 |
 | `PESSIMISTIC_READ` | 공유 락. 다른 트랜잭션의 쓰기만 차단 | `SELECT ... FOR SHARE` |
-| `PESSIMISTIC_WRITE` | 배타 락. 읽기/쓰기 모두 차단 | `SELECT ... FOR UPDATE` |
+| `PESSIMISTIC_WRITE` | 배타 락. 다른 트랜잭션의 쓰기·락 읽기 차단 (일반 SELECT는 허용) | `SELECT ... FOR UPDATE` |
 | `PESSIMISTIC_FORCE_INCREMENT` | 배타 락 + version 증가 | FOR UPDATE + version+1 |
+
+> ⚠️ `PESSIMISTIC_WRITE`는 "아무도 읽지 못하게"가 아니다. 자세한 동작은 [3-5](#3-5-pessimistic_write가-모든-select를-막는-것은-아니다) 참고.
 
 ### 비관적 락 (Pessimistic) vs 낙관적 락 (Optimistic)
 
@@ -464,6 +466,109 @@ class ReservationConcurrencyTest {
 - 락이 없으면 이 테스트는 success가 2 이상 나오며 **실패**한다 (→ 락이 필요함을 증명)
 - 서로 다른 좌석이면 둘 다 성공해야 정상 (락이 과하게 안 걸리는지 확인)
 - Testcontainers라 **Docker 실행 필수**, 락 대기로 실행 시간이 길어질 수 있음
+
+---
+
+## 3-5. PESSIMISTIC_WRITE가 모든 SELECT를 막는 것은 아니다
+
+`PESSIMISTIC_WRITE`는 보통 `SELECT ... FOR UPDATE`로 동작한다. 이 락은 다른 트랜잭션의 `UPDATE` / `DELETE` / `SELECT ... FOR UPDATE`(또는 `FOR SHARE`)를 막지만, **MVCC DB(MySQL InnoDB, PostgreSQL)에서는 잠금 없는 일반 `SELECT`는 과거 커밋된 스냅샷을 그대로 읽을 수 있다.**
+
+```
+T1: SELECT ... FOR UPDATE  (id=1 배타 락) 🔒
+T2: SELECT * FROM ... WHERE id=1           → 스냅샷 읽기 OK (안 막힘) ✅
+T2: UPDATE ... WHERE id=1                   → 대기 ⏳
+T2: SELECT ... FOR UPDATE WHERE id=1        → 대기 ⏳
+```
+
+> 즉 "아무도 읽지 못하게 한다"가 아니라, **"다른 트랜잭션이 같은 row를 수정하거나 락을 잡지 못하게 한다"**에 가깝다. (격리 수준과 별개로 MVCC 스냅샷 읽기 때문)
+
+---
+
+## 3-6. 낙관적 락 재시도는 "새 트랜잭션"에서 해야 한다
+
+흔한 실수: `@Transactional` 안에서 `catch` 후 그대로 재시도. 충돌이 나면 트랜잭션이 이미 **rollback-only**로 마킹돼 있어서, 같은 트랜잭션을 이어 쓰면 영속성 컨텍스트가 꼬이거나 커밋이 실패한다.
+
+→ **재시도 단위는 트랜잭션 바깥**이어야 한다. 실패한 트랜잭션을 잇는 게 아니라, **최신 데이터를 다시 읽는 새 트랜잭션**으로 재시도.
+
+```java
+@Retryable(
+    retryFor = ObjectOptimisticLockingFailureException.class,  // JPA 예외를 Spring이 감싼 타입
+    maxAttempts = 3,
+    backoff = @Backoff(delay = 100)
+)
+@Transactional
+public void decreaseStock(Long productId, int qty) {
+    Product product = productRepository.findById(productId).orElseThrow();
+    product.decrease(qty);   // 더티 체킹 → 커밋 시 version 검증
+}
+```
+
+**주의점**
+- 예외 타입: JPA의 `OptimisticLockException`은 Spring 데이터 환경에서 `ObjectOptimisticLockingFailureException`으로 변환되어 올라온다. `@Retryable`에는 후자를 잡는 게 안전.
+- `@Retryable`이 `@Transactional`보다 **바깥쪽**에서 동작해야(재시도마다 새 트랜잭션) 의미가 있다.
+- **self-invocation 금지**: 같은 클래스 내부 메서드 호출은 프록시를 안 타서 재시도/트랜잭션이 적용되지 않는다.
+
+---
+
+## 3-7. 벌크 UPDATE는 @Version을 우회한다
+
+JPQL `@Modifying` bulk update는 **엔티티를 로딩하지 않고 DB에 직접** 쿼리를 날린다. 영속성 컨텍스트·더티 체킹을 거치지 않으므로 **`@Version` 자동 증가·검증이 일어나지 않는다.**
+
+```java
+// ❌ version 검증/증가 안 됨 — 낙관적 락이 무력화됨
+@Modifying
+@Query("UPDATE Product p SET p.stock = p.stock - :qty WHERE p.id = :id")
+int decreaseStock(@Param("id") Long id, @Param("qty") int qty);
+```
+
+낙관적 락을 유지하려면 **version을 직접 SET하고 WHERE에 넣어야** 한다.
+
+```java
+@Modifying(clearAutomatically = true)  // bulk 후 1차 캐시가 stale → 비우기
+@Query("""
+    UPDATE Product p
+       SET p.stock = p.stock - :qty,
+           p.version = p.version + 1
+     WHERE p.id = :id
+       AND p.version = :version
+""")
+int decreaseStockWithVersion(@Param("id") Long id,
+                             @Param("qty") int qty,
+                             @Param("version") Long version);
+// 반환값(영향 row 수)이 0이면 충돌 → 직접 예외 처리
+```
+
+---
+
+## 3-8. 락 대신 "조건부 UPDATE"도 좋은 선택
+
+단순 재고 차감처럼 "읽고 복잡한 판단"이 필요 없다면, 락 없이 **원자적 조건부 UPDATE** 한 방으로 끝낼 수 있다.
+
+```sql
+UPDATE product
+   SET stock = stock - 1
+ WHERE id = ?
+   AND stock >= 1;   -- 재고 있을 때만 차감
+```
+
+- **영향받은 row 수 = 1** → 성공, **= 0** → 재고 부족
+- `SELECT ... FOR UPDATE`보다 **락 보유 시간이 짧고** 코드도 간결
+- 엄밀히는 락이 아니라 **DB의 원자적 연산**을 이용하는 방식 (낙관적/비관적 락과 구분되는 제3의 선택지)
+
+> 정리: 단순 차감 = 조건부 UPDATE, 읽어서 복잡한 검증·여러 작업이 필요 = 비관적 락.
+
+---
+
+## 3-9. 비관적 락은 인덱스가 중요하다
+
+비관적 락은 "어떤 row를 찾는가"가 곧 "어디에 락을 거는가"다. InnoDB는 **인덱스 레코드에 락**을 거는데, 조건 컬럼에 인덱스가 없으면 DB가 많은 row를 풀스캔하면서 **스캔한 모든 row에 락**이 걸려 사실상 테이블 락처럼 번질 수 있다.
+
+```java
+// user_id 에 인덱스가 없으면, 이 FOR UPDATE가 예상보다 넓은 범위를 잠글 수 있다
+Optional<UserPoint> findByUserIdForUpdate(@Param("userId") Long userId);
+```
+
+> `FOR UPDATE`를 쓰는 조회 조건(WHERE 컬럼)에는 **인덱스가 있는지 확인하는 습관**이 필요하다. 인덱스가 없으면 락 경합과 성능 문제가 급격히 커진다.
 
 ---
 
