@@ -57,6 +57,99 @@ T2: UPDATE balance = 1000 - 500  → 500  ← T1의 차감이 사라짐
 
 ---
 
+## 2-1. 심화: 헷갈리는 개념 정리
+
+### (1) `@Version`만 vs `@Lock(OPTIMISTIC)` — 차이가 뭔가?
+
+핵심: **`@Version`은 낙관적 락의 "기반 도구(필수)"**, **`@Lock`은 그 락을 "언제/어떻게 발동시킬지" 지정**하는 것.
+
+**`@Version`만 있을 때 (자동 동작)**
+
+`@Version`을 붙이면 엔티티를 **수정(UPDATE)할 때만** 자동으로 version 체크가 일어난다.
+```sql
+UPDATE product SET stock = 9, version = 2
+WHERE id = 1 AND version = 1;
+-- version이 1이 아니면 (누가 먼저 바꿨으면) 0건 업데이트 → OptimisticLockException
+```
+즉 수정 시에는 별도 `@Lock` 없이도 낙관적 락이 걸린다.
+
+**그럼 `@Lock(OPTIMISTIC)`은 왜 필요한가? → "읽기만 하는 경우" 때문**
+
+데이터를 **읽기만 하고 수정 안 하면** UPDATE 쿼리가 안 나가니 version 체크도 안 일어난다.
+```java
+// 주문 검증: 상품을 읽어서 재고 충분한지 확인만 함 (상품 자체는 수정 안 함)
+Product product = em.find(Product.class, 1L);
+if (product.getStock() < orderQty) throw ...;
+// 이 트랜잭션 동안 다른 사람이 stock을 바꿔도 나는 모름
+```
+이때 `@Lock(LockModeType.OPTIMISTIC)`을 쓰면 **읽기만 했어도 커밋 시점에 version이 그대로인지 검증**한다.
+```sql
+-- 커밋 직전에 강제로 한 번 확인, 처음 읽은 version과 다르면 예외
+SELECT version FROM product WHERE id = 1;
+```
+
+| | `@Version`만 | `@Lock(OPTIMISTIC)` 추가 |
+|---|---|---|
+| 수정(UPDATE)할 때 | version 체크 됨 | version 체크 됨 |
+| **읽기만 할 때** | **체크 안 됨** | **커밋 시점에 체크 됨** |
+
+> 요약: `@Version`은 락의 전제 조건(필수). `@Lock(OPTIMISTIC)`은 "읽기만 하는 데이터도 트랜잭션 끝까지 안 변했는지 보장"하고 싶을 때 추가로 명시.
+
+### (2) 공유 락(Shared) vs 배타 락(Exclusive)
+
+비관적 락(DB 레벨 락) 얘기.
+
+**공유 락 (`PESSIMISTIC_READ`, `SELECT ... FOR SHARE`)**
+> "여러 명이 같이 **읽는 건** OK. 단, 아무도 **수정은 못 함**"
+- 여러 트랜잭션이 동시에 공유 락을 가질 수 있음 (읽기끼리 공존)
+- 쓰기(배타 락)는 차단됨
+- 용도: "내가 읽는 동안 이 값이 바뀌면 안 돼. 근데 남이 같이 읽는 건 괜찮아"
+
+**배타 락 (`PESSIMISTIC_WRITE`, `SELECT ... FOR UPDATE`)**
+> "내가 잡으면 **나만 접근 가능**. 다른 사람은 읽기도 쓰기도 대기"
+- 단 하나의 트랜잭션만 획득 가능
+- 다른 트랜잭션의 읽기/쓰기 모두 차단
+- 용도: "내가 이거 수정할 거니까 아무도 건드리지 마" (재고 차감 등 경쟁 상황)
+
+**호환성 표**
+
+| | 상대가 공유 락 | 상대가 배타 락 |
+|---|---|---|
+| **공유 락 요청** | ✅ 가능 | ⛔ 대기 |
+| **배타 락 요청** | ⛔ 대기 | ⛔ 대기 |
+
+> 한 줄 요약: 공유 락 = "같이 읽기 OK, 쓰기 금지", 배타 락 = "나만, 완전 독점". 재고·포인트 차감 같은 동시성 처리는 보통 `PESSIMISTIC_WRITE`(배타)를 쓴다.
+
+### (3) `OPTIMISTIC` vs `OPTIMISTIC_FORCE_INCREMENT`
+
+둘 다 낙관적 락. 차이는 **version을 증가시키냐 마냐**.
+
+- **`OPTIMISTIC`**: 읽은 엔티티가 안 바뀌었는지 **확인만** 함. 내가 수정 안 했으면 version 그대로.
+- **`OPTIMISTIC_FORCE_INCREMENT`**: 그 엔티티 자체를 수정하지 않았어도 **version을 강제로 +1**.
+
+**왜 강제 증가가 필요한가? → "연관된 자식이 바뀌면 부모의 버전도 올리고 싶을 때"**
+
+대표 예시: 게시글(부모) - 댓글(자식)
+```java
+// 댓글을 추가하면 게시글 컬럼 자체는 안 바뀌지만, 게시글의 상태는 논리적으로 바뀐 것
+Post post = em.find(Post.class, 1L, LockModeType.OPTIMISTIC_FORCE_INCREMENT);
+post.addComment(new Comment("새 댓글"));  // post 테이블 컬럼은 안 바뀜
+```
+```sql
+INSERT INTO comment ...;
+UPDATE post SET version = version + 1 WHERE id = 1 AND version = 1;  -- 강제 증가
+```
+→ "게시글에 댓글이 달리는 동안 다른 사람이 게시글을 동시에 건드리는" 충돌을 막을 수 있다. **자식의 변경을 부모 버전에 반영**(집합체 일관성 보장).
+
+| | `OPTIMISTIC` | `OPTIMISTIC_FORCE_INCREMENT` |
+|---|---|---|
+| 엔티티 안 바뀌면 | version 유지 | **version 강제 +1** |
+| 용도 | 읽은 값 변경 감지 | 연관 객체 변경 시 부모 버전도 올림 |
+
+> `PESSIMISTIC_FORCE_INCREMENT`는 **배타 락 + version 강제 증가**를 합친 것 (DB 락으로 독점하면서 동시에 version도 올림).
+
+---
+
 ## 3. 사용 예시
 
 ### 비관적 락 (PESSIMISTIC_WRITE)
