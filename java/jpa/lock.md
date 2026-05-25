@@ -288,6 +288,185 @@ Optional<UserPoint> findByUserId(@Param("userId") Long userId);
 
 ---
 
+## 3-1. `@Lock`은 어디서 동작하나 (Spring Data JPA 프록시)
+
+`@Lock`은 단순 표시용 어노테이션이 아니다. **Spring Data JPA가 `JpaRepository` 인터페이스를 보고 구현체(프록시)를 생성할 때**, `@Lock`이 붙은 메서드에 락 쿼리를 적용하도록 처리한다.
+
+→ 즉 `@Lock`은 **Spring Data JPA Repository 인터페이스에서만 동작**한다. 일반 클래스(예: 헥사고날의 Adapter)에 붙이면 **그냥 무시된다.**
+
+```java
+// ❌ 동작 안 함 — 일반 클래스라 Spring Data JPA가 프록시를 안 만듦
+@Repository
+public class ConcertRepositoryAdapter implements ConcertRepository {
+    private final ConcertJpaRepository jpaRepository;
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)  // 무시됨!
+    public Optional<ConcertEntity> findById(String id) { ... }
+}
+```
+
+### 헥사고날 아키텍처에서의 처리
+락은 **JpaRepository 인터페이스에 메서드를 정의**하고, Adapter는 그걸 호출만 한다.
+
+```java
+// JpaRepository 인터페이스에 락 메서드 정의 (여기서만 @Lock이 먹힌다)
+public interface ConcertJpaRepository extends JpaRepository<ConcertEntity, String> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM ConcertEntity c WHERE c.id = :id")
+    Optional<ConcertEntity> findByIdForUpdate(@Param("id") String id);
+}
+
+// Adapter는 호출만
+@Repository
+@RequiredArgsConstructor
+public class ConcertRepositoryAdapter implements ConcertRepository {
+    private final ConcertJpaRepository jpaRepository;
+    public Optional<ConcertEntity> findByIdForUpdate(String id) {
+        return jpaRepository.findByIdForUpdate(id);
+    }
+}
+```
+
+### 대안: EntityManager 직접 사용
+정 Adapter 레벨에서 직접 락을 걸어야 하면 `EntityManager`를 쓸 수 있다. (단, fetch join 등은 직접 처리해야 해서 권장도는 낮음)
+
+```java
+ConcertEntity concert = entityManager.find(
+    ConcertEntity.class, concertId, LockModeType.PESSIMISTIC_WRITE
+);
+```
+
+> **`@Lock` + `JOIN FETCH` 주의**: 락은 주 엔티티에만 걸린다. fetch join으로 가져온 연관 엔티티에는 락이 안 걸리므로, 자식에도 락이 필요하면 별도 처리해야 함.
+
+---
+
+## 3-2. 락 메서드 네이밍 컨벤션
+
+락 조회 메서드 이름을 어떻게 지을지도 실무에서 자주 고민되는 부분.
+
+### 후보별 비교
+| 네이밍 | 평가 |
+|--------|------|
+| `findByIdForUpdate` | ✅ SQL `FOR UPDATE`에서 유래. 백엔드 개발자에게 가장 직관적, 사실상 표준 |
+| `findByIdExclusive` | ✅ "배타적". 기술 중립적이라 구현(Redis 등) 바뀌어도 의미 유지 |
+| `findByIdLocked` | △ 짧지만 덜 일반적 |
+| `findByIdWithLock` | ❌ **`With` 충돌** — 아래 참고 |
+
+### ⚠️ `WithLock`을 피해야 하는 이유
+Spring Data JPA에서 **`With`는 이미 "연관 엔티티를 fetch join한다"는 강한 관례**를 가진다.
+```java
+findWithSchedulesById(...)   // "스케줄을 함께 가져온다"는 의미
+```
+여기에 `findByIdWithLock`을 쓰면 "Lock이라는 연관 엔티티를 함께 가져오나?"로 오해될 수 있다. 심하면 `findWithSchedulesByIdWithLock`처럼 `With`가 두 번 나오는 이상한 이름이 된다.
+
+### 레이어별 네이밍 전략 (권장)
+- **Repository(인프라)**: 기술 용어 그대로 → `findByIdForUpdate`
+- **Service(도메인)**: 기술 중립/비즈니스 의도 → `getSeatExclusive` 또는 `getSeatForReservation`
+
+```java
+// Repository — 기술 용어
+Optional<SeatEntity> findByIdForUpdate(String id);
+
+// Service — 도메인 의도 (구현이 바뀌어도 이름이 유효)
+SeatEntity getSeatExclusive(String seatId);       // 기술 중립
+SeatEntity getSeatForReservation(String seatId);  // 비즈니스 의도(DDD 유비쿼터스 언어)
+```
+
+> 헥사고날/DDD 관점: 도메인 레이어는 "DB 락"이라는 기술 세부사항을 몰라야 한다. 그래서 Service에서는 `ForUpdate`보다 `Exclusive`/`ForReservation`이 더 적절. 단 **일관성이 최우선** — 한 번 정한 규칙은 프로젝트 전체에 동일 적용.
+
+---
+
+## 3-3. 락 메서드를 분리해야 하나? (조회용 vs 수정용)
+
+"모든 조회에 락을 걸면 성능 저하" → 락 조회와 일반 조회를 **별도 메서드로 분리**하는 게 정석.
+
+### 왜 분리하나
+Spring Data JPA에서 `@Lock`은 **메서드 레벨**에 붙는다. 같은 메서드를 호출하면서 "이번엔 락 걸고, 다음엔 빼고"처럼 **조건부 제어가 불가능**하다. 그래서 분리가 강제된다.
+
+```java
+public interface SeatRepository {
+    Optional<SeatEntity> findById(String id);            // 조회용 (락 X)
+    Optional<SeatEntity> findByIdForUpdate(String id);   // 수정용 (락 O)
+}
+```
+
+### 트랜잭션 안에서는 1차 캐시 활용
+같은 트랜잭션 안에서 한 번 락 걸고 조회한 엔티티는 **1차 캐시**에 있으므로, 이후 다시 조회해도 DB를 안 친다. 즉 **락은 처음 한 번만** 걸면 된다.
+
+### CQRS로 자연스럽게 분리
+조회 전용 Service와 명령 Service를 나누면 락 필요 여부가 저절로 갈린다.
+```java
+@Service @Transactional(readOnly = true)   // 조회 전용 → 락 불필요
+public class ConcertQueryService { ... }
+
+@Service @Transactional                     // 명령 → 필요시 락
+public class ReservationService {
+    public void reserve(...) {
+        SeatEntity seat = seatService.getSeatExclusive(seatId);  // 여기서만 락
+    }
+}
+```
+
+---
+
+## 3-4. 락 테스트 작성법
+
+동시성 문제는 **여러 스레드가 실제로 동시에 접근할 때만** 드러나므로, 테스트도 그 상황을 시뮬레이션해야 한다. 3개 레벨로 나뉜다.
+
+### 레벨 1 — 단위 테스트 (Mock): "올바른 메서드를 부르는가"
+락 동작 자체가 아니라 **흐름**만 검증. 빠르고 안정적.
+```java
+verify(seatService, times(1)).getSeatExclusive("1");  // 락 메서드 호출 확인
+verify(seatService, never()).getSeat(any());          // 일반 조회 안 썼는지
+```
+
+### 레벨 2·3 — 동시성 통합 테스트 (가장 중요): "정확히 1개만 성공하는가"
+`ExecutorService` + `CountDownLatch`로 N개 스레드를 **동시에 출발**시켜, 같은 좌석 예약 시 하나만 성공하는지 검증. (실제 DB 필요 → Testcontainers)
+
+```java
+@SpringBootTest
+@Import(TestcontainersConfiguration.class)
+class ReservationConcurrencyTest {
+    @Test
+    void 동시_예약_시_한_명만_성공() throws InterruptedException {
+        int threadCount = 10;
+        ExecutorService pool = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch startLatch = new CountDownLatch(1);          // 동시 출발 신호
+        CountDownLatch endLatch = new CountDownLatch(threadCount);  // 전원 종료 대기
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger fail = new AtomicInteger();
+
+        for (int i = 0; i < threadCount; i++) {
+            pool.submit(() -> {
+                try {
+                    startLatch.await();   // 모든 스레드가 여기서 대기하다 동시에 출발
+                    reservationUseCase.execute(command);
+                    success.incrementAndGet();
+                } catch (BusinessException e) {
+                    fail.incrementAndGet();   // 이미 예약됨
+                } finally {
+                    endLatch.countDown();
+                }
+            });
+        }
+        Thread.sleep(100);          // 전 스레드가 대기 상태 들어갈 시간
+        startLatch.countDown();     // 동시 출발!
+        endLatch.await(30, TimeUnit.SECONDS);
+
+        assertThat(success.get()).isEqualTo(1);                 // 딱 1명 성공
+        assertThat(fail.get()).isEqualTo(threadCount - 1);      // 나머지 실패
+    }
+}
+```
+
+**핵심 포인트**
+- `CountDownLatch startLatch`로 모든 스레드를 **같은 순간 출발**시켜야 진짜 동시성 재현
+- 락이 없으면 이 테스트는 success가 2 이상 나오며 **실패**한다 (→ 락이 필요함을 증명)
+- 서로 다른 좌석이면 둘 다 성공해야 정상 (락이 과하게 안 걸리는지 확인)
+- Testcontainers라 **Docker 실행 필수**, 락 대기로 실행 시간이 길어질 수 있음
+
+---
+
 ## 4. 주의사항
 
 ### (1) @Transactional 필수
