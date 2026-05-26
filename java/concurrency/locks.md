@@ -81,6 +81,8 @@ SELECT * FROM product WHERE id = 1 FOR UPDATE;  -- 이 row를 잠금
 | `Semaphore` | 동시 접근 가능 수(permit)를 N개로 제한 |
 | `CountDownLatch` / `CyclicBarrier` | 락은 아니지만 스레드 동기화 도구 |
 
+> 각 도구의 정확한 동작·API·차이는 [JVM 동시성 도구 종합](./jvm-concurrency-tools.md) 참고.
+
 ```java
 // hhplus 프로젝트에서 쓰던 방식: userId별 ReentrantLock
 private final Map<Long, ReentrantLock> userLocks = new ConcurrentHashMap<>();

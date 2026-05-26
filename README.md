@@ -6,6 +6,7 @@
 
 ### Concurrency (동시성)
 - [락 개념 종합 - 낙관적/비관적/분산 락](./java/concurrency/locks.md)
+- [JVM 동시성 도구 - synchronized/ReentrantLock/Semaphore/Latch/Barrier 등](./java/concurrency/jvm-concurrency-tools.md)
 - [데드락(교착 상태) - Coffman 4조건/예방/DB 자동 감지](./java/concurrency/deadlock.md)
 
 ### JPA
