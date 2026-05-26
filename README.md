@@ -11,7 +11,9 @@
 
 ### JPA
 - [영속성 컨텍스트 · flush · 더티 체킹 - "커밋 시점"의 정체](./java/jpa/persistence-context.md)
-- [@Lock - 비관적 락 어노테이션](./java/jpa/lock.md)
+- [@Lock 기본 - 락 어노테이션 (언제·종류·사용·주의)](./java/jpa/lock.md)
+- [@Lock 심화 개념 - @Version·공유/배타·FORCE_INCREMENT](./java/jpa/lock-concepts.md)
+- [@Lock 실무 패턴 - 프록시·네이밍·테스트·재시도·벌크/조건부 UPDATE](./java/jpa/lock-practical.md)
 
 ### Jackson
 - [Jackson 어노테이션 종합 정리](./java/jackson/annotations.md)
