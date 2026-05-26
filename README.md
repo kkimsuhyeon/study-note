@@ -9,6 +9,7 @@
 - [데드락(교착 상태) - Coffman 4조건/예방/DB 자동 감지](./java/concurrency/deadlock.md)
 
 ### JPA
+- [영속성 컨텍스트 · flush · 더티 체킹 - "커밋 시점"의 정체](./java/jpa/persistence-context.md)
 - [@Lock - 비관적 락 어노테이션](./java/jpa/lock.md)
 
 ### Jackson

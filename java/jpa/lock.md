@@ -10,6 +10,8 @@ import jakarta.persistence.LockModeType;
 Optional<UserPoint> findByUserId(@Param("userId") Long userId);
 ```
 
+관련 노트: [영속성 컨텍스트 · flush · 더티 체킹](./persistence-context.md) — "커밋 시점에 version 체크"가 헷갈리면 먼저 읽기
+
 ---
 
 ## 1. 언제 쓰나
