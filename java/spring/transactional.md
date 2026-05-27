@@ -136,7 +136,43 @@ public void outer() {
 
 ---
 
-## 5. 롤백 규칙 — 체크 예외는 기본 롤백 안 한다
+## 5. 롤백 규칙
+
+### (1) 롤백은 "예외가 메서드 밖으로 전파될 때" 일어난다 — catch해서 삼키면 커밋
+
+선언적 롤백의 트리거는 **예외가 `@Transactional` 메서드 경계(프록시)를 빠져나가는 것**이다. 메서드 안에서 try-catch로 잡고 다시 안 던지면 → 프록시는 예외를 모른다 → **커밋된다.**
+
+```java
+@Transactional
+public void doWork() {
+    repo.save(a);
+    try {
+        repo.save(b);          // 💥 예외
+    } catch (Exception e) {
+        log.error("무시", e);   // 안 던짐
+    }
+    // 정상 종료 → 프록시는 예외를 모름 → COMMIT (롤백 안 됨!)
+}
+```
+
+프록시가 메서드를 감싸는 모양:
+```
+begin()
+try { 실제메서드(); commit() }       // 예외가 안 나오면 commit 경로
+catch (롤백대상 예외 e) { rollback(); throw e }  // 예외가 올라와야 이 경로
+```
+
+> **실무에서 "왜 롤백이 안 되지?"의 1순위 원인** = try-catch로 예외를 삼킨 경우.
+
+**예외 안 던지고도 롤백하려면 → 수동 마킹**
+```java
+} catch (Exception e) {
+    TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();  // 롤백 강제
+}
+```
+`setRollbackOnly()`로 rollback-only 마킹하면 메서드가 정상 종료해도 프록시가 commit 대신 rollback한다. 즉 "무조건 throw해야 롤백"은 아니다.
+
+### (2) 전파되더라도 — 체크 예외는 기본 롤백 안 한다
 
 | 예외 종류 | 기본 동작 |
 |-----------|-----------|
@@ -195,7 +231,7 @@ outer가 커넥션을 쥔 채 suspend되고 inner가 **또 다른 커넥션**을
 - 전파 기본 `REQUIRED`(합류). `REQUIRES_NEW`는 **suspend 후 독립 트랜잭션**.
 - **REQUIRES_NEW**: inner 예외를 outer가 잡으면 outer는 산다 / inner 커밋은 outer 롤백에도 살아남음.
 - **REQUIRED**: 합류라 한 곳만 깨져도 전체 롤백, 잡아도 `UnexpectedRollbackException`.
-- 롤백은 **unchecked만 기본** → checked는 `rollbackFor` 명시.
+- 롤백은 **예외가 메서드 밖으로 전파될 때** 일어남(catch해서 삼키면 커밋, `setRollbackOnly()`로 수동 롤백 가능). 전파돼도 **unchecked만 기본** → checked는 `rollbackFor` 명시.
 
 ---
 
