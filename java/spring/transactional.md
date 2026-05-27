@@ -117,6 +117,27 @@ public void placeOrder() {
 
 > 정리(양방향, 같은 성질): REQUIRES_NEW는 독립이라 **(A) inner 실패가 outer로 안 번지고(잡으면), (B) inner 성공이 outer 실패에 안 휩쓸린다.**
 
+### inner 예외는 프록시에서 "롤백 → 재던짐"을 거쳐 전파된다
+
+inner 예외가 outer로 **바로** 가는 게 아니다. inner는 프록시가 감싸고 있어서, 예외가 본문 밖으로 나오면 **프록시가 가로채 트랜잭션을 먼저 롤백한 뒤, 예외를 다시 던진다.**
+
+```
+[inner 프록시]  begin tx
+   inner 본문 💥 예외
+   → 프록시가 가로챔
+   → ① inner 트랜잭션 rollback   ← '한 단계 더'
+   → ② 예외 다시 throw
+   ↓
+outer가 예외 받음 (inner 트랜잭션은 이미 롤백 끝난 상태)
+```
+
+**outer에 트랜잭션이 없을 때(= inner가 독립 트랜잭션)는 오히려 깨끗한 케이스다.** inner만 롤백되고, outer는 트랜잭션이 없으니 예외를 잡으면 그냥 무탈하게 진행된다.
+
+| 경우 | inner 트랜잭션 | outer가 inner 예외 잡으면 |
+|------|---------------|--------------------------|
+| **outer 트랜잭션 없음** | inner 독립 트랜잭션 | inner만 롤백, outer는 무탈하게 진행 ✅ |
+| outer 트랜잭션 있음 + inner 합류(REQUIRED) | 공유 트랜잭션 | 공유 tx가 rollback-only → outer commit 때 `UnexpectedRollbackException` 💥 (아래) |
+
 ### ⚠️ 비교: REQUIRED(합류)는 "잡아도 못 살린다"
 
 inner가 outer에 **합류**한 상태에서 inner가 예외를 던지면, **그 하나의 트랜잭션이 `rollback-only`로 마킹**된다. outer가 예외를 try-catch로 잡아도, **commit 시점에 `UnexpectedRollbackException`** 이 터진다.
