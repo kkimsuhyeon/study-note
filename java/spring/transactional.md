@@ -134,6 +134,19 @@ public void outer() {
 
 > 같은 트랜잭션을 공유하니, 한 군데서 깨지면 전체가 롤백 운명. "일부만 살리고 싶다"면 REQUIRES_NEW(완전 분리) 또는 NESTED(savepoint).
 
+### rollback-only란 (스프링 기본 동작)
+
+트랜잭션이 **"이제 커밋 불가, 롤백만 가능"** 으로 표시된 상태. **설정으로 켜는 게 아니라 스프링 트랜잭션의 기본 내장 동작**이다. 트랜잭션 범위에서 롤백 대상 예외가 발생하면 **자동으로** 이 플래그가 찍히고, 이후 **commit을 시도하면 `UnexpectedRollbackException`** 이 난다.
+
+```
+롤백대상 예외 발생 → status를 rollback-only로 자동 마킹
+  → 이후 commit() 시도 → UnexpectedRollbackException
+```
+
+- 특히 **합류(REQUIRED) inner가 예외를 던지면 공유 트랜잭션 전체가** rollback-only (위 §4 함정의 원인).
+- 제어 설정은 `globalRollbackOnParticipationFailure`(기본 `true`) 하나뿐 — 거의 안 건드린다.
+- 그래서 **낙관적 락 재시도는 새 트랜잭션**에서 해야 한다(rollback-only 안 찍힌 깨끗한 상태). → [@Lock 실무 패턴 §6](../jpa/lock-practical.md)
+
 ---
 
 ## 5. 롤백 규칙
