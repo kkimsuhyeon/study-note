@@ -2,7 +2,7 @@
 
 > **한 줄 요약**: JPA는 `setter`로 값을 바꿔도 즉시 `UPDATE`를 날리지 않고, 변경을 **영속성 컨텍스트**에 모아뒀다가 **flush**(보통 트랜잭션 commit 직전) 때 한꺼번에 SQL로 내보낸다. 락 문서에서 자주 나오는 "**커밋 시점에 version 체크**"는 바로 이 flush 동작 때문이다.
 
-관련 노트: [JPA @Lock](./lock.md) · [락 개념 종합](../concurrency/locks.md)
+관련 노트: [JPA @Lock](./lock.md) · [락 개념 종합](../concurrency/locks.md) · [@Transactional](../spring/transactional.md)
 
 ---
 
