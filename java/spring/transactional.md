@@ -72,29 +72,50 @@ public void outer() {
 
 ## 4. REQUIRES_NEW에서 inner 에러 → outer는? (핵심 질문)
 
-REQUIRES_NEW는 **독립**이라 inner 실패가 자동으로 outer를 롤백시키지 **않는다**. **outer가 그 예외를 잡느냐**에 달렸다.
+REQUIRES_NEW는 **독립**이라, 아래 두 방향 모두 "서로 자동으로 끌고 가지 않는다". 두 경우는 **전제가 반대**다.
 
-| 상황 | inner | outer |
+### (A) inner가 실패했을 때 → outer는 outer가 예외를 잡느냐에 달림
+
+| inner 예외 처리 | inner | outer |
 |------|-------|-------|
-| inner 예외를 outer가 **안 잡음**(전파) | 롤백 | **롤백** (예외가 올라오니까) |
-| inner 예외를 outer가 **try-catch로 잡음** | 롤백 | **살아서 commit 가능** ← REQUIRES_NEW의 존재 이유 |
-| outer가 나중에 롤백, inner는 이미 커밋됨 | **커밋 유지** | 롤백 |
+| outer가 **안 잡음**(위로 전파) | 롤백 | **롤백** (예외가 outer 밖으로 나가니까) |
+| outer가 **try-catch로 잡음**(안 던짐) | 롤백 | **살아서 commit 가능** ← REQUIRES_NEW의 존재 이유 |
 
 ```java
 @Transactional   // outer
 public void outer() {
     repo.doMainWork();
     try {
-        historyService.log(...);   // REQUIRES_NEW — 독립 트랜잭션
+        historyService.log(...);   // REQUIRES_NEW — 독립 트랜잭션, 여기서 예외
     } catch (Exception e) {
-        // inner는 자기 트랜잭션만 롤백. outer는 계속 진행 → commit OK
+        // inner는 자기 트랜잭션만 롤백. outer는 예외를 삼켰으니 계속 진행 → commit OK
     }
 }
 ```
 
-> 정리:
-> - **inner 롤백 ≠ outer 롤백** (outer가 잡으면 outer는 산다)
-> - **inner 커밋은 outer가 롤백해도 살아남는다** → "실패해도 꼭 남겨야 하는 로그/이력/감사" 용도
+> **inner 롤백 ≠ outer 롤백** — outer가 잡으면 outer는 산다. 안 잡고 전파하면 outer도 같이 롤백.
+
+### (B) inner는 성공(커밋), 그 뒤 outer가 실패 → inner 커밋은 살아남는다
+
+(A)와 **방향이 반대**다. inner는 정상 커밋했고, 그 다음 outer에서 실패가 난 경우.
+
+```java
+@Transactional                  // outer
+public void placeOrder() {
+    historyService.logAttempt(); // REQUIRES_NEW → 호출 끝나는 순간 독립 commit ✅ (영구 저장)
+    paymentService.charge();     // 💥 여기서 예외 → outer 롤백
+}
+```
+```
+1. logAttempt() → REQUIRES_NEW라 inner 트랜잭션이 여기서 바로 commit (DB에 영구 기록)
+2. charge()     → 예외
+3. outer 롤백   → outer가 한 일만 되돌림.
+   logAttempt()는 별개 트랜잭션으로 이미 커밋됐으니 → 그대로 남음 ✅
+```
+
+> **inner의 커밋은 outer가 롤백해도 안 지워진다.** 같은 트랜잭션(REQUIRED)이었다면 함께 롤백됐을 것. → "본 작업은 실패(롤백)해도 **시도 이력/로그/감사 기록은 남겨야** 한다"는 요구에 쓰는 패턴.
+
+> 정리(양방향, 같은 성질): REQUIRES_NEW는 독립이라 **(A) inner 실패가 outer로 안 번지고(잡으면), (B) inner 성공이 outer 실패에 안 휩쓸린다.**
 
 ### ⚠️ 비교: REQUIRED(합류)는 "잡아도 못 살린다"
 
