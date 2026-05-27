@@ -36,6 +36,8 @@ T1: UPDATE balance = 1000 - 300  → 700
 T2: UPDATE balance = 1000 - 500  → 500  ← T1의 차감이 사라짐
 ```
 
+> 이걸 막으려면 **읽기·수정이 같은 트랜잭션**이어야 한다 → [Read-Modify-Write와 트랜잭션 경계](./read-modify-write.md)
+
 ---
 
 ## 2. LockModeType 종류

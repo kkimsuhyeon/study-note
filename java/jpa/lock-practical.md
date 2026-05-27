@@ -96,6 +96,8 @@ SeatEntity getSeatForReservation(String seatId);  // 비즈니스 의도(DDD 유
 
 ## 3. 락 메서드를 분리해야 하나? (조회용 vs 수정용)
 
+> 관련: 쓰기 로직이 **왜 조회 서비스에 의존하면 안 되는지**(read-modify-write를 같은 트랜잭션에서 직접 읽는 이유)는 [Read-Modify-Write와 트랜잭션 경계](./read-modify-write.md) 참고.
+
 "모든 조회에 락을 걸면 성능 저하" → 락 조회와 일반 조회를 **별도 메서드로 분리**하는 게 정석.
 
 ### 왜 분리하나
