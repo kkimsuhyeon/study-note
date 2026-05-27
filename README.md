@@ -18,6 +18,7 @@
 
 ### Spring
 - [@Transactional - 선언적 트랜잭션·전파(propagation)·롤백 규칙·프록시 함정](./java/spring/transactional.md)
+- [예제로 보는 트랜잭션 전파·롤백 - a→b→c 워크스루](./java/spring/transaction-rollback-example.md)
 
 ### Jackson
 - [Jackson 어노테이션 종합 정리](./java/jackson/annotations.md)
