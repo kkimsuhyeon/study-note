@@ -225,9 +225,23 @@ T2: SELECT stock ...        → 이번엔 5 (커밋 후 최신 스냅샷)
 
 ## 6. 낙관적 락 재시도는 "새 트랜잭션"에서 해야 한다
 
-흔한 실수: `@Transactional` 안에서 `catch` 후 그대로 재시도. 충돌이 나면 트랜잭션이 이미 **rollback-only**로 마킹돼 있어서, 같은 트랜잭션을 이어 쓰면 영속성 컨텍스트가 꼬이거나 커밋이 실패한다.
+흔한 실수: `@Transactional` 안에서 `catch` 후 그대로 재시도. 두 가지 이유로 안 된다.
 
-→ **재시도 단위는 트랜잭션 바깥**이어야 한다. 실패한 트랜잭션을 잇는 게 아니라, **최신 데이터를 다시 읽는 새 트랜잭션**으로 재시도.
+1. **예외는 메서드 안이 아니라 commit 때 터진다.** 더티 체킹 UPDATE의 version 검증은 메서드 본문이 아니라 **메서드 종료 후 프록시가 commit(flush)하는 시점**에 일어난다. 그래서 본문 안에 `try-catch`를 둬도 **그 catch엔 안 잡힌다**(예외는 본문 바깥에서 발생). ([flush/commit 타이밍](./persistence-context.md))
+2. **잡혀도 rollback-only라 재사용 불가.** 충돌 난 트랜잭션은 이미 **rollback-only**로 마킹돼, 같은 트랜잭션을 이어 쓰면 영속성 컨텍스트가 꼬이거나 커밋이 실패한다.
+
+```java
+// ❌ 트랜잭션 안에서 잡아 재시도 — 위 1·2 때문에 동작 안 함
+@Transactional
+public void decreaseStock(Long id, int qty) {
+    try {
+        Product p = repo.findById(id).orElseThrow();
+        p.decrease(qty);
+    } catch (OptimisticLockException e) { /* 안 잡힘 + 트랜잭션 이미 rollback-only */ }
+}
+```
+
+→ **재시도 단위는 트랜잭션 바깥**이어야 한다. 실패한 트랜잭션을 잇는 게 아니라, **최신 데이터를 다시 읽는 새 트랜잭션**으로 재시도. (즉 "catch 금지"가 아니라 "트랜잭션 안에서 같은 트랜잭션으로 재시도"가 금지. 바깥에서 새 트랜잭션으로 잡는 `@Retryable`은 정상)
 
 ```java
 @Retryable(
