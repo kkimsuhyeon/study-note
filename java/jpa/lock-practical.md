@@ -2,7 +2,7 @@
 
 > **한 줄 요약**: JPA `@Lock`을 실제 코드에 적용할 때의 패턴과 함정 — `@Lock`이 동작하는 위치(Spring Data 프록시), 메서드 네이밍, 조회/수정 분리, 동시성 테스트, `PESSIMISTIC_WRITE`의 SELECT 동작, 낙관적 락 재시도, 벌크 UPDATE 우회, 조건부 UPDATE, 인덱스.
 
-관련 노트: [@Lock 기본](./lock.md) · [@Lock 심화 개념](./lock-concepts.md) · [영속성 컨텍스트](./persistence-context.md)
+관련 노트: [@Lock 기본](./lock.md) · [@Lock 심화 개념](./lock-concepts.md) · [영속성 컨텍스트](./persistence-context.md) · [테스트 작성 가이드](../test/test-writing-guide.md)
 
 ---
 

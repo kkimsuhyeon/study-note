@@ -20,6 +20,13 @@
 - [@Transactional - 선언적 트랜잭션·전파(propagation)·롤백 규칙·프록시 함정](./java/spring/transactional.md)
 - [예제로 보는 트랜잭션 전파·롤백 - a→b→c 워크스루](./java/spring/transaction-rollback-example.md)
 
+### BigDecimal
+- [BigDecimal - 돈·정밀 계산, equals vs compareTo, scale, 반올림](./java/bigdecimal/bigdecimal.md)
+
+### Test (테스트)
+- [테스트 작성 가이드 - 뭘·어떤 케이스를 검증할지 (체크리스트, 성장형)](./java/test/test-writing-guide.md)
+- [AssertJ 단언 - assertThat / isEqualByComparingTo / assertThatThrownBy](./java/test/assertj.md)
+
 ### Jackson
 - [Jackson 어노테이션 종합 정리](./java/jackson/annotations.md)
 
