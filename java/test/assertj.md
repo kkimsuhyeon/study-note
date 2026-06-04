@@ -63,6 +63,34 @@ assertThatCode(() -> user.deductBalance(BigDecimal.TEN))
 
 > JUnit의 `assertThrows`도 가능하지만, AssertJ는 메시지·원인까지 체이닝으로 검증해 더 풍부하다.
 
+### 메시지 단언 — `hasMessage` vs `hasMessageContaining`
+
+| 단언 | 의미 |
+|------|------|
+| `hasMessage("...")` | 메시지 **완전 일치** |
+| `hasMessageContaining("...")` | 메시지 **부분 포함** |
+| `hasMessageStartingWith` / `hasMessageEndingWith` | 접두/접미 일치 |
+| `hasMessageMatching("정규식")` | 정규식 매칭 |
+
+### 도메인 예외(ErrorCode) 검증 — 실무 패턴
+
+에러 코드 enum을 쓰는 프로젝트는, 메시지를 하드코딩하지 말고 **enum이 들고 있는 메시지/코드와 비교**한다.
+
+```java
+// (A) 메시지로 비교 — enum의 getMessage()와 완전 일치
+assertThatThrownBy(() -> user.deductBalance(BigDecimal.valueOf(1001)))
+    .isInstanceOf(BusinessException.class)
+    .hasMessage(UserErrorCode.NOT_ENOUGH_POINT.getMessage());
+
+// (B) errorCode 필드로 비교 — 더 견고 (extracting으로 필드 추출)
+assertThatThrownBy(() -> user.deductBalance(BigDecimal.valueOf(1001)))
+    .isInstanceOf(BusinessException.class)
+    .extracting("errorCode")
+    .isEqualTo(UserErrorCode.NOT_ENOUGH_POINT);
+```
+
+> ⚠️ **메시지 비교(A)는 메시지 문구가 바뀌면 깨진다.** 문구는 자주 바뀌므로, 가능하면 **errorCode 필드 비교(B)** 가 더 안정적이다. 단 (B)는 예외에 `errorCode` 같은 식별 필드가 있어야 함. (이 구분은 server-java `TEST_GUIDE.md` §7.4 권장 사항과 동일)
+
 ---
 
 ## 4. 자주 쓰는 단언
@@ -117,5 +145,5 @@ assertThat(value).as("잔액은 충전 후 500이어야 함").isEqualByComparing
 
 ---
 
-**학습 날짜**: 2026-05-28
-**계기**: `isEqualByComparingTo`가 BigDecimal 메서드가 아니라 AssertJ 단언이라는 걸 정리하며, 자주 쓰는 AssertJ 단언을 함께 모음
+**학습 날짜**: 2026-05-28 (2026-06-03 hasMessage vs hasMessageContaining·ErrorCode 예외 검증 패턴 보강 — server-java UserTest.java 기반)
+**계기**: `isEqualByComparingTo`가 BigDecimal 메서드가 아니라 AssertJ 단언이라는 걸 정리하며, 자주 쓰는 AssertJ 단언을 함께 모음. 이후 실제 테스트 코드(UserTest)에서 쓴 `hasMessage`·ErrorCode 검증을 보강
