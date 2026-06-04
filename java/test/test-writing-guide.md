@@ -2,7 +2,7 @@
 
 > **한 줄 요약**: "무엇을 / 몇 개 테스트할지"의 핵심 공식만 모은 짧은 체크리스트. 이 레포는 **사용법(API) 레퍼런스**가 중심이라, 상세 방법론·구조는 [AssertJ 사용법](./assertj.md) 같은 도구 문서와 프로젝트 가이드에 맡기고, 여기선 **자주 까먹는 판단 공식 + 내가 막혔던 케이스**만 둔다.
 
-관련 노트: [AssertJ 사용법](./assertj.md) · [BigDecimal](../bigdecimal/bigdecimal.md) · [@Lock 실무 패턴(동시성 테스트)](../jpa/lock-practical.md)
+관련 노트: [AssertJ 사용법](./assertj.md) · [테스트 픽스처(Object Mother)](./test-fixtures.md) · [JPA repository 테스트](./jpa-repository-test.md) · [BigDecimal](../bigdecimal/bigdecimal.md) · [@Lock 실무 패턴(동시성 테스트)](../jpa/lock-practical.md)
 
 > 📎 상세 방법론(테스트 종류 선택, @DataJpaTest/Mockito/Testcontainers 구조, 프로젝트 컨벤션)은 **server-java `docs/TEST_GUIDE.md`** 에 잘 정리돼 있음 — 거길 본다. 이 문서는 그 핵심만 추린 요약.
 
@@ -39,12 +39,20 @@
 
 > 테스트 짜다 막힌 상황을 여기에 기록 — 다음에 같은 데서 안 막히게. (틀: **상황 / 막힌 점 / 해결**)
 
-<!-- 아래에 실제 막혔던 케이스를 계속 추가 -->
+### (1) repository `save()` 테스트가 통과하는데 INSERT가 안 나감 (2026-06-05)
+- **상황**: `@DataJpaTest`에서 `save()` 후 `getId().isNotBlank()`만 검증 → 통과. 근데 SQL 로그에 insert가 안 보임.
+- **막힌 점**: persist는 INSERT를 즉시 안 보낸다. UUID는 메모리에서 생성돼 `getId()`는 차지만, `@DataJpaTest`는 롤백이라 commit flush도 없어 INSERT가 끝내 안 나감 → "UUID 생성기"만 검증한 꼴.
+- **해결**: `em.flush()`로 INSERT 강제 + `em.clear()` 후 조회해 왕복 검증. 상세 → [JPA repository 테스트 §2~3](./jpa-repository-test.md).
+
+### (2) 여러 명 심으려는데 unique 제약 위반 (2026-06-05)
+- **상황**: 필터 테스트용으로 유저 여러 명 적재하려 했더니 flush에서 제약 위반 예외.
+- **막힌 점**: 픽스처가 email을 `"test@test.com"`으로 고정 → email이 `unique` 컬럼이라 2명째에서 충돌.
+- **해결**: 픽스처를 `withEmail(email)`처럼 **변하는 값(email)을 받게** 오버로드. → [테스트 픽스처 §2, §7](./test-fixtures.md).
 
 ---
 
 ## 4. 참고
-- 관련 노트: [AssertJ 사용법](./assertj.md) · [BigDecimal](../bigdecimal/bigdecimal.md) · [@Lock 실무 패턴(동시성 테스트)](../jpa/lock-practical.md)
+- 관련 노트: [AssertJ 사용법](./assertj.md) · [테스트 픽스처](./test-fixtures.md) · [JPA repository 테스트](./jpa-repository-test.md) · [BigDecimal](../bigdecimal/bigdecimal.md) · [@Lock 실무 패턴(동시성 테스트)](../jpa/lock-practical.md)
 - 상세 방법론: server-java `docs/TEST_GUIDE.md`
 
 ---
