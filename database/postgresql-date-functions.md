@@ -126,7 +126,25 @@ date_trunc('month', ts)     -- 2024-03-01 00:00:00  (그 달의 시작 시각)
 
 ---
 
-## 6. 참고
+## 6. 비교·필터에 쓸 때 — 타입을 맞춰야 한다
+
+`>=` 같은 비교는 **같은(호환) 타입끼리만** 의미가 있다.
+- `date`/`timestamp`는 **순서가 있는 타입** → 끼리끼리 크기 비교 OK.
+- `EXTRACT` 결과는 **숫자** → 숫자랑만 비교. 날짜 컬럼과 직접 못 섞는다.
+
+| 비교 | 되나? | 인덱스 |
+|------|-------|--------|
+| `created_at >= make_date(2024,1,1)` | ✅ 날짜 vs 날짜 | ✅ 컬럼 맨몸 |
+| `created_at >= to_date('2024','YYYY')` | ✅ 날짜 vs 날짜 | ✅ |
+| `created_at >= '2024-01-01'` | ✅ (문자열 자동 캐스팅) | ✅ |
+| `EXTRACT(YEAR FROM created_at) >= 2024` | ✅ 숫자 vs 숫자 | ❌ 컬럼 가공 |
+| `created_at >= 2024` | ❌ 날짜 vs 숫자 (타입 에러) | — |
+
+> 결론: **날짜는 날짜로 만들어 비교**(make_date/to_date) → 타입도 맞고 인덱스도 탄다. EXTRACT 숫자 비교는 되긴 하지만 컬럼을 감싸 인덱스를 버린다. (→ [SQL 쿡북 §1](./sql-cookbook.md)의 "컬럼 가공 vs 값 가공"과 같은 결론)
+
+---
+
+## 7. 참고
 - [PostgreSQL 공식 - Date/Time Functions](https://www.postgresql.org/docs/current/functions-datetime.html)
 - [PostgreSQL 공식 - Data Type Formatting (to_date 포맷)](https://www.postgresql.org/docs/current/functions-formatting.html)
 - 관련 노트: [SQL 케이스 쿡북](./sql-cookbook.md)
