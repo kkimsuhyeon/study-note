@@ -41,8 +41,18 @@ WHERE created_at BETWEEN '2024-01-01' AND '2024-12-31';
 `BETWEEN`은 양끝 포함이지만, `'2024-12-31'`은 `'2024-12-31 00:00:00'`으로 해석된다. 그래서 **2024-12-31 00:00:01 ~ 23:59:59 데이터가 통째로 빠진다.**
 → 그래서 `>= 시작 AND < 다음_구간_시작` 의 **반열린 구간 `[start, end)`** 이 안전하다. (월별·일별도 같은 원리: `>= '2024-03-01' AND < '2024-04-01'`)
 
-### MyBatis 적용
-연도(또는 기간)는 **애플리케이션에서 시작/끝 값을 만들어 바인딩**하는 게 깔끔하다.
+### "연도 `'2024'` 하나만 넘어올 때" 경계 만드는 법
+
+입력이 `'2024'` 하나여도 문제없다.
+
+> 📌 **핵심 재확인**: 인덱스를 죽이는 건 **"컬럼 가공"**이지 **"값 가공"**이 아니다. `created_at`(컬럼)만 맨몸으로 두면, 경계값(`#{year}` → 시작/끝)은 **자바에서 만들든 SQL에서 만들든 자유**다.
+
+**방법 A (권장) — 자바에서 경계 계산 후 바인딩**
+```java
+int year = Integer.parseInt("2024");
+LocalDate start = LocalDate.of(year, 1, 1);   // 2024-01-01
+LocalDate end   = start.plusYears(1);         // 2025-01-01
+```
 ```xml
 <select id="findByYear" resultType="Order">
   SELECT * FROM orders
@@ -50,11 +60,22 @@ WHERE created_at BETWEEN '2024-01-01' AND '2024-12-31';
     AND created_at &lt;  #{end}
 </select>
 ```
-```java
-// 자바에서 [start, end) 계산해 넘김 — 연도(int)만 받아도 됨
-LocalDate start = LocalDate.of(year, 1, 1);        // 2024-01-01
-LocalDate end   = start.plusYears(1);              // 2025-01-01
+DB 독립적 + 테스트 쉬움 → 가장 깔끔.
+
+**방법 B — SQL에서 경계 생성 (PostgreSQL)**
+연도만 넘기고 SQL이 경계를 만든다. `created_at`은 여전히 맨몸이라 인덱스 OK.
+```sql
+-- 연도가 문자열 '2024'로 올 때
+WHERE created_at >= to_date(#{year}, 'YYYY')
+  AND created_at <  to_date(#{year}, 'YYYY') + interval '1 year'
+
+-- 연도가 숫자로 올 때 (make_date(년,월,일))
+WHERE created_at >= make_date(#{year}::int, 1, 1)
+  AND created_at <  make_date(#{year}::int + 1, 1, 1)
 ```
+
+> "datetime과 `'2024-01-01'` 비교 자체가 되나?" → PostgreSQL은 문자열을 timestamp로 **자동 캐스팅**해서 `created_at >= '2024-01-01'`이 작동한다. 단 `#{}` 바인딩은 `::timestamp`/`::date`를 명시하거나 위처럼 `to_date`/`make_date`로 타입을 확실히 하는 게 안전.
+
 > ⚠️ **MyBatis XML 함정**: `<`, `>`, `&`는 XML 특수문자라 `&lt;`, `&gt;`로 쓰거나 `<![CDATA[ ... ]]>`로 감싸야 한다. (`created_at < #{end}`를 그대로 쓰면 파싱 에러)
 
 ### 🐘 PostgreSQL 메모 (이 케이스의 실제 환경)
