@@ -30,6 +30,9 @@
 ### Jackson
 - [Jackson 어노테이션 종합 정리](./java/jackson/annotations.md)
 
+## Database
+- [SQL 케이스 쿡북 - 상황별 해법 (날짜 범위 조회, 인덱스/sargable 등)](./database/sql-cookbook.md)
+
 ## Infra / 분산 환경
 - [스케일 아웃 & 배포 모델 - 1 JVM/인스턴스 복제/로드밸런서 vs 오토스케일러/무상태](./infra/scaling.md)
 
