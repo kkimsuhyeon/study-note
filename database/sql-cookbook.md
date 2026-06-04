@@ -78,6 +78,18 @@ WHERE created_at >= make_date(#{year}::int, 1, 1)
 
 > ⚠️ **MyBatis XML 함정**: `<`, `>`, `&`는 XML 특수문자라 `&lt;`, `&gt;`로 쓰거나 `<![CDATA[ ... ]]>`로 감싸야 한다. (`created_at < #{end}`를 그대로 쓰면 파싱 에러)
 
+### 실무에선 보통 방법 A — "필터는 자바, 집계는 SQL"
+
+문자열로 받아도 **날짜 변환·경계 계산은 자바에서** 하고, SQL엔 단순 비교만 남기는 게 정석이다. MyBatis **타입핸들러**가 `LocalDate`/`LocalDateTime`을 자동 변환해줘서 날짜 객체로 넘기면 타입 안전 + DB 독립적 + 인덱스 자연히 탄다. → `to_date`를 SQL에 박는 일은 드물다.
+
+| 함수 | 실무 빈도 | 어디에 |
+|------|----------|--------|
+| `to_date` / `make_date` | **거의 안 씀** | 자바에서 파싱하니까 (SQL 직접 실행·적재 등 예외) |
+| `EXTRACT` | 가끔 | **집계**(요일/시간대별 분류) |
+| `date_trunc` | **자주** | **집계**(월별/일별 `GROUP BY date_trunc(...)`) |
+
+> 갈림: **필터(WHERE) = 자바에서 날짜 만들어 범위 비교 / 집계(GROUP BY·SELECT) = SQL에서 `date_trunc`·`EXTRACT`.** 날짜 함수 상세는 [PostgreSQL 날짜 함수](./postgresql-date-functions.md).
+
 ### 🐘 PostgreSQL 메모 (이 케이스의 실제 환경)
 - 범위 조건(`>= ... AND < ...`)은 PostgreSQL에서도 **그대로 최선**. 문자열 `'2024-01-01'`은 자동으로 timestamp로 캐스팅된다.
 - ⚠️ **PostgreSQL엔 `YEAR()` 함수가 없다.** MySQL식 `YEAR(created_at)`을 쓰면 *function does not exist* 에러. 연도 추출은 `EXTRACT(YEAR FROM created_at)` 또는 `date_trunc('year', created_at)`. — 단 이것들도 **컬럼 가공이라 인덱스를 못 탄다** → 결국 범위가 답.
