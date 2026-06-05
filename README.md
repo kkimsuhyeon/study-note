@@ -28,6 +28,7 @@
 - [테스트 방법론 핵심 요약 - 판단 공식 + 막힌 케이스 누적 (상세는 프로젝트 가이드)](./java/test/test-writing-guide.md)
 - [테스트 픽스처(Object Mother) - 변하는 값만 받기 / static 픽스처 vs 인스턴스 헬퍼](./java/test/test-fixtures.md)
 - [JPA repository 테스트 - @DataJpaTest / persist≠INSERT / flush·clear 왕복 / H2·Testcontainers](./java/test/jpa-repository-test.md)
+- [JUnit 5 라이프사이클 - @BeforeEach·@BeforeAll·@Nested / 테스트 전 데이터 셋업](./java/test/junit-lifecycle.md)
 
 ### Jackson
 - [Jackson 어노테이션 종합 정리](./java/jackson/annotations.md)
@@ -45,11 +46,16 @@
 - 한 어노테이션/개념당 한 파일
 - 파일명은 kebab-case (`lock.md`, `json-property.md`)
 - 새 글 추가 시 이 README에 링크 등록 (안 그러면 잊어버림)
+- **사용법/함정으로 시작하되, 끝에 판단 기준(관점) 한 줄을 남긴다** — API 문법은 다시 찾으면 되지만 "어느 쪽을 골라야 하나"는 한 번 잡으면 비슷한 상황 전부에 적용된다. (가장 오래 살아남는 층)
+- **관점은 반드시 구체 케이스에 붙여서** — "이 상황에서 이렇게 막혔다 → 그래서 이 판단" 형태로. 관점만 따로 모은 추상 격언집("좋은 테스트를 짜라")은 죽은 문서가 된다.
+
+> 📐 **문서 3층 구조** (아래로 갈수록 오래 산다): ① API 사용법(어떻게 쓰지) → ② 함정/메커니즘(왜 이렇게 동작하지) → ③ **관점/판단 기준(어느 쪽을 골라야 하지)**. API는 ③에 도달하기 위한 예시고, 관점이 알맹이.
 
 ## 글 템플릿
-1. 한 줄 요약
+1. 한 줄 요약 (+ 끝에 핵심 함정/판단 한 줄)
 2. 언제 쓰나
-3. 사용 예시
+3. 사용 예시 (문법/API)
 4. 종류/옵션 비교
-5. 주의사항
-6. 참고 링크 + 학습 날짜
+5. 함정/메커니즘 (⚠️)
+6. 💡 판단 기준 (관점) — "그래서 어느 쪽" 한 줄. 구체 케이스에 붙여서
+7. 참고 링크 + 학습 날짜 + 계기

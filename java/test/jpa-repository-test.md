@@ -2,7 +2,7 @@
 
 > **한 줄 요약**: `@DataJpaTest`는 JPA 관련 빈만 부팅하는 **슬라이스 테스트** + 각 테스트를 **트랜잭션으로 감싸 롤백** + `TestEntityManager`·Spring Data 레포·임베디드 DB를 자동 구성한다. 핵심 함정은 **persist ≠ INSERT**(flush 전엔 SQL 안 나감) — `em.flush()`/`em.clear()`로 실제 왕복을 강제한다.
 
-관련 노트: [영속성 컨텍스트·flush](../jpa/persistence-context.md) · [테스트 픽스처](./test-fixtures.md) · [@Lock 실무 패턴(동시성 테스트)](../jpa/lock-practical.md)
+관련 노트: [영속성 컨텍스트·flush](../jpa/persistence-context.md) · [테스트 픽스처](./test-fixtures.md) · [JUnit 5 라이프사이클](./junit-lifecycle.md) · [@Lock 실무 패턴(동시성 테스트)](../jpa/lock-practical.md)
 
 ---
 
@@ -114,6 +114,21 @@ void findByEmail_found() {
 | 조회 | DB→Entity→`toModel()` **역방향 매핑**까지 확인 |
 
 > ⚠️ `clear()` 빼먹으면 "왕복 검증"이 아니라 "방금 만든 객체 재확인". `isPresent()`만 보지 말고 **필드까지** 단언.
+
+---
+
+## 6-1. 💡 셋업 격리 — `em.persistAndFlush` vs `save()` (관점)
+
+조회 테스트의 데이터 셋업을 어댑터 `save()`로 하면, 그 테스트가 `save()` 정상 동작에 **묶인다**(save가 깨지면 조회 테스트도 같이 빨개져 실패 지점이 번짐).
+
+```java
+em.persistAndFlush(UserEntity.create(UserFixture.withEmail(email)));  // 격리 ↑ : JPA로 직접 적재 (어댑터 우회)
+userRepository.save(...);                                             // 결합 ↑ : save()에 의존
+```
+
+- 통합 테스트는 셋업에 영속화가 **불가피**하다(쿼리 검증하려면 데이터가 DB에 있어야 함).
+- 하지만 **경로 선택**으로 격리는 가능 → 원칙대로면 `em.persistAndFlush`. 단위 테스트에서 상태를 production 메서드(`addBalance`) 대신 `of`로 직접 주입한 것과 같은 맥락. → [테스트 픽스처 §5-1](./test-fixtures.md)
+- 편의 우선이면 `save()`도 용인(로직 단순 + 자기 테스트 있음). 학습/엄밀히는 `persistAndFlush`.
 
 ---
 

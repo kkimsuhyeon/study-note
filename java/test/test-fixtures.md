@@ -2,7 +2,7 @@
 
 > **한 줄 요약**: 테스트용 객체 생성 코드를 한 곳에 모으는 패턴. 두 형태가 있다 — **Object Mother**(이름 붙은 정적 팩토리: `UserFixture.withBalance(1000)`)와 **Test Data Builder**(체이닝: `aUser().balance(1000).build()`). 핵심 원칙은 **"그 테스트가 *바꾸는 값*만 받고, 나머지는 안에서 기본값으로 채운다."**
 
-관련 노트: [JPA repository 테스트](./jpa-repository-test.md) · [테스트 작성 가이드](./test-writing-guide.md) · [AssertJ 사용법](./assertj.md)
+관련 노트: [JPA repository 테스트](./jpa-repository-test.md) · [JUnit 5 라이프사이클](./junit-lifecycle.md) · [테스트 작성 가이드](./test-writing-guide.md) · [AssertJ 사용법](./assertj.md)
 
 ---
 
@@ -97,7 +97,7 @@ void setUp() {
     em.persistAndFlush(UserEntity.create(UserFixture.withEmail("b@test.com")));
 }
 ```
-> `@DataJpaTest`는 테스트마다 롤백 → `@BeforeEach` 시딩도 매 테스트 깨끗이 초기화된다.
+> `@DataJpaTest`는 테스트마다 롤백 → `@BeforeEach` 시딩도 매 테스트 깨끗이 초기화된다. 라이프사이클 상세 → [JUnit 5 라이프사이클](./junit-lifecycle.md)
 
 ### 가변인자 헬퍼로 여러 건
 
@@ -129,6 +129,26 @@ private User persistedUser(String email) {                   // 인스턴스 헬
     return em.persistAndFlush(UserEntity.create(UserFixture.withEmail(email))).toModel();
 }
 ```
+
+---
+
+## 5-1. 💡 셋업을 production 메서드에 의존시키지 않기 (관점)
+
+상태를 만들 때 production 로직을 타면, 그 로직이 깨질 때 **무관한 테스트가 같이 실패**한다(실패 지점이 번짐).
+
+```java
+// ❌ deductBalance 테스트인데 상태를 addBalance로 만듦 → addBalance 깨지면 같이 실패
+User user = UserFixture.withBalance(BigDecimal.ZERO);
+user.addBalance(BigDecimal.valueOf(1000));
+user.deductBalance(...);
+
+// ✅ 픽스처/of로 원하는 상태를 직접 주입 → deductBalance만 검증
+User user = UserFixture.withBalance(BigDecimal.valueOf(1000));
+user.deductBalance(...);
+```
+
+- 픽스처/`of`로 **원하는 상태를 직접** 만들면 그 테스트는 한 메서드만 검증한다.
+- repo 테스트의 `em.persistAndFlush` vs `save()`도 같은 원칙(어댑터 `save` 우회). → [JPA repository 테스트 §6-1](./jpa-repository-test.md)
 
 ---
 
