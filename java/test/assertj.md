@@ -115,10 +115,49 @@ assertThat(list).hasSize(3)
     .containsExactly("a", "b", "c")          // 순서까지 정확히
     .extracting("name").containsExactly("kim", "lee");  // 필드 뽑아서 비교
 
-// Optional
+// Optional (자세히는 §4-1)
 assertThat(opt).isPresent().get().isEqualTo(value);
 assertThat(opt).isEmpty();
 ```
+
+---
+
+## 4-1. Optional 검증 — "존재 확인 + 값으로 체이닝"
+
+AssertJ의 `.get()`은 **자바 `Optional.get()`이 아니라 Assert 메서드**다. **존재를 자동 검증**한 뒤 값으로 내려가, 이어서 체이닝할 수 있다. (비어 있으면 `NoSuchElementException`이 아니라 명확한 단언 실패 메시지)
+
+```java
+Optional<User> found = repo.findByEmail("a@test.com");
+
+// 값으로 내려가 이어서 검증 ("존재 가정하고 get해서 체인")
+assertThat(found).get()                      // isPresent 자동 검증 + User로 내려감
+    .extracting(User::getEmail)
+    .isEqualTo("a@test.com");
+```
+
+| 패턴 | 용도 |
+|------|------|
+| `assertThat(opt).contains(v)` / `.hasValue(v)` | present + 값이 v와 같음 (한 방) |
+| `assertThat(opt).get().satisfies(o -> {...})` | 값으로 내려가 **여러 필드** 검증 |
+| `assertThat(opt).hasValueSatisfying(o -> {...})` | 위와 동의, 더 명시적 |
+| `assertThat(opt).map(User::getEmail).hasValue("..")` | 변환 후 비교 |
+| `assertThat(opt).get(as(STRING)).startsWith("..")` | **타입 지정** get → 그 타입 전용 단언 |
+| `assertThat(opt).isEmpty()` / `.isNotPresent()` | 비어있음 |
+
+```java
+// 여러 필드 — get().satisfies 또는 hasValueSatisfying
+assertThat(found).get().satisfies(u -> {
+    assertThat(u.getEmail()).isEqualTo("a@test.com");
+    assertThat(u.getBalance()).isEqualByComparingTo("0");
+});
+
+// 타입 지정 get (String 전용 단언 쓰기)
+import static org.assertj.core.api.InstanceOfAssertFactories.STRING;
+import static org.assertj.core.api.Assertions.as;
+assertThat(optName).get(as(STRING)).startsWith("kim");
+```
+
+> 💡 단순 값 일치 → `contains`/`hasValue` / 값으로 내려가 여러 검증 → `.get().satisfies(...)` 또는 `hasValueSatisfying`. `isPresent()` 없이 `.get()`만 써도 존재 검증이 포함된다.
 
 ---
 
