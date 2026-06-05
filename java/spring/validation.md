@@ -129,6 +129,35 @@ public class C {
 
 > 💡 선택: **문자열 필수(공백도 막기) → `@NotBlank`**(제일 흔함) / **리스트·배열 최소 1개 → `@NotEmpty`** / **숫자·객체 단순 null 금지 → `@NotNull`**.
 
+## 5-2. ⚠️ 제약마다 "붙일 수 있는 타입"이 정해져 있다
+
+안 맞는 타입에 붙이면 **조용히 무시가 아니라 예외**가 난다(검증 첫 실행/부팅 시):
+```
+jakarta.validation.UnexpectedTypeException: HV000030:
+No validator could be found for constraint '...' validating type '...'
+```
+
+| 제약 | 되는 타입 | ❌ 안 되는 예 |
+|------|-----------|--------------|
+| `@NotNull` | **전부** | — |
+| `@NotBlank` | **String 전용** | enum, 숫자, Boolean, 컬렉션 |
+| `@NotEmpty` | String·컬렉션·Map·배열 | **enum**, 숫자, Boolean |
+| `@Size` | String·컬렉션·Map·배열 | **숫자**, enum, Boolean |
+| `@Min` `@Max` `@Positive` | 숫자(int·long·BigDecimal 등) | **String**, enum |
+| `@Pattern` `@Email` | **String 전용** | 숫자, enum |
+| `@Digits` | 숫자 + 숫자형 String | enum |
+| `@Past` `@Future` | 날짜/시간(LocalDate 등) | String, 숫자 |
+| `@AssertTrue/False` | Boolean | 나머지 |
+
+### 자주 걸리는 케이스
+1. **enum에 `@NotBlank`/`@Size`/`@Pattern`** → ❌. enum 필수는 **`@NotNull`만**(타입이 enum이라 값은 이미 안전, null만 체크). 특정 값 제한은 커스텀 제약.
+2. **숫자(Integer)에 `@NotBlank`/`@NotEmpty`/`@Size`** → ❌. → `@NotNull` + `@Min`/`@Max`.
+3. **String에 `@Min`/`@Max`** → ❌. → `@Pattern`/`@Digits`.
+4. **숫자 "자릿수"를 `@Size`로** → ❌. → `@Digits(integer=n)` 또는 `@Min`/`@Max`.
+5. **Boolean에 `@NotBlank`** → ❌. → `@NotNull`/`@AssertTrue`.
+
+> 예: `"0900"` 같은 시간값을 **String + `@Size(min=4,max=4)`** 로 검증하는 건 맞다. `int`로 바꾸면 `@Size`가 깨지고 `@Min`/`@Max`로 가야 한다. enum 필드(예: `WorkDivCode`)에 `@NotBlank`를 붙이면 `UnexpectedTypeException` — 필수면 `@NotNull`.
+
 ---
 
 ## 6. 💡 판단 기준
