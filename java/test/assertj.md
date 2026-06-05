@@ -177,6 +177,56 @@ assertThat(found).isPresent().get().satisfies(u -> { ... });
 
 ---
 
+## 4-2. 체이닝 — 같은 대상 vs 대상 이동(navigation)
+
+체이닝은 두 종류다. 이 구분이 핵심.
+
+| 종류 | 예 | 동작 |
+|------|-----|------|
+| **같은 대상 단언** | `isEqualTo` `hasSize` `isNotBlank` `contains` | 같은 assert 반환 → 계속 단언 |
+| **대상 이동(navigation)** | `extracting` `get` `first` `filteredOn` `singleElement` `cause` `asInstanceOf` `usingRecursiveComparison` | **검증 대상을 갈아탐** → 이후 새 대상에 맞는 단언 |
+
+```java
+// extracting — 필드 뽑아 그 값으로 이동 (단일 / tuple)
+assertThat(user).extracting(User::getEmail).isEqualTo("a@test.com");
+assertThat(user).extracting(User::getEmail, User::getRole)
+    .containsExactly("a@test.com", UserRole.USER);
+
+// returns — 메서드 반환값 인라인 검증 (여러 개 체인)
+assertThat(user)
+    .returns("a@test.com", User::getEmail)
+    .returns(UserRole.USER, User::getRole);
+
+// 컬렉션 navigation
+assertThat(users).hasSize(2)
+    .extracting(User::getEmail)                        // 각 요소 필드 → 리스트
+    .containsExactlyInAnyOrder("a@..", "b@..");
+assertThat(users).filteredOn(User::isAdmin)           // 필터 후
+    .singleElement()                                   // 정확히 1개 + 그 요소로 이동
+    .extracting(User::getEmail).isEqualTo("admin@..");
+assertThat(users).first().returns("a@..", User::getEmail);  // first/last/element(i)
+
+// 예외 navigation
+assertThatThrownBy(() -> service.x())
+    .isInstanceOf(BusinessException.class)
+    .hasMessageContaining("부족")
+    .extracting("errorCode").isEqualTo(UserErrorCode.NOT_ENOUGH_POINT);
+assertThatThrownBy(...).rootCause().hasMessage("..");  // 원인 예외로 이동
+
+// usingRecursiveComparison — DTO 필드 단위 통째 비교 (equals() 불필요)
+assertThat(actual)
+    .usingRecursiveComparison()
+    .ignoringFields("id", "createdAt")
+    .isEqualTo(expected);
+
+// asInstanceOf / asString — 타입 좁혀 그 타입 전용 단언
+assertThat(value).asString().startsWith("ka");
+```
+
+> 💡 실무 빈출 3개: **`extracting`**(필드/리스트 뽑아 비교), **`usingRecursiveComparison`**(DTO 비교 — `equals` 없이 필드 단위, id 등 제외 가능), **`singleElement`/`filteredOn`**("조건 맞는 1개"). navigation 뒤엔 **대상이 바뀌었다**는 걸 의식하면 체인이 안 꼬인다.
+
+---
+
 ## 5. 단언 묶기 / 설명
 
 ```java
