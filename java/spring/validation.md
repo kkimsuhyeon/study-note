@@ -64,6 +64,27 @@ public static class WkTmList {            // 클래스의 @Valid는 제거
 
 > 즉 "검증이 안 도는데?"의 1순위 원인 = **중첩 필드에 `@Valid` 누락** 또는 **클래스에 잘못 붙임.**
 
+### `@Valid` ≠ 필수 — null이면 cascade를 건너뛴다
+
+"필드가 null이어도 되나"(`@NotNull`)와 "값이 있을 때 안쪽을 검증하나"(`@Valid`)는 **완전히 별개**다. **`@Valid`는 대상이 null이면 그냥 통과**(검사할 객체가 없으니) → `@Valid`만으론 필수가 안 된다.
+
+```java
+private WorkPatternDtlRequest workPatternDtl;   // 아무것도 안 붙음
+```
+
+| 필드에 붙은 것 | null로 들어오면 | 값 있으면 내부(@NotBlank 등) 검증 |
+|---|---|---|
+| **(없음)** | ✅ 통과 | ❌ **안 함** |
+| `@Valid` | ✅ 통과 (cascade 스킵) | ✅ 함 |
+| `@NotNull` | ❌ 실패 | ❌ 안 함 |
+| `@NotNull @Valid` | ❌ 실패 | ✅ 함 |
+
+- **필수 + 내부 검증** → `@NotNull @Valid`
+- **선택(null 허용)이지만 있으면 내부 검증** → `@Valid`만
+- **컬렉션**: `@Valid`는 요소 검증만, null/빈 리스트를 막으려면 `@NotEmpty` 추가 (`@NotEmpty @Valid List<Child>`).
+
+> 흔한 오해: "`@Valid` 붙였으니 필수겠지" → ❌. 필수는 `@NotNull`이 따로 한다.
+
 ---
 
 ## 4. 동작 원리 — 두 경로, 두 예외
