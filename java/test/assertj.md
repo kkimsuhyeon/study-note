@@ -159,6 +159,22 @@ assertThat(optName).get(as(STRING)).startsWith("kim");
 
 > 💡 단순 값 일치 → `contains`/`hasValue` / 값으로 내려가 여러 검증 → `.get().satisfies(...)` 또는 `hasValueSatisfying`. `isPresent()` 없이 `.get()`만 써도 존재 검증이 포함된다.
 
+### ⚠️ 별도 `isPresent()` 줄은 중복
+
+```java
+// ❌ 중복 — .get()이 이미 존재를 검사 + assertThat(found) 두 번
+assertThat(found).isPresent();
+assertThat(found).get().satisfies(u -> { ... });
+
+// ✅ 한 줄로 — .get()이 존재까지 검증
+assertThat(found).get().satisfies(u -> { ... });
+
+// ✅ "존재 후 내용" 의도를 남기려면 한 체인으로
+assertThat(found).isPresent().get().satisfies(u -> { ... });
+```
+
+> 비어 있으면 `.get()`이 `Expecting Optional to contain a value`로 실패하므로, 앞에 `isPresent()`를 따로 둬도 커버리지는 같다. 같은 대상을 두 문장으로 나누지 말 것.
+
 ---
 
 ## 5. 단언 묶기 / 설명
