@@ -96,14 +96,38 @@ public class C {
 
 | 제약 | 의미 |
 |------|------|
-| `@NotNull` / `@NotBlank` / `@NotEmpty` | null 금지 / 공백 문자열 금지 / 빈 컬렉션·문자열 금지 |
+| `@NotNull` / `@NotEmpty` / `@NotBlank` | → 아래 §5-1에서 차이 정리 |
 | `@Size(min, max)` | 문자열·컬렉션 길이 |
 | `@Min` / `@Max` / `@Positive` | 숫자 범위 |
 | `@Pattern(regexp=...)` | 정규식 |
 | `@Email` | 이메일 형식 |
 
 - **커스텀 제약**(예: `@YN`): `@Constraint(validatedBy = ...)` + `ConstraintValidator` 구현으로 직접 만든 어노테이션. 표준 제약처럼 필드에 붙여 쓴다.
-- ⚠️ `@NotNull` vs `@NotBlank` vs `@NotEmpty` 혼동 주의: 문자열 필수는 보통 `@NotBlank`(공백만 있어도 실패).
+
+### 패키지 — javax → jakarta
+
+- **Spring Boot 2.x** = `javax.validation.constraints.*` / **Spring Boot 3.x** = `jakarta.validation.constraints.*` (Jakarta로 개명, 기능 동일).
+- `@NotNull`은 표준 1.0부터, `@NotBlank`·`@NotEmpty`는 원래 Hibernate Validator 거였다가 **2.0(JSR-380)에서 표준 편입**. 옛 코드엔 `org.hibernate.validator.constraints`로 보이기도 함.
+
+## 5-1. ⭐ `@NotNull` vs `@NotEmpty` vs `@NotBlank`
+
+핵심은 **"무엇까지 실패로 보느냐"** + **적용 대상**.
+
+| 입력값 | `@NotNull` | `@NotEmpty` | `@NotBlank` |
+|---|---|---|---|
+| `null` | ❌ | ❌ | ❌ |
+| `""` (빈 문자열) | ✅ 통과 | ❌ | ❌ |
+| `" "` (공백만) | ✅ 통과 | ✅ 통과 | ❌ |
+| `"abc"` | ✅ | ✅ | ✅ |
+| `[]` (빈 컬렉션) | ✅ 통과 | ❌ | (적용 안 됨) |
+
+| 제약 | 적용 대상 | 의미 |
+|------|-----------|------|
+| `@NotNull` | **모든 타입** | null만 금지 |
+| `@NotEmpty` | String·Collection·Map·배열 | null + **크기 0** 금지 |
+| `@NotBlank` | **String 전용** | null + trim 후 빈 문자열 금지(공백만도 실패) |
+
+> 💡 선택: **문자열 필수(공백도 막기) → `@NotBlank`**(제일 흔함) / **리스트·배열 최소 1개 → `@NotEmpty`** / **숫자·객체 단순 null 금지 → `@NotNull`**.
 
 ---
 
