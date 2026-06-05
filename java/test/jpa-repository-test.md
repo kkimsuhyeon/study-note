@@ -132,6 +132,36 @@ userRepository.save(...);                                             // 결합 
 
 ---
 
+## 6-2. update 검증 — 더티 체킹이라 까다롭다
+
+JPA `update`는 보통 `save()`를 안 부르고 **영속 엔티티의 필드만 바꿔놓는다**(더티 체킹 → flush 때 UPDATE 발사). 그래서 검증이 `save`/`find`와 다르다.
+
+```java
+@Test
+void update_success() {
+    User saved = persistedUser("a@test.com");                       // ① 먼저 심어 id 확보
+    User changed = User.of(saved.getId(), saved.getEmail(),         // ② 같은 id + 바뀐 필드
+                           saved.getPassword(), BigDecimal.valueOf(5000), saved.getRole());
+
+    userRepository.update(changed);
+    em.flush();   // ③ 더티 체킹 UPDATE 발사
+    em.clear();   // ④ 캐시 비움
+
+    User found = userRepository.findById(saved.getId()).orElseThrow();  // ⑤ 재조회로 검증
+    assertThat(found.getBalance()).isEqualByComparingTo(BigDecimal.valueOf(5000));
+}
+```
+
+| 함정 | 내용 |
+|---|---|
+| **return값으로 검증 금지** | `update()`가 돌려준 객체는 **메모리에서 바뀐 것** → DB에 안 나가도 통과. 반드시 **재조회**로 확인 |
+| **`flush` → `clear` 순서** | `clear`를 먼저 하면 미반영 변경이 **폐기**돼 재조회 시 옛값 → 실패. flush로 UPDATE 발사 후 clear |
+| **id 없으면 NOT_FOUND** | 없는 id로 update → `BusinessException(NOT_FOUND)` 케이스도 (errorCode까지 검증) |
+
+> 💡 **update는 "바꾼 게 진짜 DB에 나갔나"가 핵심.** 호출 결과(return)를 믿지 말고 `flush → clear → 재조회`로 DB를 직접 확인한다. (더티 체킹 메커니즘 → [영속성 컨텍스트·flush](../jpa/persistence-context.md))
+
+---
+
 ## 7. Testcontainers (실제 MySQL) — 어노테이션 사용법
 
 H2로 안 되는 것(`FOR UPDATE` 락 시맨틱·MySQL 방언·동시성)만 실제 DB로. **어노테이션 2줄 추가**:
