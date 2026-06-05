@@ -157,6 +157,7 @@ void update_success() {
 | **return값으로 검증 금지** | `update()`가 돌려준 객체는 **메모리에서 바뀐 것** → DB에 안 나가도 통과. 반드시 **재조회**로 확인 |
 | **`flush` → `clear` 순서** | `clear`를 먼저 하면 미반영 변경이 **폐기**돼 재조회 시 옛값 → 실패. flush로 UPDATE 발사 후 clear |
 | **id 없으면 NOT_FOUND** | 없는 id로 update → `BusinessException(NOT_FOUND)` 케이스도 (errorCode까지 검증) |
+| **시작값 ≠ 목표값** | 시작 잔액과 update 목표가 같으면 **update가 아무것도 안 해도 통과**(거짓 양성). "FROM 다른 값 → TO 목표값"이 드러나게 시작값을 명시적으로 다르게 둔다 |
 
 > 💡 **update는 "바꾼 게 진짜 DB에 나갔나"가 핵심.** 호출 결과(return)를 믿지 말고 `flush → clear → 재조회`로 DB를 직접 확인한다. (더티 체킹 메커니즘 → [영속성 컨텍스트·flush](../jpa/persistence-context.md))
 
