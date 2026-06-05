@@ -177,6 +177,8 @@ static void props(DynamicPropertyRegistry registry) {
 | 높음 | 커스텀 쿼리(`@Query`, 파생 쿼리, Specification), `Entity↔Model` 매핑, unique/nullable 제약, Auditing |
 | 낮음 | 순수 `save()`로 id 생기나 (하이버네이트가 보장 = 프레임워크 테스트) |
 
+> 💡 **Spring Data 기본 메서드여도 어댑터가 매핑을 얹으면 테스트 대상.** `findById`는 `JpaRepository` 기본 메서드라 그 자체는 프레임워크지만, 어댑터가 `.map(UserEntity::toModel)`를 얹으면 그 **매핑은 내 코드** → `findByEmail`과 동일하게 "매핑 왕복 + not-found"를 검증한다. 순수 위임이면 스킵, 변환·분기가 붙으면 대상. (조회할 id는 `persistAndFlush`가 돌려준 엔티티의 `getId()`로 얻는다.)
+
 ---
 
 ## 9. 함정 모음
