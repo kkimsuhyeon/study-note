@@ -144,7 +144,7 @@ public Page<User> findAllByCriteria(UserCriteria criteria, Pageable pageable) {
 
 ---
 
-## 7-1. 다른 선택지 — 동적 조회 / 페이징은 이것만 있는 게 아니다
+## 8. 다른 선택지 — 동적 조회 / 페이징은 이것만 있는 게 아니다
 
 ### 동적 조회 (Specification 외)
 
@@ -170,7 +170,7 @@ public Page<User> findAllByCriteria(UserCriteria criteria, Pageable pageable) {
 
 ---
 
-## 8. 참고
+## 9. 참고
 - [Spring Data JPA - Specifications](https://docs.spring.io/spring-data/jpa/reference/jpa/specifications.html)
 - [Spring Data - Paging and Sorting](https://docs.spring.io/spring-data/jpa/reference/repositories/core-concepts.html)
 - 관련 노트: [JPA repository 테스트](../test/jpa-repository-test.md) · [영속성 컨텍스트·flush](./persistence-context.md)
