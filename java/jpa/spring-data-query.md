@@ -144,6 +144,32 @@ public Page<User> findAllByCriteria(UserCriteria criteria, Pageable pageable) {
 
 ---
 
+## 7-1. 다른 선택지 — 동적 조회 / 페이징은 이것만 있는 게 아니다
+
+### 동적 조회 (Specification 외)
+
+| 방법 | 출처 | 특징 |
+|---|---|---|
+| **QueryDSL** | 서드파티 | **타입세이프 + 가독성** 최고. `BooleanBuilder`/`BooleanExpression`로 동적 조립. 복잡 동적쿼리 사실상 표준. Q-클래스 생성 셋업 필요 |
+| **Query by Example (QBE)** | Spring Data | probe 엔티티 + `ExampleMatcher`로 간단 일치. **범위·OR 불가** |
+| **@Query 동적 트릭** | Spring Data JPA | `:p IS NULL OR col = :p` 식. 간단하지만 지저분 |
+| JPA Criteria API 직접 | JPA 표준 | Specification이 감싼 저수준 |
+
+### 페이징 (Pageable/Page 외)
+
+| 방법 | 출처 | 특징 |
+|---|---|---|
+| **Slice** | Spring Data | count 안 함 → "다음 있나"만. "더보기"에 가벼움 |
+| **ScrollPosition / Window** (keyset) | Spring Data **3.1+** | 커서/keyset: `WHERE id > :last LIMIT n`. 대용량·무한스크롤, OFFSET 성능 회피 |
+| **Limit** | Spring Data **3.2+** | `Limit.of(n)` 단순 개수 제한 |
+| Top/First 파생 | Spring Data | `findTop10ByOrderByCreatedAtDesc(...)` |
+
+> ⚠️ **OFFSET 페이징의 함정**: `OFFSET 10000`처럼 깊어지면 DB가 그만큼 건너뛰며 읽어 느려진다 → 대용량은 keyset(`Window`).
+
+> 💡 판단: **동적 조회** — 단순 1~2조건은 파생/`@Query`/QBE, 복잡 조합·타입세이프는 **QueryDSL**(또는 Specification). **페이징** — 총개수 필요하면 `Page`, 불필요하면 `Slice`, 대용량·딥페이지는 keyset(`Window`).
+
+---
+
 ## 8. 참고
 - [Spring Data JPA - Specifications](https://docs.spring.io/spring-data/jpa/reference/jpa/specifications.html)
 - [Spring Data - Paging and Sorting](https://docs.spring.io/spring-data/jpa/reference/repositories/core-concepts.html)
