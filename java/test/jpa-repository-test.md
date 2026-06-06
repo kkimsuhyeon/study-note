@@ -2,7 +2,7 @@
 
 > **한 줄 요약**: `@DataJpaTest`는 JPA 관련 빈만 부팅하는 **슬라이스 테스트** + 각 테스트를 **트랜잭션으로 감싸 롤백** + `TestEntityManager`·Spring Data 레포·임베디드 DB를 자동 구성한다. 핵심 함정은 **persist ≠ INSERT**(flush 전엔 SQL 안 나감) — `em.flush()`/`em.clear()`로 실제 왕복을 강제한다.
 
-관련 노트: [영속성 컨텍스트·flush](../jpa/persistence-context.md) · [테스트 픽스처](./test-fixtures.md) · [JUnit 5 라이프사이클](./junit-lifecycle.md) · [@Lock 실무 패턴(동시성 테스트)](../jpa/lock-practical.md)
+관련 노트: [영속성 컨텍스트·flush](../jpa/persistence-context.md) · [테스트 픽스처](./test-fixtures.md) · [JUnit 5 라이프사이클](./junit-lifecycle.md) · [Criteria·Specification·Pageable·Page](../jpa/spring-data-query.md) · [@Lock 실무 패턴(동시성 테스트)](../jpa/lock-practical.md)
 
 ---
 
@@ -218,14 +218,14 @@ static void props(DynamicPropertyRegistry registry) {
 - **`clear()` 누락** → 캐시라 SELECT 검증 안 됨 (§6).
 - **unique 컬럼 여러 건** → email `@Column(unique=true)`인데 같은 값 2건 적재 시 flush에서 위반. 픽스처를 `withEmail(email)`로 다르게. → [테스트 픽스처](./test-fixtures.md)
 - **테스트 파일 위치** → 대상 클래스와 **같은 패키지**(표준). 어댑터가 `adapter.out.persistence`면 테스트도 거기.
-- **Specification이 없는 컬럼 참조** → `likeIgnoreCase("name", ...)`인데 엔티티에 `name` 없으면 쿼리 빌드 시 `IllegalArgumentException`.
+- **Specification이 없는 컬럼 참조** → `likeIgnoreCase("name", ...)`인데 엔티티에 `name` 없으면 쿼리 빌드 시 `IllegalArgumentException`. (Specification/Pageable 개념 자체 → [Criteria·Specification·Pageable·Page](../jpa/spring-data-query.md))
 
 ---
 
 ## 10. 참고
 - [Spring Boot - TestEntityManager](https://docs.spring.io/spring-boot/api/java/org/springframework/boot/test/autoconfigure/orm/jpa/TestEntityManager.html)
 - [Testcontainers for Java - MySQL](https://java.testcontainers.org/modules/databases/mysql/)
-- 관련 노트: [영속성 컨텍스트·flush](../jpa/persistence-context.md) · [테스트 픽스처](./test-fixtures.md)
+- 관련 노트: [영속성 컨텍스트·flush](../jpa/persistence-context.md) · [테스트 픽스처](./test-fixtures.md) · [Criteria·Specification·Pageable·Page](../jpa/spring-data-query.md)
 - 상세 방법론: server-java `docs/TEST_GUIDE.md` (§4, §4.5)
 
 ---
