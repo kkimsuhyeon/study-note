@@ -148,7 +148,7 @@ void addBalance_notFound() {
 
 > 💡 한 줄: **repo를 가짜로 세팅하고, 서비스가 올바른 분기·호출을 하는지 본다. "실패하면 저장 안 함"(`should(never())`)은 서비스에서만 잡히는 포인트.**
 
-> 💡 **분기 없는 메서드는 fail 테스트가 없다.** `create`처럼 `assemble→save` 위임만 하면(if·throw 없음) 서비스 레벨 실패 경로가 0 → 성공 테스트 하나(그것도 저가치). 실패 규칙은 **그게 사는 계층**에서 테스트한다 — 예: "중복 이메일 → EXISTS_EMAIL"은 `UserCommandService.create`가 아니라 그 검증을 하는 상위 유스케이스(`AuthService.signUp`)에 있으니, fail 테스트도 거기서. "이 메서드는 왜 실패 테스트가 없지?"는 보통 "이 메서드엔 판단이 없다"는 신호.
+> 💡 **분기 없는 메서드는 fail 테스트가 없다.** `create`처럼 `assemble→save` 위임만 하면(if·throw 없음) 서비스 레벨 실패 경로가 0 → 성공 테스트 하나(그것도 저가치). 실패 규칙은 **그게 사는 계층**에서 테스트한다 — 예: "중복 이메일 → EXISTS_EMAIL"은 `UserCommandService.create`가 아니라 그 검증을 하는 상위 서비스(`AuthService.signUp`)에 있으니, fail 테스트도 거기서. (어떤 검증이 어느 계층에 사는지 → [도메인 검증 위치](../design/domain-validation.md)) "이 메서드는 왜 실패 테스트가 없지?"는 보통 "이 메서드엔 판단이 없다"는 신호.
 
 ---
 
