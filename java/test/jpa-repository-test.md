@@ -219,6 +219,7 @@ static void props(DynamicPropertyRegistry registry) {
 - **unique 컬럼 여러 건** → email `@Column(unique=true)`인데 같은 값 2건 적재 시 flush에서 위반. 픽스처를 `withEmail(email)`로 다르게. → [테스트 픽스처](./test-fixtures.md)
 - **테스트 파일 위치** → 대상 클래스와 **같은 패키지**(표준). 어댑터가 `adapter.out.persistence`면 테스트도 거기.
 - **Specification이 없는 컬럼 참조** → `likeIgnoreCase("name", ...)`인데 엔티티에 `name` 없으면 쿼리 빌드 시 `IllegalArgumentException`. (Specification/Pageable 개념 자체 → [Criteria·Specification·Pageable·Page](../jpa/spring-data-query.md))
+- **필터 테스트는 "부분집합"으로 (차별화)** → 검색어가 seed를 **전부 매칭**하면(예: `a@test.com`·`b@test.com` 둘 다 있는데 `"test"`로 검색) 필터가 일을 안 해도(조건 누락 버그여도) 통과한다 + "전체 조회" 케이스와 결과가 겹침. **`"a@"`처럼 일부만 걸리는** 검색어로 "걸릴 건 걸리고 안 걸릴 건 빠진다"를 보여야 진짜 검증.
 
 ---
 

@@ -227,6 +227,35 @@ assertThat(value).asString().startsWith("ka");
 
 ---
 
+## 4-3. 컬렉션 매칭 — `contains*` 계열 + 순서/빈값
+
+리스트(필터·목록 조회 결과 등) 검증의 핵심. `Page.getContent()`는 `List`라 그대로 이 단언들이 붙는다. ([Page/Pageable](../jpa/spring-data-query.md))
+
+| 단언 | 의미 |
+|---|---|
+| `contains("a", "b")` | **포함** (순서·여분 무관) |
+| `containsExactly("a", "b", "c")` | **순서까지** 정확히 그것들만 |
+| `containsExactlyInAnyOrder("c", "a", "b")` | 그것들만 (**순서 무관**) |
+| `containsOnly("a", "b")` | 이 집합만 (중복·순서 무관) |
+| `doesNotContain("z")` | 미포함 |
+| `isEmpty()` / `isNotEmpty()` | **0건** / 1건 이상 |
+
+```java
+assertThat(result.getContent())
+    .extracting(User::getEmail)
+    .containsExactlyInAnyOrder("a@test.com", "b@test.com");
+
+assertThat(result.getContent()).isEmpty();   // 필터가 아무것도 못 잡음 = 0건
+```
+
+> ⚠️ **순서 함정**: 정렬(`Sort`)을 안 준 쿼리 결과나 `Set`은 **순서가 보장 안 된다.** `containsExactly`(순서까지 검사)는 환경 따라 깨질 수 있으니 결과 2건↑이면 **`containsExactlyInAnyOrder`** 가 안전. 순서를 검증하려면 `PageRequest.of(0, n, Sort.by("email"))`로 정렬을 명시한 뒤 `containsExactly`.
+
+> ⚠️ **`isEmpty()` 두 종류 구분**: 컬렉션 `isEmpty()` = "원소 0개", `Optional.isEmpty()` = "값 없음"(§4-1). 같은 이름이지만 대상 타입에 따라 다른 단언.
+
+> 💡 **중복 단언 쌓지 말 것**: `containsExactly(...)`는 **크기+내용+순서**를 한 번에 못박는다 → 뒤에 `hasSize`·`isNotEmpty`를 또 붙이면 군더더기. `containsExactly("a@")` 하나면 "정확히 1건, a@"가 끝. 원소 1개면 `containsExactly` = `containsExactlyInAnyOrder`. **그 테스트 의도를 가장 잘 담는 강한 단언 하나**만 남긴다(약한 단언 여러 개 쌓기 ✗).
+
+---
+
 ## 5. 단언 묶기 / 설명
 
 ```java

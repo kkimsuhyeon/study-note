@@ -83,6 +83,11 @@ public static <T> Specification<T> likeIgnoreCase(String field, String value) {
 - `root.get("email")` → 엔티티의 email 컬럼 참조
 - `criteriaBuilder.like(...)` → `LIKE` 술어(Predicate) 생성
 - **`return null` → 그 조건은 빠짐** → 입력이 있을 때만 WHERE에 붙는 "동적 쿼리" 핵심
+  - null은 **TRUE/FALSE가 아니라 "조건 제외(absent)"**. Spring이 조합 시 null인 쪽을 빼고 반대쪽만 적용 → `email AND null` = `email`, `email OR null` = `email`. **AND든 OR든 null은 그냥 빠진다**가 안전한 멘탈 모델.
+  - **모든 조건이 null이면 WHERE 절 자체가 없음 → 전체 조회.**
+  - ⚠️ 그래서 `if (값 == null) return null` 가드가 필수. 빼먹고 `cb.equal(root.get("role"), null)`을 만들면 `WHERE role = null` → **아무것도 안 잡힘**(NULL 비교라 항상 거짓).
+
+> ⚠️ **enum 필터는 `like`가 아니라 `equal`.** role 같은 enum은 카테고리라 부분 매칭이 무의미 → `cb.equal(root.get("role"), UserRole.USER)`. 엔티티가 `@Enumerated(EnumType.STRING)`이라 DB엔 `"USER"` 문자열로 저장되지만, **enum 값을 그대로 넘기면 Hibernate가 저장형태로 변환**해 `WHERE role = 'USER'`를 만든다(직접 toString 불필요). 웹 레이어에선 `?role=USER`가 String→enum 자동 바인딩(이름 정확 일치, 대소문자 구분).
 
 ### 사용하려면 레포가 `JpaSpecificationExecutor` 상속
 
