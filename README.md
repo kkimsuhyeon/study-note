@@ -31,6 +31,10 @@
 - [테스트 픽스처(Object Mother) - 변하는 값만 받기 / static 픽스처 vs 인스턴스 헬퍼](./java/test/test-fixtures.md)
 - [JPA repository 테스트 - @DataJpaTest / persist≠INSERT / flush·clear 왕복 / H2·Testcontainers](./java/test/jpa-repository-test.md)
 - [JUnit 5 라이프사이클 - @BeforeEach·@BeforeAll·@Nested / 테스트 전 데이터 셋업](./java/test/junit-lifecycle.md)
+- [Mockito 서비스 테스트 - @Mock·@InjectMocks·given·verify·ArgumentCaptor / 분기·조합·상호작용 검증](./java/test/mockito-service-test.md)
+
+### 설계 (DDD / 도메인 모델)
+- [도메인 검증 위치 - 엔티티(불변식) vs 도메인 서비스(유니크)·체커 주입 / 규칙=도메인·조회=인프라](./java/design/domain-validation.md)
 
 ### Jackson
 - [Jackson 어노테이션 종합 정리](./java/jackson/annotations.md)
