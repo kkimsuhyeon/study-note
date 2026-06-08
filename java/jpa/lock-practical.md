@@ -4,6 +4,8 @@
 
 관련 노트: [@Lock 기본](./lock.md) · [@Lock 심화 개념](./lock-concepts.md) · [영속성 컨텍스트](./persistence-context.md) · [테스트 작성 가이드](../test/test-writing-guide.md)
 
+> 이 문서는 **@Lock 실무 적용**을 다룬다. 동시성 테스트가 깨지거나 `@Lock`이 안 먹는 것 같을 때, 재시도·벌크 UPDATE·조건부 UPDATE 중 무엇을 골라야 할지 볼 때 다시 연다.
+
 ---
 
 ## 1. `@Lock`은 어디서 동작하나 (Spring Data JPA 프록시)

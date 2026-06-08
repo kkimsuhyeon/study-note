@@ -12,17 +12,22 @@
 - [ ] [데드락(교착 상태) - Coffman 4조건/예방/DB 자동 감지](./java/concurrency/deadlock.md)
 
 ### JPA
+> 추천 읽는 순서: [영속성 컨텍스트](./java/jpa/persistence-context.md) → [@Transactional](./java/spring/transactional.md) → [트랜잭션 롤백 예제](./java/spring/transaction-rollback-example.md) → [Read-Modify-Write](./java/jpa/read-modify-write.md) → [@Lock 기본](./java/jpa/lock.md) → [@Lock 심화](./java/jpa/lock-concepts.md) → [@Lock 실무](./java/jpa/lock-practical.md)
+
 - [ ] [영속성 컨텍스트 · flush · 더티 체킹 - "커밋 시점"의 정체](./java/jpa/persistence-context.md)
+- [ ] [트랜잭션 격리 수준 - Dirty/Non-repeatable/Phantom/Lost Update와 락 관계](./java/jpa/transaction-isolation.md)
 - [ ] [@Lock 기본 - 락 어노테이션 (언제·종류·사용·주의)](./java/jpa/lock.md)
 - [ ] [@Lock 심화 개념 - @Version·공유/배타·FORCE_INCREMENT](./java/jpa/lock-concepts.md)
 - [ ] [@Lock 실무 패턴 - 프록시·네이밍·테스트·재시도·벌크/조건부 UPDATE](./java/jpa/lock-practical.md)
 - [ ] [Read-Modify-Write와 트랜잭션 경계 - 쓰기 서비스가 조회 서비스에 의존하면 안 되는 이유](./java/jpa/read-modify-write.md)
 - [ ] [Criteria · Specification · Pageable · Page - 출처(Spring Data/JPA/자작)와 동적 조회·페이징](./java/jpa/spring-data-query.md)
+- [ ] [N+1과 fetch 전략 - fetch join, EntityGraph, batch size 판단 기준](./java/jpa/n-plus-one-fetch.md)
 
 ### Spring
 - [ ] [@Transactional - 선언적 트랜잭션·전파(propagation)·롤백 규칙·프록시 함정](./java/spring/transactional.md)
 - [ ] [예제로 보는 트랜잭션 전파·롤백 - a→b→c 워크스루](./java/spring/transaction-rollback-example.md)
 - [ ] [@Valid · @Validated - Bean Validation 동작·위치, 중첩 cascade 함정](./java/spring/validation.md)
+- [ ] [Spring 예외 처리 - @ControllerAdvice, ErrorCode, Validation 예외 흐름](./java/spring/exception-handling.md)
 
 ### BigDecimal
 - [ ] [BigDecimal - 돈·정밀 계산, equals vs compareTo, scale, 반올림](./java/bigdecimal/bigdecimal.md)
@@ -34,6 +39,7 @@
 - [ ] [JPA repository 테스트 - @DataJpaTest / persist≠INSERT / flush·clear 왕복 / H2·Testcontainers](./java/test/jpa-repository-test.md)
 - [ ] [JUnit 5 라이프사이클 - @BeforeEach·@BeforeAll·@Nested / 테스트 전 데이터 셋업](./java/test/junit-lifecycle.md)
 - [ ] [Mockito 서비스 테스트 - @Mock·@InjectMocks·given·verify·ArgumentCaptor / 분기·조합·상호작용 검증](./java/test/mockito-service-test.md)
+- [ ] [Spring Boot 테스트 슬라이스 - @SpringBootTest, @WebMvcTest, @DataJpaTest 선택 기준](./java/test/spring-boot-test-slices.md)
 
 ### 설계 (DDD / 도메인 모델)
 - [ ] [도메인 검증 위치 - 엔티티(불변식) vs 도메인 서비스(유니크)·체커 주입 / 규칙=도메인·조회=인프라](./java/design/domain-validation.md)
@@ -45,6 +51,7 @@
 ## Database
 - [ ] [SQL 케이스 쿡북 - 상황별 해법 (날짜 범위 조회, 인덱스/sargable 등)](./database/sql-cookbook.md)
 - [ ] [PostgreSQL 날짜 함수 - to_date/make_date/EXTRACT/date_trunc](./database/postgresql-date-functions.md)
+- [ ] [인덱스와 실행 계획 - EXPLAIN, range scan, full scan, sargable 조건](./database/index-explain.md)
 
 ## Infra / 분산 환경
 - [ ] [스케일 아웃 & 배포 모델 - 1 JVM/인스턴스 복제/로드밸런서 vs 오토스케일러/무상태](./infra/scaling.md)

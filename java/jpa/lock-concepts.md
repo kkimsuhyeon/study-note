@@ -4,6 +4,8 @@
 
 관련 노트: [@Lock 기본](./lock.md) · [@Lock 실무 패턴](./lock-practical.md) · [영속성 컨텍스트](./persistence-context.md)
 
+> 이 문서는 **@Lock 심화 개념**만 다룬다. 락 모드 종류와 기본 사용법은 [lock.md](./lock.md), 테스트·재시도·벌크 UPDATE 같은 적용 패턴은 [lock-practical.md](./lock-practical.md)로 분리.
+
 ---
 
 ## 1. `@Version`만 vs `@Lock(OPTIMISTIC)` — 차이가 뭔가?

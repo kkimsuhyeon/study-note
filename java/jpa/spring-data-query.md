@@ -8,12 +8,12 @@
 
 ## 1. ⭐ "JPA 관련인가?" — 출처부터 (핵심)
 
-| 이름 | 패키지 | 소속 | JPA냐? |
-|---|---|---|---|
-| `Pageable`, `Page`, `PageRequest`, `Sort` | `org.springframework.data.domain` | **Spring Data Commons** | ❌ JPA 아님 (MongoDB 등에도 씀) |
-| `Specification`, `JpaSpecificationExecutor` | `org.springframework.data.jpa.*` | **Spring Data JPA** | △ JPA 위에 얹은 Spring 것 |
-| `CriteriaBuilder`, `CriteriaQuery`, `Root`, `Predicate` | `jakarta.persistence.criteria` | **JPA(Jakarta Persistence) 표준** | ✅ JPA 그 자체 |
-| `UserCriteria` | 프로젝트 패키지 | **내가 만든 DTO** | ❌ 프레임워크 아님 |
+| 이름                                                      | 패키지                               | 소속                              | JPA냐?                    |
+| ------------------------------------------------------- | --------------------------------- | ------------------------------- | ------------------------ |
+| `Pageable`, `Page`, `PageRequest`, `Sort`               | `org.springframework.data.domain` | **Spring Data Commons**         | ❌ JPA 아님 (MongoDB 등에도 씀) |
+| `Specification`, `JpaSpecificationExecutor`             | `org.springframework.data.jpa.*`  | **Spring Data JPA**             | △ JPA 위에 얹은 Spring 것     |
+| `CriteriaBuilder`, `CriteriaQuery`, `Root`, `Predicate` | `jakarta.persistence.criteria`    | **JPA(Jakarta Persistence) 표준** | ✅ JPA 그 자체               |
+| `UserCriteria`                                          | 프로젝트 패키지                          | **내가 만든 DTO**                   | ❌ 프레임워크 아님               |
 
 > 즉 "이거 다 JPA냐?" → **아니다.** 페이징은 Spring Data, Specification은 Spring Data JPA, Criteria API만 순수 JPA. 한 줄에 섞여 보여서 헷갈릴 뿐이다.
 
