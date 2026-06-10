@@ -65,6 +65,20 @@ public class PasswordHasherAdapter implements PasswordHasher {
 - **쓰는 도메인이 둘 이상 되면 그때 공용 위치로 승격.**
 - 포트를 application에 두냐 domain(model 옆)에 두냐는 **학파 차이** — 헥사고날/클린=application 경계, DDD=도메인 계층. 둘 다 정당. (이 프로젝트는 전자)
 
+### 5-1. 포트 시그니처의 프레임워크 타입 — 자체 타입 vs `Page` 허용
+
+포트를 도메인으로 내리려면 시그니처의 `Page`/`Pageable`(Spring Data)이 걸림돌. 정석은 **자체 페이징 타입 + 어댑터 변환**:
+```java
+public record PageQuery(int page, int size) {}                                  // 도메인 어휘
+public record PageResult<T>(List<T> content, long totalElements, int totalPages) {}
+// 어댑터에서: PageQuery → PageRequest 변환, Page<Entity> → PageResult<Model> 변환
+```
+하지만 **포트에 `Page`/`Pageable`을 허용하는 절충도 실무에서 흔하고 근거가 있다**:
+- `Page`/`Pageable`은 Spring Data **Commons**(JPA 비종속 — Mongo에도 그대로) → 사실상 준표준, 결합 비용 낮음
+- 자체 타입은 결국 `Page`를 어설프게 베끼게 됨(정렬·hasNext 등 기능 따라가기)
+
+> 💡 목표는 순수성 100%가 아니라 "도메인이 JPA·웹을 모르는 것". **멀티모듈로 도메인을 스프링 없이 컴파일할 게 아니면 페이징은 `Page` 허용으로 선 긋는 것도 합리적.**
+
 ---
 
 ## 6. 💡 판단 기준
