@@ -47,6 +47,38 @@ public void deductBalance(BigDecimal amount) {
 
 > ⚠️ **변환되는 값은 검증 가능 지점이 앞으로 당겨진다 — 비밀번호 정책은 `User.create`에서 못 한다.** `create`에 도착하는 비번은 **이미 해시**(bcrypt는 60자 고정)라 "8자 이상·특수문자" 같은 정책 검증은 원본이 사라져 물리적으로 불가능. raw가 존재하는 마지막 지점(웹 `@Valid`/앱 서비스, 인코딩 **전**)에서 해야 한다. `create`가 할 수 있는 건 null/빈값 가드뿐. 반면 **이메일은 변환 없이 원본 그대로** 들어오므로 형식 검증까지 `create`에서 가능 — 같은 "필수값"이라도 **중간에 변환(해시)이 끼면 검증 위치가 갈린다.**
 
+### 2-2. "검증이 너무 뿌려지는데?" — 배치 기준 + VO로 응집
+
+§2-1대로 하면 비번 정책=앱, 이메일 형식=팩토리, 유니크=도메인 서비스로 **흩어져 보인다.** 두 가지로 답:
+
+**(1) 무작위로 흩어진 게 아니다 — 배치 기준은 "그 검증에 필요한 정보가 어디 있나" 하나다.**
+| 검증 | 필요한 정보 | 정보가 있는 곳 |
+|---|---|---|
+| 비번 정책 | raw 비번 | 인코딩 전 = 웹/앱 경계 (이후 소멸) |
+| 이메일 형식 | 값 자체 | 어디든 → 도메인 가능 |
+| 유니크 | 다른 행들 | repo 너머 → 도메인 서비스 |
+
+정보가 없는 곳에선 검증 자체가 불가능 → 분산은 취향이 아니라 **제약의 결과**.
+
+**(2) 그래도 모으고 싶으면 — Value Object가 DDD의 표준 답.** 검증을 계층이 아니라 **값의 타입 안**에 가둔다:
+```java
+public record Email(String value) {
+    public Email { if (!value.matches("^[^@]+@[^@]+$")) throw new BusinessException(INVALID_EMAIL); }
+}
+public record RawPassword(String value) {
+    public RawPassword { if (value.length() < 8) throw new BusinessException(INVALID_PASSWORD); }
+}
+// 앱 서비스 — 검증 로직이 사라지고 "타입 생성"만 남음
+Email email = new Email(command.getEmail());              // 형식 검증 자동
+RawPassword raw = new RawPassword(command.getPassword()); // 정책 검증 자동 ← 비번 정책이 도메인(VO)으로 내려옴!
+String encoded = passwordEncoder.encode(raw.value());     // 인코딩(메커니즘)만 앱에 남음
+```
+- **유효하지 않은 값은 타입으로 존재 불가** — `Email` 인스턴스가 있다 = 형식이 맞다. `User.create(Email, ...)`로 받으면 재검증 불필요(타입이 증명). → "**parse, don't validate**" / "make illegal states unrepresentable".
+- VO 후 남는 분산은 유니크(도메인 서비스)뿐 — 옆 행이 필요해서 어쩔 수 없는 정당한 분리.
+- ⚠️ 비용: 클래스 증가 + `.value()` 변환 노이즈. 필드 2개짜리 모델엔 과할 수 있다(도메인 서비스 때와 같은 YAGNI 결). 웹 `@Valid`는 UX용으로 중복 유지 OK.
+
+> 💡 **검증 분산이 불편하면 계층이 아니라 타입(VO)으로 모은다.** 경계에서 한 번 파싱해 "유효함이 보장된 타입"으로 바꾸면, 안쪽은 검증을 반복하지 않고 타입을 믿는다. 남는 분산(유니크)만이 진짜 구조적 분산.
+
 | 빌딩블록 | 역할 | 비즈니스 로직? |
 |---|---|---|
 | **Entity** | 식별자 + 생명주기 + **자기 상태 불변식** | ✅ (rich) |
