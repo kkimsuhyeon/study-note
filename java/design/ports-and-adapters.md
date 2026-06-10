@@ -88,6 +88,11 @@ public class PasswordHasherAdapter implements PasswordHasher {
 - **쓰는 도메인이 둘 이상 되면 그때 공용 위치로 승격.**
 - 포트를 application에 두냐 domain(model 옆)에 두냐는 **학파 차이** — 헥사고날/클린=application 경계, DDD=도메인 계층. 둘 다 정당. (이 프로젝트는 전자)
 
+### 5-0. 포트 패키지 구성 — "계약 + 계약의 어휘", 나눌 땐 in/out
+
+- `port/`에 인터페이스(UserRepository·PasswordHasher)와 `UserCriteria`가 섞여 보여도 **이질적이지 않다** — UserCriteria는 일반 dto가 아니라 **포트 시그니처에 등장하는 타입**(계약의 어휘). 계약과 그 어휘는 함께 둔다. (로직은 전부 service/·model/에)
+- 커져서 나눌 땐 application처럼 종류별(dto/service)이 아니라 **방향별 `port/in`(유스케이스)·`port/out`(repo·외부)** — buckpal식 교과서 컨벤션. in port 생략 중이면 빈 폴더만 생기니, **파일 몇 개일 땐 평평하게**(미리 쪼개지 마라).
+
 ### 5-1. 포트 시그니처의 프레임워크 타입 — 자체 타입 vs `Page` 허용
 
 포트를 도메인으로 내리려면 시그니처의 `Page`/`Pageable`(Spring Data)이 걸림돌. 정석은 **자체 페이징 타입 + 어댑터 변환**:
