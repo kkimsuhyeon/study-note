@@ -19,6 +19,29 @@ UserService      ─ UserRepository 규격 ─ UserRepositoryAdapter ─ JPA/MyS
 - **꽂는 행위 = Spring DI** — 런타임에 `implements PasswordHasher`인 빈을 찾아 끼워줌.
 - **테스트 = 임시 플러그** — 포트가 함수형이면 람다로: `new UserRegistration(repoMock, raw -> "hashed:" + raw)`. 진짜 기계 없이 벽 배선만 검사.
 
+## 1-1. 의존성 규칙 — 모든 화살표는 안쪽으로 (직선이 아니라 부채꼴)
+
+**의존성 규칙(Dependency Rule)**: 소스코드 의존성(import)은 항상 **안쪽(핵심)으로만** 향한다. 단 한 줄 직선이 아니라 adapter가 두 갈래인 **부채꼴**:
+
+```
+adapter/in (controller) → application → service(도메인 서비스) → port → model
+adapter/out (persistence·security) ─────────────────────────→ port → model
+```
+
+- in 어댑터는 application을 *경유*해 들어오고, **out 어댑터는 port에 직접 꽂힌다**(`implements UserRepository`) — 문(in)과 플러그(out)의 차이.
+- 검증법: 안쪽 패키지(model/port/service)가 바깥(application/adapter)을 **import하는 순간 위반**.
+
+### ⭐ 소스 의존 방향 ≠ 런타임 호출 방향
+
+| | 방향 |
+|---|---|
+| **소스 의존** (import·컴파일) | 밖→안 (adapter가 port를 import) |
+| **런타임 호출** | 안→밖 (`register()` → `port.existsByEmail()` → 실행되는 건 바깥의 어댑터 → DB) |
+
+이 비틀림을 만드는 장치가 **포트(인터페이스)+DI** — 그게 의존성 역전(DIP)의 정체. 전통 레이어드(controller→service→repo구현→DB, 의존이 DB로 흘러내림)와의 결정적 차이.
+
+---
+
 ## 2. 실제 코드 (이 프로젝트)
 
 ```java
