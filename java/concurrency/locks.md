@@ -67,6 +67,37 @@ SELECT * FROM product WHERE id = 1 FOR UPDATE;  -- 이 row를 잠금
 
 ---
 
+## 1-1. JPA에서 — 켜는 방식이 다르고, 한 엔티티에 연산별로 공존한다
+
+| | 켜는 법 | 작동 시점 | repo 함수 |
+|---|---|---|---|
+| **낙관적** | **`@Version` 필드 존재만으로 자동**(선언적) | 저장(flush/commit) 시 | **전용 함수 불필요** — 평범한 `findById`+`save`가 이미 낙관적 |
+| **비관적** | 조회 함수에서 **명시적 opt-in** `@Lock(PESSIMISTIC_WRITE)` | 조회 시 (`SELECT … FOR UPDATE`) | **전용 함수 필요**(`findByIdForUpdate`) |
+
+```java
+// 낙관적 — @Version만 있으면 이 평범한 코드가 이미 낙관적 락
+User u = repository.findById(id).get();   // 일반 조회 (version=1 읽음)
+u.changeEmail(...);
+repository.save(u);                        // UPDATE … WHERE version=1 → 충돌 시 OptimisticLockException (자동)
+
+// 비관적 — 전용 함수로 명시
+User u = repository.findByIdForUpdate(id).get();  // SELECT … FOR UPDATE (명시적 opt-in)
+```
+
+### ⭐ 전략은 "엔티티"가 아니라 "연산(유스케이스)" 단위로 고른다 → 한 엔티티에 공존 가능
+판단 기준 = **충돌 빈도 + 충돌 비용**. 돈(잔액)처럼 잦고 치명적이면 비관적, 프로필 수정처럼 드물고 가벼우면 낙관적.
+→ `@Version`으로 **낙관적을 바닥에 깔고**, 잔액 같은 고가치·고충돌 경로만 `PESSIMISTIC_WRITE`로 **오버라이드**하는 게 자연스러운 조합. (이 프로젝트 `UserEntity`가 정확히 이 상태 — `@Version` + `findByIdForUpdate(PESSIMISTIC_WRITE)`. "중복"이 아니라 "낙관 베이스 + 비관 오버라이드".)
+
+> ⚠️ **낙관락이 "실제로 충돌을 잡으려면" 비관락 없는 쓰기 경로가 있어야 한다.** `@Version`은 기능으로 *항상 켜져 있지만*, 모든 쓰기가 `findByIdForUpdate`(비관)로만 가면 행이 이미 잠겨 **버전 충돌이 날 일이 없다**(version은 묻어 증가만). 낙관락이 "안 켜진" 게 아니라 **발동시킬 유스케이스(비관락 없이 읽고 쓰는 경로)가 없는 것.** 잔액만 있고 프로필 수정 경로가 없으면 낙관락은 묻어가는 상태.
+
+> ⚠️ **비관 경로에서도 `@Version`은 체크·증가된다**(무해). 그 경로의 실제 보호는 비관락이 하고 version 증가는 묻어감 → "두 전략이 싸우는" 게 아니다.
+
+> 💡 (특수) `@Version` 없이 낙관락을 *명시적으로 강제*하려면 `@Lock(OPTIMISTIC)` / `OPTIMISTIC_FORCE_INCREMENT`(읽기만 한 엔티티의 version도 올릴 때). 기본 충돌 감지엔 **`@Version`만으로 충분.**
+
+> 한 줄: **낙관 = `@Version` 선언만으로 자동(모든 update). 비관 = 조회 함수에서 `@Lock` 명시.** "낙관용 repo 함수"는 없다 — 필요한 건 "비관락 없이 읽고 쓰는 연산"뿐. 락은 엔티티가 아니라 연산별로 고른다. (read-modify-write 경계 → [읽기-수정-쓰기](../jpa/read-modify-write.md))
+
+---
+
 ## 2. 범위 축 — 락이 어디까지 유효한가
 
 ### (1) 프로세스(JVM) 내부 락 — 단일 서버에서만 유효
