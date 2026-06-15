@@ -225,6 +225,34 @@ nextPhase();
 
 ---
 
+## 7-2. Atomic* — 락 없는 원자적 카운터/연산 (java.util.concurrent.atomic)
+
+`AtomicInteger`/`AtomicLong`/`AtomicReference` 등. **락 없이** "읽고-고치고-쓰기"를 한 번에(원자적으로) 처리.
+
+```java
+AtomicInteger count = new AtomicInteger(0);
+count.incrementAndGet();        // ++count 를 원자적으로 (여러 스레드 동시 호출해도 안 깨짐)
+count.addAndGet(5);
+count.compareAndSet(10, 0);     // 현재 10이면 0으로 (CAS)
+int now = count.get();
+```
+
+### ⭐ 왜 필요한가 — 일반 `int count++`는 깨진다
+`count++`는 한 동작처럼 보이지만 실제론 **3단계(읽기→+1→쓰기)**. 두 스레드가 동시에 하면:
+```
+A: count(0) 읽음 ── +1 ── 1 씀
+B:    count(0) 읽음 ── +1 ── 1 씀   ← 둘 다 +1 했는데 결과 1 (하나 분실)
+```
+→ 이게 바로 **lost update**(락 노트의 그 문제)의 미니 버전. `AtomicInteger`는 내부적으로 **CAS(Compare-And-Swap)** — "내가 읽은 값이 그대로면 쓰고, 바뀌었으면 재시도"로 락 없이 정확성 보장.
+
+- **동시성 테스트에서 성공/실패 카운트**에 필수: `success.incrementAndGet()` (일반 int면 카운트 자체가 틀어짐). → [동시성 테스트](../test/concurrency-test.md)
+- 락(blocking) vs Atomic(non-blocking/CAS): 단일 변수 카운터·플래그엔 Atomic이 훨씬 가볍다. 여러 변수를 묶어 불변식을 지켜야 하면 락.
+- 비유: `@Version` 낙관락도 본질이 CAS(`WHERE version=?`) — Atomic은 그 **메모리 단일 변수판**.
+
+> 💡 **단일 변수의 카운트/플래그/누적 → Atomic*(락 불필요). 여러 변수·복합 상태 → 락.** `int++`는 멀티스레드에서 절대 안전하지 않다(3단계라서) — 카운터는 `AtomicInteger`.
+
+---
+
 ## 8. 선택 가이드
 
 ```
@@ -245,6 +273,7 @@ nextPhase();
 | Semaphore | permit N개로 동시 접근 제한 |
 | CountDownLatch | 0까지 대기, 일회성 |
 | CyclicBarrier | 전원 도착 시 통과, 재사용 |
+| AtomicInteger 등 | 락 없는 원자적 카운터/플래그 (CAS) |
 
 ---
 

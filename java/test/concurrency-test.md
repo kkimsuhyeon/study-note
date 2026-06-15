@@ -34,6 +34,15 @@ class UserConcurrencyTest {
 | `AtomicInteger` | 여러 스레드가 안전하게 증가시키는 정수 | 성공/실패 횟수 집계(race 없이) |
 | `executor.submit(Runnable)` | 풀에 작업 1개 제출(비동기 시작) | 각 스레드가 서비스 호출 |
 
+> 📌 **구조는 하나가 아니다 — "겹침을 얼마나 강제하나"의 스펙트럼.** 공통 뼈대는 **"풀로 N개 동시 실행 → 전원 완료 대기 → 결과 검증"**이고, 동시 출발 강제 수준만 고른다:
+> | 방식 | 겹침 강제 |
+> |---|---|
+> | `submit` N개 + `awaitTermination` | 약 (먼저 뜬 게 먼저 끝남) |
+> | `CompletableFuture.allOf(...).join()` | 약~중 (완료 대기 간결) |
+> | start latch 1개 + done 대기 | 중~강 |
+> | **latch 3개**(ready/start/done) | 강 (겹침 최대) |
+> → **비관 합계 검증**은 결국 직렬화돼 결과가 같으니 느슨해도 OK(1개·`allOf`로 충분). **낙관 충돌**처럼 *찰나에 겹쳐야* 재현되는 건 빡센 버전(3-latch)이 안정적. `AtomicInteger` 사용법·원리는 → [JVM 동시성 도구 §7-2](../concurrency/jvm-concurrency-tools.md), `CountDownLatch` → [§6](../concurrency/jvm-concurrency-tools.md).
+
 ### `CountDownLatch` 3개를 쓰는 이유 — "동시에 출발"시키려고
 스레드를 `submit`만 하면 **먼저 시작된 게 먼저 끝나버려** 겹침이 약하다(충돌 재현 X). 그래서 **출발선에 세워두고 동시에 출발**시킨다.
 
