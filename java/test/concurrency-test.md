@@ -75,6 +75,25 @@ executor.shutdown();
 ```
 > 💡 비유: `ready`=선수 전원 출발선 섰나 확인, `start`=총성(1발), `done`=전원 결승선 통과 대기. 총성을 1발(`start`=1)로 두고 전원이 그걸 기다려야 "동시 출발"이 된다.
 
+### 시간순 흐름 (한눈에)
+```
+[일꾼 스레드 10개]                       [main 스레드]
+각자 시작하며 ready.countDown() ───▶  ready.await() 에서 멈춤
+  (10→…→0)                              (0 되면 통과)
+start.await() 에서 ★전원 멈춤★    ◀───  start.countDown() (1→0) "땅!"
+  │ start 0 → 전원 동시 깨어남
+서비스 호출 → 성공:success++ / 충돌:fail++
+finally: done.countDown() ───────▶  done.await(10s) 에서 멈춤
+  (10→…→0)                              (0 되면 통과)
+                                     executor.shutdown()
+```
+- `countDown()` = 카운터 -1(안 멈춤) / `await()` = 0 될 때까지 **그 스레드를 멈춤**(=기다림).
+- 멈추는 줄은 `ready.await()`·`done.await()`(main이 멈춤)와 `start.await()`(일꾼들이 멈춤). 나머지(`countDown`/`shutdown`)는 안 멈춤.
+
+> ⚠️ **`done.countDown()`은 반드시 `finally`에.** 작업이 성공하든 예외(낙관락 충돌)가 나든 *무조건* 깎여야 한다. `try` 안에만 두면 예외난 스레드가 done을 안 깎아 → main의 `done.await()`가 **0이 안 돼 타임아웃까지 멈춤**. `finally`라 안전.
+
+> ⚠️ **`ready`가 "공정한 출발"을 보장.** ready 없이 바로 `start.countDown()` 하면 아직 `submit`되어 시작도 안 한 일꾼이 있을 수 있다 → ready로 **전원이 `start.await()` 직전(출발선)에 도착**한 걸 확인하고 총을 쏜다. (latch가 3개인 이유)
+
 ---
 
 ## 3. 검증은 락 종류마다 다르다

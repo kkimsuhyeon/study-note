@@ -196,6 +196,24 @@ System.out.println("모든 작업 완료");
 - **일회성**: 0이 되면 끝, 재사용 불가.
 - 용례: **여러 작업이 다 끝나길 대기**, 또는 `N=1`로 "시작 신호" 동시 출발.
 
+### 어디서 쓰나 — 테스트가 흔하지만 그것만은 아니다
+- **테스트**: 여러 스레드 동시 출발/완료 대기 (제일 흔함) → [동시성 테스트](../test/concurrency-test.md)
+- **앱 스타트업**: N개 초기화(캐시 로드·커넥션 준비)가 다 끝난 뒤 서비스 오픈
+- **scatter-gather**: 병렬 호출 N개 다 받고 집계 (요즘은 `CompletableFuture.allOf`가 더 흔함)
+- ⚠️ **일상 CRUD/기능 코드에선 직접 쓸 일이 드물다** — 보통 `CompletableFuture`/`parallelStream`/구조적 동시성 같은 상위 추상화로 대체. raw `CountDownLatch`는 **테스트·인프라·스타트업**에 주로 남는다.
+
+### ⚠️ AtomicInteger와 같은 거 아니다 — "대기"가 핵심 차이
+둘 다 내부에 정수를 들지만 목적이 정반대:
+| | `AtomicInteger` | `CountDownLatch` |
+|---|---|---|
+| 목적 | 스레드 안전한 **카운터/값** | **0 될 때까지 대기**하는 게이트/신호 |
+| 대기(블록)? | ❌ 안 멈춤(즉시 반환) | ✅ `await()`가 멈춤 |
+| 방향 | 증가·감소 자유 | **감소만** |
+| 재사용 | ✅ | ❌ 일회성(재사용은 CyclicBarrier/Phaser) |
+| 반환 | 현재 값 | 없음(대기자만 풀어줌) |
+
+> AtomicInteger = "안전하게 **센다**(안 기다림)", CountDownLatch = "0 될 때까지 **기다린다**". 카운트는 게이트를 여는 *수단*일 뿐. 그래서 내부 구현도 AtomicInteger가 아니라 **대기 스레드 큐(AQS)** 기반. (동시성 테스트에서 success/fail=Atomic[대기 불필요], start/done=Latch[대기 필요]로 역할이 갈린다.)
+
 ---
 
 ## 7. CyclicBarrier — N개가 다 모이면 함께 통과 (재사용)
