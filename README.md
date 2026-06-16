@@ -11,6 +11,7 @@
 - [ ] [가상 스레드 - Java 21 JEP444 / M:N·캐리어·unmount / pinning(JEP491) / 락은 그대로 필요](./java/concurrency/virtual-threads.md)
 - [ ] [락 개념 종합 - 낙관적/비관적/분산 락](./java/concurrency/locks.md)
 - [ ] [JVM 동시성 도구 - synchronized/ReentrantLock/Semaphore/Latch/Barrier 등](./java/concurrency/jvm-concurrency-tools.md)
+- [ ] [동시성 도구 목적별 정리 & 선택 가이드 - 만들기/조합(CompletableFuture)/대기/세기/정합성 / 최신≠최선](./java/concurrency/concurrency-tool-guide.md)
 - [ ] [데드락(교착 상태) - Coffman 4조건/예방/DB 자동 감지](./java/concurrency/deadlock.md)
 
 ### JPA
