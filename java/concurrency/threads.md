@@ -2,7 +2,7 @@
 
 > **한 줄 요약**: **프로세스** = 실행 중인 프로그램(자기 메모리 공간), **스레드** = 그 안에서 실제로 코드를 실행하는 흐름(한 프로세스 안 스레드들은 **힙 메모리를 공유**). 자바의 기본 스레드(**플랫폼 스레드**)는 **OS 스레드와 1:1**이라 비싸다(스택 ~1MB, 수천 개가 한계). 그래서 직접 만들기보다 **스레드 풀(`ExecutorService`)**로 재사용한다. 스레드들이 힙을 공유하므로 → **race condition** → 그래서 락/동기화가 필요해진다.
 
-관련 노트: [JVM 동시성 도구](./jvm-concurrency-tools.md) · [락 개념](./locks.md) · [가상 스레드](./virtual-threads.md)
+관련 노트: [JVM 동시성 도구](./jvm-concurrency-tools.md) · [락 개념](./locks.md) · [가상 스레드](./virtual-threads.md) · [메모리 가시성](./memory-visibility.md)
 
 ---
 
@@ -88,7 +88,7 @@ NEW → RUNNABLE ⇄ (BLOCKED / WAITING / TIMED_WAITING) → TERMINATED
 
 스레드들이 **힙을 공유**(§1)하므로, 같은 데이터를 동시에 건드리면:
 - **race condition** — `count++`(읽기→+1→쓰기)가 겹쳐 갱신 분실 (→ [JVM 도구 §7-2 Atomic](./jvm-concurrency-tools.md))
-- **가시성** — 한 스레드의 변경이 다른 스레드에 안 보임(`volatile`/메모리 배리어 필요)
+- **가시성** — 한 스레드의 변경이 다른 스레드에 안 보임(`volatile`/메모리 배리어 필요) (→ [메모리 가시성](./memory-visibility.md))
 - 해결: **동기화 도구·락** (→ [JVM 동시성 도구](./jvm-concurrency-tools.md), [락 개념](./locks.md))
 
 ---

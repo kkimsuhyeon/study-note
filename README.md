@@ -9,6 +9,7 @@
 ### Concurrency (동시성)
 - [ ] [스레드 기초 - 프로세스/스레드/플랫폼 스레드(OS 1:1)/생명주기 / 힙 공유→race](./java/concurrency/threads.md)
 - [ ] [가상 스레드 - Java 21 JEP444 / M:N·캐리어·unmount / pinning(JEP491) / 락은 그대로 필요](./java/concurrency/virtual-threads.md)
+- [ ] [메모리 가시성 - volatile·happens-before(JMM) / 가시성≠원자성 / volatile로 count++ 안 됨](./java/concurrency/memory-visibility.md)
 - [ ] [락 개념 종합 - 낙관적/비관적/분산 락](./java/concurrency/locks.md)
 - [ ] [JVM 동시성 도구 - synchronized/ReentrantLock/Semaphore/Latch/Barrier 등](./java/concurrency/jvm-concurrency-tools.md)
 - [ ] [동시성 도구 목적별 정리 & 선택 가이드 - 만들기/조합(CompletableFuture)/대기/세기/정합성 / 최신≠최선](./java/concurrency/concurrency-tool-guide.md)
@@ -68,6 +69,11 @@
 
 ## Infra / 분산 환경
 - [ ] [스케일 아웃 & 배포 모델 - 1 JVM/인스턴스 복제/로드밸런서 vs 오토스케일러/무상태](./infra/scaling.md)
+
+### 네트워크 (Network)
+- [ ] [포트와 listen - 연결 거부(refused) vs 응답 없음(timeout) / localhost vs 0.0.0.0 바인딩](./infra/network/ports-and-listen.md)
+- [ ] [SSH 포트 포워딩 - -L/-R/-D / 중간 호스트는 원격 기준 해석 / 막힌 포트 우회](./infra/network/ssh-port-forwarding.md)
+- [ ] [SSH config - Host 별칭 / LocalForward·IdentityFile / 작업·터널 별칭 분리](./infra/network/ssh-config.md)
 
 ---
 
