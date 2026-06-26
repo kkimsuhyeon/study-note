@@ -15,6 +15,8 @@
 | `@DataJpaTest` | JPA 계층 | Repository, 매핑, 쿼리 |
 | `@SpringBootTest` | 전체 컨텍스트 | 통합 흐름, 설정, 빈 연결 |
 
+> **선행지식 — "슬라이스"란.** `@SpringBootTest`가 전체 자동설정을 켜는 반면, `@WebMvcTest`/`@DataJpaTest`는 **그 계층에 필요한 자동설정만 부분 적용**한다(슬라이스 = 잘라낸 한 조각). 그래서 빠르지만, 슬라이스 밖의 빈(예: `@Service`)은 안 떠서 `@MockBean`으로 채워야 한다.
+
 ---
 
 ## 2. 순수 단위 테스트
@@ -28,6 +30,8 @@ class PointServiceTest {
 ```
 
 Spring을 띄우지 않는다. 빠르고 실패 원인이 좁다. 서비스 로직 대부분은 이 방식으로 먼저 검증한다.
+
+> ⚠️ 엄밀히는 두 가지가 섞여 있다 — 위 `@ExtendWith(MockitoExtension)` + `@Mock`은 **mock 기반 단위 테스트**(서비스 분기·상호작용)이고, **진짜 "순수" 도메인 테스트**는 확장 없이 `new`로 찍어 검증한다(계산·불변식). 전자의 상세(given/verify/ArgumentCaptor) → [Mockito 서비스 테스트](./mockito-service-test.md).
 
 ---
 
@@ -57,7 +61,7 @@ class PointRepositoryTest {
 }
 ```
 
-엔티티 매핑, Repository 쿼리, flush/clear 이후 DB 왕복 검증에 좋다.
+엔티티 매핑, Repository 쿼리, flush/clear 이후 DB 왕복 검증에 좋다. (persist≠INSERT, `TestEntityManager`, `replace` 옵션, Testcontainers 상세 → [JPA Repository 테스트](./jpa-repository-test.md))
 
 DB 방언, 락, 동시성처럼 H2로 재현이 애매한 것은 Testcontainers를 고려한다.
 
@@ -99,7 +103,8 @@ class PointIntegrationTest {
 - 모든 테스트를 `@SpringBootTest`로 쓰면 느리고 실패 원인이 흐려진다.
 - `@WebMvcTest`에서 서비스 로직까지 검증하려 하면 mock 설정만 복잡해진다.
 - `@DataJpaTest`에서 `save()`만 호출하고 끝내면 실제 INSERT/UPDATE 검증이 약하다. flush/clear 후 다시 조회한다.
-- 슬라이스 테스트는 일부 빈만 뜨므로 필요한 의존성은 mock이나 test configuration으로 명시해야 한다.
+- 슬라이스 테스트는 일부 빈만 뜨므로 필요한 의존성은 mock이나 test configuration으로 명시해야 한다. (그래서 `@WebMvcTest`는 서비스를 `@MockBean`/`@MockitoBean`으로 올려야 `@Autowired`가 실패하지 않는다.)
+- **`@WebMvcTest` + Spring Security 함정**: 시큐리티 필터가 같이 떠서 인증 없는 요청이 401/403으로 막힌다 → 테스트에서 `@WithMockUser`로 인증을 주거나 `@AutoConfigureMockMvc(addFilters = false)`로 필터를 끈다.
 
 ---
 
