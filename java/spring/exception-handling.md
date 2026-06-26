@@ -60,10 +60,17 @@ public class GlobalExceptionHandler {
                 .status(code.getStatus())
                 .body(ErrorResponse.from(code));
     }
+
+    @ExceptionHandler(Exception.class)   // 최후의 안전망 — 위에서 안 잡힌 것만
+    public ResponseEntity<ErrorResponse> handleUnexpected(Exception e) {
+        log.error("unhandled exception", e);              // 원인은 로그로 남기고
+        return ResponseEntity.status(500)
+                .body(ErrorResponse.of("INTERNAL_ERROR")); // 상세 메시지는 노출 안 함
+    }
 }
 ```
 
-컨트롤러마다 try-catch를 두지 않고 공통 처리한다.
+컨트롤러마다 try-catch를 두지 않고 공통 처리한다. 가장 **구체적인 예외 타입의 핸들러가 우선 매칭**되므로, `Exception.class` fallback은 위의 `BusinessException` 핸들러를 가리지 않는다. 단 fallback에서 **원인을 잃지 않게 반드시 로그를 남긴다**(§7 함정) — 안 그러면 500만 보이고 stack trace가 사라진다.
 
 ---
 
@@ -84,6 +91,8 @@ public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidExce
             .body(ErrorResponse.validation(messages));
 }
 ```
+
+> ⚠️ **검증 위치에 따라 터지는 예외가 다르다.** 위 `MethodArgumentNotValidException`은 `@RequestBody @Valid`(본문 객체) 케이스다. **`@RequestParam`/`@PathVariable`에 `@Validated`로 건 제약**(`@Min` 등)이 깨지면 `ConstraintViolationException`(스프링 6.1+는 `HandlerMethodValidationException`)으로 **다른 예외**가 뜬다 → 핸들러를 따로 등록하지 않으면 400이 아니라 500으로 샌다. (어떤 어노테이션이 무엇을 트리거하나 → [@Valid · @Validated](./validation.md))
 
 ---
 

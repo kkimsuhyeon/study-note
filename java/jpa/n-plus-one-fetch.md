@@ -30,6 +30,8 @@ for (Order order : orders) {
 
 JPA 연관관계는 보통 지연 로딩(`LAZY`)으로 둔다. 지연 로딩은 나쁜 게 아니다. 필요할 때만 읽으니 기본값으로 좋다.
 
+> **선행지식 — 지연 로딩은 "프록시"로 동작한다.** LAZY면 연관 객체 자리에 **프록시(가짜 객체)**를 끼워두고, 실제로 그 필드에 접근하는 순간 쿼리를 날려 채운다(→ [영속성 컨텍스트](./persistence-context.md)). N+1은 바로 그 "접근 시 쿼리"가 루프를 돌며 N번 반복되는 것.
+
 문제는 **목록 화면에서 연관 데이터를 매번 필요로 하는데도**, 그 사실을 쿼리에 알려주지 않을 때 생긴다.
 
 ---
@@ -61,17 +63,24 @@ List<Order> findByStatusWithMember(OrderStatus status);
 
 ---
 
-## 5. 컬렉션 fetch join + 페이징 주의
+## 5. ⚠️ 컬렉션 fetch join + 페이징 = 메모리 페이징(OOM)
 
-`OneToMany` 컬렉션을 fetch join하면 row가 늘어난다.
+`OneToMany` 컬렉션을 fetch join하면 row가 늘어난다. 주문 1개에 주문상품 3개면 SQL 결과 row는 3개 — 엔티티 개수(주문 1)와 row 수(3)가 안 맞는다.
 
-예를 들어 주문 1개에 주문상품 3개가 있으면 SQL 결과 row는 3개다. 이 상태에서 DB 페이징을 걸면 "주문 기준" 페이징이 아니라 "join 결과 row 기준" 페이징이 되어 의도와 달라질 수 있다.
+그래서 Hibernate는 이때 **`LIMIT`/`OFFSET`을 SQL에 넣지 못한다.** `Pageable`(= `setFirstResult`/`setMaxResults`)을 같이 주면 잘리는 게 아니라 **전체 row를 메모리로 다 읽은 뒤 애플리케이션 메모리에서 페이징**한다 → 데이터가 많으면 **OOM**. 로그에 경고가 뜬다:
+
+```
+HHH000104: firstResult/maxResults specified with collection fetch; applying in memory!
+```
+
+> ⚠️ 흔한 오해 교정: "주문이 아니라 row 기준으로 잘린다"가 아니라 **"페이징이 SQL에서 안 되고 전부 메모리에 올라온다(OOM 위험)"**가 진짜 함정. → 컬렉션은 fetch join과 페이징을 같이 쓰지 말 것.
 
 실무 선택:
 
-- 단일 연관은 fetch join
-- 컬렉션은 batch size나 별도 조회
-- 목록 API는 DTO 조회 고려
+- 단일 연관(`ManyToOne`/`OneToOne`)은 fetch join (row 안 늘어남)
+- 컬렉션 + 페이징은 batch size로 (컬렉션은 LAZY 두고 1+몇 번으로 — §6)
+- 목록 API는 DTO 조회
+- 딥페이지·대용량 목록 자체의 성능은 keyset/`Window` → [spring-data-query](./spring-data-query.md) §8 고려
 
 ---
 

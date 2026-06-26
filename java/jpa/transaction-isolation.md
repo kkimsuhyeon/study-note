@@ -32,6 +32,8 @@ Lost Update는 단순 격리 수준만으로 해결된다고 외우면 위험하
 
 ## 3. 격리 수준 한눈에
 
+> **선행지식 — MVCC.** READ COMMITTED·REPEATABLE READ가 "커밋된 것만 / 반복 조회 안정"을 어떻게 보장하나? 행을 잠그는 게 아니라, 정해진 시점의 **스냅샷(행의 버전)**을 읽기 때문이다(MVCC, 다중 버전 동시성 제어). 그래서 **읽기가 쓰기를 막지 않는다** — 락과는 별개 메커니즘. (PostgreSQL·MySQL InnoDB 둘 다 MVCC 기반)
+
 | 격리 수준 | 대략적 의미 | 막는 것 |
 |---|---|---|
 | READ UNCOMMITTED | 커밋 안 된 것도 볼 수 있음 | 거의 없음 |
@@ -39,7 +41,7 @@ Lost Update는 단순 격리 수준만으로 해결된다고 외우면 위험하
 | REPEATABLE READ | 같은 트랜잭션 안에서 같은 행은 반복 조회 안정 | Dirty Read, Non-repeatable Read |
 | SERIALIZABLE | 트랜잭션이 순서대로 실행된 것처럼 보장 | Dirty Read, Non-repeatable Read, Phantom Read |
 
-주의: 이름이 같아도 DB마다 구현이 다르다. MySQL InnoDB의 `REPEATABLE READ`와 PostgreSQL의 `REPEATABLE READ`는 내부 방식과 충돌 처리 방식이 다르다.
+주의: 이름이 같아도 DB마다 구현이 다르다. 예) **MySQL InnoDB의 `REPEATABLE READ`는 next-key lock으로 Phantom까지 사실상 막는다**(위 표의 "SERIALIZABLE만 Phantom 차단"은 SQL 표준 정의 기준일 뿐). **PostgreSQL의 `REPEATABLE READ`는 스냅샷 격리(SI)**라 Phantom은 막지만 표준 SERIALIZABLE과는 위치가 다르다. → 격리 수준 이름만 믿지 말고 쓰는 DB의 실제 동작을 확인할 것.
 
 ---
 
@@ -55,6 +57,8 @@ Optional<Product> findById(Long id);
 위 쿼리는 조회 대상 행에 쓰기 락을 걸어 다른 트랜잭션의 수정을 기다리게 만든다.
 
 격리 수준을 무작정 높이는 것보다, 실제 충돌 지점에 락이나 조건부 UPDATE를 거는 편이 더 명확한 경우가 많다.
+
+> 락 모드(공유/배타, `OPTIMISTIC` / `PESSIMISTIC_WRITE` / `FORCE_INCREMENT`)의 상세는 → [@Lock 심화 개념](./lock-concepts.md). 이 노트는 "격리 수준과 락은 다른 축"까지만 다룬다.
 
 ---
 
