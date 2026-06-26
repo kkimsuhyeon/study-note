@@ -197,7 +197,7 @@ No validator could be found for constraint '...' validating type '...'
 ## 7. 참고
 - [Jakarta Bean Validation 스펙](https://beanvalidation.org/)
 - [Spring - Validation](https://docs.spring.io/spring-framework/reference/core/validation/beanvalidation.html)
-- 관련 노트: [@Transactional](./transactional.md)
+- 관련 노트: [@Transactional](./transactional.md) · [Spring 예외 처리](./exception-handling.md) — 검증 실패가 어떤 예외로 잡혀 응답이 되나
 
 ---
 

@@ -124,7 +124,7 @@ amount.signum() == 0                   // ✅ signum: 부호만 (-1/0/1) 반환,
 
 - **scale** = 소수점 이하 자릿수. `new BigDecimal("500.00").scale()` → `2`.
 - `setScale(2, RoundingMode.HALF_UP)` — 자릿수 고정(반올림). 돈을 "원 단위/소수 2자리"로 맞출 때.
-- `stripTrailingZeros()` — 뒤 0 제거(`500.00` → `5E+2`, 표시 주의. `toPlainString()`과 함께).
+- `stripTrailingZeros()` — 뒤 0 제거(`500.00` → `5E+2`. ⚠️ 정수부 0도 지수로 빠지니, 표시엔 반드시 `toPlainString()`: `5E+2` → `"500"`).
 
 ```java
 new BigDecimal("500.0").setScale(0, RoundingMode.HALF_UP);  // 500
