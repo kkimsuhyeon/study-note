@@ -287,7 +287,7 @@ assertThat(captor.getValue().getRole()).isNull();
 ```java
 import static org.assertj.core.api.Assertions.assertThat;
 
-// 여러 단언을 한 번에 (하나 실패해도 나머지 다 검사 → 실패 원인 한눈에)
+// 여러 필드를 한 람다로 묶어 검증 (satisfies = 첫 실패에서 멈춤 — soft 아님)
 org.assertj.core.api.Assertions.assertThatObject(user)
     .satisfies(u -> {
         assertThat(u.getId()).isEqualTo("u1");
@@ -296,6 +296,16 @@ org.assertj.core.api.Assertions.assertThatObject(user)
 
 assertThat(value).as("잔액은 충전 후 500이어야 함").isEqualByComparingTo("500");  // 실패 메시지에 설명 표시
 ```
+
+> ⚠️ **`satisfies`는 soft assertion이 아니다 — 첫 단언 실패에서 멈춘다.** "하나 실패해도 나머지까지 다 검사해 한 번에 모아 보고"는 **`assertSoftly`(SoftAssertions)**의 동작이다:
+> ```java
+> import static org.assertj.core.api.SoftAssertions.assertSoftly;
+> assertSoftly(softly -> {
+>     softly.assertThat(u.getId()).isEqualTo("u1");
+>     softly.assertThat(u.getBalance()).isEqualByComparingTo("500");   // 앞이 실패해도 이것도 검사
+> });   // 블록 끝에서 실패들을 한꺼번에 리포트
+> ```
+> `satisfies` = "여러 필드를 한 묶음으로 표현", `assertSoftly` = "실패를 모아 한 번에 보기". 용도가 다르다.
 
 ---
 

@@ -41,6 +41,7 @@ User b = UserFixture.withEmail("b@test.com");
 ```java
 public class UserBuilder {
     private String email = "test@test.com";        // 기본값
+    private String password = "password123";       // 기본값 (안 바꾸는 축이라 체이닝 메서드 없음 — §3)
     private BigDecimal balance = BigDecimal.ZERO;
     private UserRole role = UserRole.USER;
 
