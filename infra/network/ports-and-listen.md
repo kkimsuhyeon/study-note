@@ -62,6 +62,7 @@ curl http://localhost:10531/v1/models   # HTTP 서버면
 
 ## 참고
 
+- ⚠️ 용어 충돌: 여기서 "포트"는 **TCP/IP 포트**(네트워크 호실 번호). [ports-and-adapters.md](../../java/design/ports-and-adapters.md)의 "포트"는 **헥사고날 아키텍처의 인터페이스**로, 같은 단어지만 완전히 다른 개념이다.
 - 다음 노트: [ssh-port-forwarding.md](./ssh-port-forwarding.md) — 막힌 포트를 SSH로 우회
 - 학습 날짜: 2026-06-26
 - 계기: 다른 컴퓨터(맥미니)에서 돌리는 로컬 LLM에 코드리뷰 도구를 붙이려다, 직접 접근이 timeout나는 걸 보고 refused와의 차이를 정리.

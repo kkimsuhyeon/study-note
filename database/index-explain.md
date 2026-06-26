@@ -63,6 +63,8 @@ where extract(year from created_at) = 2024
 
 컬럼에 함수를 씌우면 DB가 인덱스의 정렬된 값을 그대로 쓰기 어렵다. 날짜 필터는 보통 반열린 범위 조건으로 만든다.
 
+> **선행지식 — 왜 함수를 씌우면 인덱스가 죽나.** B-tree 인덱스는 **컬럼 값을 정렬해서** 저장한다. `created_at`이 정렬돼 있으니 범위(`>= ~ <`)는 "시작점 찾아 쭉 읽기"로 빠르다. 그런데 `extract(year from created_at)`는 **원본이 아니라 계산 결과**라, 정렬된 원본 인덱스로는 그 결과를 짚을 수 없다 → 전 row를 계산해보는 full scan. "컬럼을 가공하면 정렬이 무의미해진다"가 sargable의 본질.
+
 ---
 
 ## 4. 복합 인덱스 순서
@@ -112,7 +114,7 @@ where user_id = ?
 ## 7. 함정
 
 - `like '%keyword'`는 일반 B-tree 인덱스를 잘 못 탄다.
-- `where date(created_at) = ?`처럼 컬럼에 함수를 씌우면 인덱스를 못 탈 수 있다.
+- `where date(created_at) = ?`처럼 컬럼에 함수를 씌우면 인덱스를 못 탈 수 있다. (탈출구: 조건을 범위로 바꾸거나, PostgreSQL이면 **함수 기반 인덱스** `create index on t (date(created_at))`로 계산 결과 자체를 인덱싱.)
 - 실행 계획의 row 추정이 틀리면 통계 갱신이 필요할 수 있다.
 - 개발 DB의 작은 데이터로는 인덱스 효과가 안 보일 수 있다.
 

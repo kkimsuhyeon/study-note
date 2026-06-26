@@ -15,6 +15,8 @@
 | 검증 | `matches(raw, hash)` | 복호화해서 평문 비교 |
 | 저장값 | bcrypt/argon2 해시 (매번 salt 다름) | AES 등 암호문 (키로 복원) |
 
+> **선행지식 — 왜 해시에 salt가 필요한가.** 같은 비번은 같은 해시 → 공격자가 "흔한 비번 → 해시" 사전(rainbow table)을 미리 만들어두면 역추적된다. **salt**(임의 값)를 비번에 섞어 해시하면 같은 비번도 매번 다른 해시가 되어 사전이 무력화. bcrypt/argon2는 salt를 **해시 문자열 안에 함께 저장**한다(그래서 `matches`가 거기서 salt를 꺼내 비교 — §3-2).
+
 ---
 
 ## 2. 비밀번호 — `PasswordEncoder` (표준 패턴)
@@ -38,7 +40,8 @@ if (!passwordEncoder.matches(raw, user.getPassword())) {
 }
 ```
 
-- **`DelegatingPasswordEncoder`**: 저장값이 `{bcrypt}$2a$10$...`처럼 알고리즘 접두사를 가져, 나중에 argon2 등으로 **점진 마이그레이션**이 가능(기존 해시도 그대로 검증). 요즘 스프링 시큐리티 기본 권장.
+- **`DelegatingPasswordEncoder`**: 저장값이 `{bcrypt}$2a$10$...`처럼 알고리즘 접두사를 가져, 나중에 argon2 등으로 **점진 마이그레이션**이 가능(기존 해시도 그대로 검증). 요즘 스프링 시큐리티 기본 권장. (`{noop}`은 평문—변환 안 함—이라 테스트/데모 전용. 운영에 쓰면 평문 저장.)
+- ⚠️ **bcrypt는 입력 72바이트까지만 본다** — 그보다 긴 비번은 뒤가 잘려 무시된다(긴 passphrase·멀티바이트에서 함정). 더 긴 입력이 필요하면 argon2/scrypt.
 - **위치 = 앱 서비스**(`AuthService`). 인코딩은 보안 *메커니즘*이라 도메인(엔티티/도메인서비스)에 넣지 않는다 — `PasswordEncoder`는 스프링 시큐리티 인프라라 도메인이 알면 순수성이 깨진다. (→ [domain-validation §4-1](../design/domain-validation.md): 메커니즘은 앱/인프라)
 
 ---
