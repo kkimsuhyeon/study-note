@@ -228,7 +228,7 @@ Controller (web)
 ```
 
 > ⚠️ **Entity는 "repo 다음 계층"이 아니다.** 엔티티는 **서비스가 만들고(`create`) repo가 저장/조회하는(`save`/`find`) *대상***. repo↔entity는 직렬(→)이 아니라, 서비스가 **둘 다 쓰는** 관계. 흐름은 직선이 아니라 트리 — 한 서비스가 repo도 부르고 엔티티도 만든다.
-> 의존 방향(헥사고날): `service → Repository(포트/도메인 추상) → Adapter(인프라) → DB`. 바깥(controller)→안(domain)으로 호출이 흐르고, 안쪽은 바깥을 모른다.
+> 의존 방향(헥사고날): `service → Repository(포트/도메인 추상) → Adapter(인프라) → DB`. 바깥(controller)→안(domain)으로 호출이 흐르고, 안쪽은 바깥을 모른다. (포트·어댑터·의존성 규칙·"소스 의존 ≠ 호출 방향" 상세 → [포트와 어댑터](./ports-and-adapters.md))
 
 > ⚠️ **Domain Service ≠ 유틸 클래스.** 유틸(`SpecificationUtils` 같은)은 무상태 기술 헬퍼(static). Domain Service는 **도메인 개념을 표현하는 객체(빈)**, 도메인 언어로 이름 붙이고 **repo 포트를 주입받을 수 있다.** 위치는 도메인 계층(`domain/.../service`)의 별도 클래스 — "엔티티 폴더 안 유틸"이 아님.
 
