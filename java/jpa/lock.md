@@ -81,6 +81,8 @@ while (true) {
 }
 ```
 
+> ⚠️ 재시도는 **트랜잭션 바깥**(위처럼 서비스 호출을 통째로 다시)이라야 한다 — `@Transactional` *안*에서 `catch`하면 예외는 commit 시점에 터져 안 잡히고, 트랜잭션은 이미 rollback-only다. (왜·`@Retryable` 패턴 → [@Lock 실무 패턴 §6](./lock-practical.md))
+
 > 위 모드/전략에서 헷갈리는 부분(@Version만 vs @Lock(OPTIMISTIC), 공유락 vs 배타락, OPTIMISTIC vs FORCE_INCREMENT)은 [@Lock 심화 개념](./lock-concepts.md)에서 따로 정리.
 
 ---
