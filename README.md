@@ -39,6 +39,9 @@
 ### Collections (컬렉션)
 - [ ] [리스트 생성 - singletonList/List.of/Arrays.asList, "불변 × 원소 개수"는 별개 축](./java/collections/list-creation.md)
 
+### Generics (제네릭)
+- [ ] [가변인자(varargs) & @SafeVarargs - 제네릭 varargs의 heap pollution(타입안전성 오염) / 붙일 수 있는 위치 / 읽기만·노출 금지](./java/generics/varargs-safevarargs.md)
+
 ### Test (테스트 도구 사용법)
 - [ ] [AssertJ 사용법 - assertThat / isEqualByComparingTo / assertThatThrownBy](./java/test/assertj.md)
 - [ ] [테스트 방법론 핵심 요약 - 판단 공식 + 막힌 케이스 누적 (상세는 프로젝트 가이드)](./java/test/test-writing-guide.md)
