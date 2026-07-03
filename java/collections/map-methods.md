@@ -77,6 +77,26 @@ minutes.merge(date, dayMinutes, Long::sum);         // 일자별 분 합산
 
 → `new ArrayList<>()`처럼 싸면 아무거나, DB 조회처럼 비싸면 computeIfAbsent. 반환값을 이어서 쓸 거면 computeIfAbsent가 편하다 (putIfAbsent는 "없었으면 null"을 돌려줘서 한 번 더 분기 필요).
 
+## Collectors.toMap — 중복 키·null 함정
+
+스트림을 Map으로 모을 때 쓰는 `Collectors.toMap`은 인자 개수에 따라 동작이 다르다:
+
+```java
+// 2인자 — 키 중복 시 IllegalStateException 던지고 죽는다!
+stream.collect(Collectors.toMap(Record::getDate, Function.identity()));
+
+// 3인자 — merge 함수가 충돌 시 승자를 결정
+stream.collect(Collectors.toMap(Record::getDate, Function.identity(), (a, b) -> a));        // 먼저 것 승리
+stream.collect(Collectors.toMap(Emp::getEmpNo, Function.identity(), (before, after) -> after)); // 나중 것 승리
+
+// 4인자 — 맵 구현체까지 지정 (순서 유지 등)
+stream.collect(Collectors.toMap(k, v, merge, LinkedHashMap::new));
+```
+
+- **2인자 버전은 "중복 키가 없다"는 단언이다.** 데이터가 유니크 보장(UNIQUE 제약 등)이면 2인자가 오히려 명확하고(중복=버그를 즉시 드러냄), 보장이 없으면 3인자로 방어해야 한다.
+- **merge 함수의 "나중 것"은 스트림 순서에 달려 있다** — DB 조회 결과라면 ORDER BY가 없을 때 어느 row가 이길지 비결정적. "말일에 가까운 매핑 승리" 같은 규칙이 필요하면 정렬로 보장하고 나서 `(before, after) -> after`를 써야 한다.
+- **value가 null이면 NPE** — toMap은 값 null을 허용하지 않는다 (HashMap 자체는 허용해도, toMap 구현이 merge 로직에서 null을 못 다룸). null 값 가능성이 있으면 `groupingBy`나 수동 for-put으로.
+
 ## ⚠️ 함정
 
 - **compute류 람다가 null을 반환하면 맵에 저장되지 않는다** (computeIfPresent/compute/merge는 기존 엔트리 **제거**). computeIfAbsent에서 로드 실패로 null이 나오면 → 캐싱이 안 돼서 **다음 루프에서 또 실행**된다 (실패 캐싱 안 됨). 실패도 캐싱하려면 Optional이나 sentinel 값을 넣거나 try-catch로 따로 관리.
