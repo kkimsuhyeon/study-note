@@ -33,6 +33,7 @@
 - [ ] [@Valid · @Validated - Bean Validation 동작·위치, 중첩 cascade 함정](./java/spring/validation.md)
 - [ ] [Spring 예외 처리 - @ControllerAdvice, ErrorCode, Validation 예외 흐름](./java/spring/exception-handling.md)
 - [ ] ["배치"의 세 층위 - 쿼리 배치화(N+1→IN+groupingBy) / Spring Batch(스케줄러 없음!) / JDBC 쓰기 배치](./java/spring/batch-three-meanings.md)
+- [ ] [SseEmitter 서버 구현 - 서블릿 async(스레드 즉시 반납) / send·event()빌더·콜백3종 / 두 패턴(세션푸시+저장소·Pub/Sub / relay+구독) / 이벤트루프 블로킹 금지·boundedElastic](./java/spring/sse-emitter.md)
 
 ### BigDecimal
 - [ ] [BigDecimal - 돈·정밀 계산, equals vs compareTo, scale, 반올림](./java/bigdecimal/bigdecimal.md)

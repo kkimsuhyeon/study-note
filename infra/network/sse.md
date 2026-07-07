@@ -85,6 +85,8 @@ while (true) {
 
 ## 서버 구현: Spring MVC의 SseEmitter
 
+> 아래는 개념 스케치. **구현 심화**(서블릿 async 메커니즘 / `event()` 빌더·콜백 3종 / 두 구현 패턴[세션푸시·relay] / 스레드 모델·`send` 동기화)는 → [java/spring/sse-emitter.md](../../java/spring/sse-emitter.md)
+
 ```java
 @PostMapping(value = "/chats/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
 public SseEmitter streamChat(@RequestBody ChatRequest request) {
