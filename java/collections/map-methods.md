@@ -9,6 +9,26 @@
 
 ## 사용 예시 (문법)
 
+### 기본 동작 — put / get / remove (여기가 토대)
+```java
+map.put(key, value);   // 키 있으면 "덮어쓰기"(교체), 없으면 추가. 리턴 = "이전 값"(없었으면 null)
+map.get(key);          // 값 or null. "없어서 null"인지 "null을 저장"인지 구별 안 됨 → containsKey
+map.remove(key);       // 1인자: 키만 맞으면 "무조건" 제거. 리턴 = 지워진 값(없었으면 null)
+```
+- **`put`은 같은 키면 조용히 덮어쓴다** — "이미 있으면 에러" 같은 건 없다. 이전 값이 필요하면 리턴을 받는다.
+- **`remove`는 2개다** ← 여기서 자주 헷갈린다:
+
+| | 지우는 조건 | 리턴 |
+|---|---|---|
+| `remove(key)` | 키만 맞으면 **무조건** | 지워진 값 (V) |
+| `remove(key, value)` | 키 + **값까지 일치**할 때만 | 지웠는지 여부 (boolean) |
+
+```java
+map.remove("A");             // A를 그냥 지움
+map.remove("A", oldValue);   // A가 "지금 oldValue일 때만" 지움. 다른 값이면 그대로 둠 → false 리턴
+```
+→ 2인자 remove는 "내가 아는 그 값일 때만 지워"라는 **조건부 제거**. 왜 이런 게 필요한지는 아래 **'조건부 메서드(CAS)는 왜 있나'** 절 참고.
+
 ### 조회 계열
 ```java
 map.getOrDefault(key, 0L);          // 없으면 기본값 반환 (맵에 저장은 안 함!)
@@ -77,6 +97,29 @@ minutes.merge(date, dayMinutes, Long::sum);         // 일자별 분 합산
 
 → `new ArrayList<>()`처럼 싸면 아무거나, DB 조회처럼 비싸면 computeIfAbsent. 반환값을 이어서 쓸 거면 computeIfAbsent가 편하다 (putIfAbsent는 "없었으면 null"을 돌려줘서 한 번 더 분기 필요).
 
+## 조건부 메서드(CAS)는 왜 있나 — remove(k,v) / replace(k, old, new)
+
+`putIfAbsent`, `remove(key, value)`, `replace(key, old, new)`, `replace(key, value)`는 전부 **"현재 상태가 내 예상과 같을 때만 바꾼다"**는 한 부류다 — **CAS(compare-and-swap)** 형제들.
+
+| 메서드 | 바꾸는 조건 |
+|---|---|
+| `putIfAbsent(k, v)` | 키가 **없을 때만** 넣음 |
+| `remove(k, v)` | 값이 **v와 일치할 때만** 지움 |
+| `replace(k, old, new)` | 값이 **old와 일치할 때만** new로 교체 |
+| `replace(k, v)` | 키가 **있을 때만** 교체 (없으면 안 넣음 — put과 반대) |
+
+**왜 그냥 `get→확인→put/remove` 3줄로 안 하고 이걸 쓰나?** — 그 사이에 **다른 스레드(또는 비동기 콜백)가 값을 바꿔치기**할 수 있어서. `ConcurrentHashMap`에서 이 메서드들은 "확인+변경"을 **원자적으로 한 번에** 처리해 중간 끼어듦을 막는다.
+
+구체 케이스 (SSE emitter 교체): map에 `clientId → emitter`를 두고, 재구독 시 헌 emitter를 새 것으로 바꾸는 코드 —
+```java
+// 헌 emitter가 끝나면 자신을 map에서 지우는 콜백 (비동기 — 언제 돌지 보장 없음)
+emitter.onCompletion(() -> map.remove(clientId, emitter));   // ★ 2인자
+...
+map.put(clientId, newEmitter);   // 새 걸로 교체
+```
+헌 emitter의 정리 콜백이 **put 이후에 뒤늦게 돌아도**, `remove(clientId, oldEmitter)`는 "지금 값이 oldEmitter일 때만" 지우므로 → 값이 이미 `newEmitter`면 **안 지움** → 방금 넣은 새 것이 보호된다. 만약 `remove(clientId)`(1인자)였다면 **뒤늦은 콜백이 새 emitter를 날리는 버그**가 됐을 것.
+→ 판단: **"읽고-판단한 값이, 쓸 때도 그대로인가"를 보장해야 하면 조건부(CAS) 메서드.** (값 비교는 `equals` — 위 emitter처럼 equals 미정의면 `==` 객체 동일성 비교라 old/new가 정확히 갈린다.) 자세한 SSE 맥락은 → [SseEmitter 노트](../spring/sse-emitter.md).
+
 ## Collectors.toMap — 중복 키·null 함정
 
 스트림을 Map으로 모을 때 쓰는 `Collectors.toMap`은 인자 개수에 따라 동작이 다르다:
@@ -96,6 +139,19 @@ stream.collect(Collectors.toMap(k, v, merge, LinkedHashMap::new));
 - **2인자 버전은 "중복 키가 없다"는 단언이다.** 데이터가 유니크 보장(UNIQUE 제약 등)이면 2인자가 오히려 명확하고(중복=버그를 즉시 드러냄), 보장이 없으면 3인자로 방어해야 한다.
 - **merge 함수의 "나중 것"은 스트림 순서에 달려 있다** — DB 조회 결과라면 ORDER BY가 없을 때 어느 row가 이길지 비결정적. "말일에 가까운 매핑 승리" 같은 규칙이 필요하면 정렬로 보장하고 나서 `(before, after) -> after`를 써야 한다.
 - **value가 null이면 NPE** — toMap은 값 null을 허용하지 않는다 (HashMap 자체는 허용해도, toMap 구현이 merge 로직에서 null을 못 다룸). null 값 가능성이 있으면 `groupingBy`나 수동 for-put으로.
+
+## Map.of / Map.ofEntries — 팩토리는 중복·null을 "에러"로 막는다
+
+불변 맵을 리터럴처럼 만드는 팩토리:
+```java
+Map.of("a", 1, "b", 2);                  // 불변 맵 (최대 10쌍)
+Map.ofEntries(Map.entry("a", 1), ...);   // 쌍이 많을 때
+```
+- **중복 키 → `IllegalArgumentException`** (생성 시점에 죽음): `Map.of("a", 1, "a", 2)` ❌. 일반 `put`이 조용히 덮어쓰는 것과 정반대 — 팩토리는 "중복 = 실수"로 보고 즉시 막는다.
+- **null 키·값 → `NullPointerException`** (전부 금지).
+- 반환은 **불변(immutable)** — `put`/`remove` 하면 `UnsupportedOperationException`. 수정할 거면 `new HashMap<>(Map.of(...))`로 감싼다.
+
+→ **"중복 키"를 대하는 태도가 세 갈래**다: **`put` = 덮어씀(정상)** / **`Collectors.toMap` 2인자·`Map.of` = 예외 던짐("중복은 버그"라고 단언)** / **`toMap` 3인자 = merge 함수로 승자 결정**. 내 데이터가 유니크 보장이면 "예외 던짐" 쪽이 오히려 버그를 즉시 드러내서 낫다.
 
 ## ⚠️ 함정
 
@@ -120,3 +176,4 @@ stream.collect(Collectors.toMap(k, v, merge, LinkedHashMap::new));
 ---
 학습 날짜: 2026-07-03
 계기: 근태 마감 rewrite 중 `policyByWkSys.computeIfAbsent(...)` 캐시 패턴을 보고 "이건 어떤 함수?"에서 출발
+보강: 2026-07-08 — SSE emitter 교체 코드의 `remove(key, value)` 조건부 제거에서 막혀, 토대(기본 put/get/remove·remove 2종 대비)와 조건부(CAS) 형제·`Map.of` 중복 예외를 추가. (관련: [SseEmitter 노트](../spring/sse-emitter.md))
