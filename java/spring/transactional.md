@@ -290,6 +290,35 @@ outer가 커넥션을 쥔 채 suspend되고 inner가 **또 다른 커넥션**을
 ### (5) 읽기 전용은 `readOnly = true`
 조회 전용 서비스는 `@Transactional(readOnly = true)` — flush를 막아 약간의 최적화 + 의도 명시. (쓰기-읽기 분리는 [Read-Modify-Write](../jpa/read-modify-write.md))
 
+### (6) REQUIRES_NEW만으로는 "부수 작업 격리"가 안 된다 — try-catch까지 세트
+**커밋은 분리돼도 예외는 여전히 한 배**(§4-A)라서, 부수 작업(알림·이력)에 REQUIRES_NEW만 붙이고 예외를 안 삼키면 부수 작업 실패가 **본 업무까지 롤백**시킨다. 실제 코드에서 본 대비:
+
+```java
+@Transactional(propagation = REQUIRES_NEW)
+public void sendEmail(...) {
+    try { notifier.send(...); }
+    catch (Exception e) { log.error(...); }   // ✅ 완전 격리 — 어떻게 실패해도 본 업무 무사
+}
+
+@Transactional(propagation = REQUIRES_NEW)
+public void sendNoti(...) {
+    notiSaver.save(...);        // ❌ catch 없음 — 여기서 터지면 예외가 위로 전파
+    redisPublisher.publish(...); //    → 호출자도 안 잡으면 본 업무(결재 처리)까지 롤백
+}
+```
+
+두 번째가 특히 위험한 이유: 부수 작업 안에 **인프라 호출**(Redis publish 등)이 있으면, **부가 기능의 인프라 장애가 핵심 업무를 마비**시키는 의존 방향이 된다 (Redis 다운 → 알림 publish 예외 → 결재 자체가 실패).
+
+**루프 안 REQUIRES_NEW = 부분 커밋 함정.** 대상자 N명에게 반복 호출하면 호출 1건마다 즉시 커밋된다(§4-B). k번째에서 실패하면:
+```
+대상자 1..k-1 : 이미 독립 커밋 ✓ (본 업무가 롤백돼도 안 돌아옴)
+대상자 k      : 💥 예외 → 전파 → 본 업무 트랜잭션 롤백
+대상자 k+1..N : 실행 안 됨
+```
+→ **"본 업무는 없던 일이 됐는데 일부에겐 '처리됐습니다' 알림이 이미 나간"** 반쪽 상태. REQUIRES_NEW의 (B) 성질("inner 커밋은 살아남는다")이 루프에서 증폭된 것.
+
+> 💡 판단: 부수 작업을 REQUIRES_NEW로 뺐다면 **"이게 실패했을 때 본 업무가 죽어도 되는가?"**를 반드시 물을 것. No(알림·이메일·이력)라면 **내부 try-catch까지가 한 세트**다. 커밋 분리(REQUIRES_NEW)와 예외 격리(try-catch)는 별개의 장치라 둘 다 있어야 격리가 완성된다.
+
 ---
 
 ## 7. 정리
