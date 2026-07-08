@@ -81,6 +81,10 @@
 ## Infra / 분산 환경
 - [ ] [스케일 아웃 & 배포 모델 - 1 JVM/인스턴스 복제/로드밸런서 vs 오토스케일러/무상태](./infra/scaling.md)
 
+### Redis
+- [ ] [Redis 기초 - "자료구조 공용 메모리 서버" / 명령어로 대화 / TTL / RedisTemplate opsFor* 매핑](./infra/redis/redis-basics.md)
+- [ ] [Redis Pub/Sub - 저장 없는 방송(유실=스펙) / 구독=연결 열어두기 / Spring 3부품(convertAndSend·ListenerContainer·onMessage) / 스케일아웃 SSE](./infra/redis/redis-pubsub.md)
+
 ### 네트워크 (Network)
 - [ ] [실시간 통신 기법 비교 - Polling/Long Polling/SSE/WebSocket 진화 / relay(중계) 패턴 / "양방향 필요한가"가 갈림길](./infra/network/realtime-communication.md)
 - [ ] [SSE - text/event-stream 포맷 / EventSource(GET 전용·자동 재연결) vs POST fetch 스트리밍 / heartbeat·프록시 버퍼링·UTF-8 함정](./infra/network/sse.md)
@@ -88,6 +92,9 @@
 - [ ] [포트와 listen - 연결 거부(refused) vs 응답 없음(timeout) / localhost vs 0.0.0.0 바인딩](./infra/network/ports-and-listen.md)
 - [ ] [SSH 포트 포워딩 - -L/-R/-D / 중간 호스트는 원격 기준 해석 / 막힌 포트 우회](./infra/network/ssh-port-forwarding.md)
 - [ ] [SSH config - Host 별칭 / LocalForward·IdentityFile / 작업·터널 별칭 분리](./infra/network/ssh-config.md)
+
+## Git
+- [ ] [git worktree - clone 없이 여러 폴더에 동시 체크아웃 / .git 공유·커밋 실시간 공유 / MR·PR ref 활용 / 동일 브랜치 금지](./git/worktree.md)
 
 ---
 

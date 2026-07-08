@@ -90,7 +90,7 @@ public void push(String clientId, Object data) {
 ```
 
 - **핵심: emitter를 오래(30분 등) 보관**하고 아무 때나 꺼내 쓴다.
-- **스케일아웃 문제**: 이벤트는 아무 인스턴스에서나 발생하는데 emitter는 **구독을 받은 그 인스턴스의 메모리에만** 있다. → **Redis Pub/Sub**으로 이벤트를 전 인스턴스에 브로드캐스트하고, 각 인스턴스가 자기 맵에 그 clientId가 있으면 send. (인스턴스 간 emitter 공유는 불가 — 소켓이라 직렬화 안 됨)
+- **스케일아웃 문제**: 이벤트는 아무 인스턴스에서나 발생하는데 emitter는 **구독을 받은 그 인스턴스의 메모리에만** 있다. → **[Redis Pub/Sub](../../infra/redis/redis-pubsub.md)**으로 이벤트를 전 인스턴스에 브로드캐스트하고, 각 인스턴스가 자기 맵에 그 clientId가 있으면 send. (인스턴스 간 emitter 공유는 불가 — 소켓이라 직렬화 안 됨)
 - heartbeat로 죽은 연결을 send 실패로 감지·제거.
 
 ### 패턴 B — 릴레이형: 요청 1건 = 외부 스트림 구독 1건
