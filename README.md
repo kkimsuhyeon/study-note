@@ -46,6 +46,9 @@
 ### Generics (제네릭)
 - [ ] [가변인자(varargs) & @SafeVarargs - 제네릭 varargs의 heap pollution(타입안전성 오염) / 붙일 수 있는 위치 / 읽기만·노출 금지](./java/generics/varargs-safevarargs.md)
 
+### Reactive (Reactor)
+- [ ] [Flux/Mono 기초 - 본질은 논블로킹(실시간 아님) / lazy·신호 3종·에러=신호 / 이벤트 루프 블로킹·ThreadLocal 금지 / MVC선 가장자리만](./java/reactive/flux-mono-basics.md)
+
 ### 함수형 / 람다 (Functional)
 - [ ] [람다 ≠ 비동기 - 람다는 "코드 값"일 뿐, 실행 타이밍은 받는 메서드가 정함 / forEach=즉시·on~/then~=콜백·submit/Async=다른 스레드 / 스트림 lazy·콜백 스레드엔 ThreadLocal 없음](./java/functional/lambda-execution-timing.md)
 
