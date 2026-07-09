@@ -90,6 +90,7 @@
 ### Redis
 - [ ] [Redis 기초 - "자료구조 공용 메모리 서버" / 명령어로 대화 / TTL / RedisTemplate opsFor* 매핑](./infra/redis/redis-basics.md)
 - [ ] [Redis Pub/Sub - 저장 없는 방송(유실=스펙) / 구독=연결 열어두기 / Spring 3부품(convertAndSend·ListenerContainer·onMessage) / 스케일아웃 SSE](./infra/redis/redis-pubsub.md)
+- [ ] [Redisson 분산 락 내부 동작 - 락="먼저 키 쓴 쪽이 주인" 관례(SETNX) / hash+Lua(재진입·주인식별) / pub/sub 대기 / leaseTime 만료=보호 소멸⚠️ / DB 제약 이중 방어](./infra/redis/redisson-distributed-lock.md)
 
 ### 네트워크 (Network)
 - [ ] [실시간 통신 기법 비교 - Polling/Long Polling/SSE/WebSocket 진화 / relay(중계) 패턴 / "양방향 필요한가"가 갈림길](./infra/network/realtime-communication.md)
