@@ -73,6 +73,9 @@
 ### 보안 (Security)
 - [ ] [비밀번호 - PasswordEncoder(단방향 해시) vs AttributeConverter(양방향 암호화) / 복호화 여부가 갈림길](./java/security/password-encoding.md)
 
+### Annotation (어노테이션)
+- [ ] [커스텀 어노테이션 - @interface·메타 어노테이션(@Retention 기본=CLASS⚠️) / 처리기 3방식(리플렉션·AOP·컴파일타임) / SpEL 동적 값·@Order 순서·프록시 함정](./java/annotation/custom-annotation.md)
+
 ### Jackson
 - [ ] [Jackson 어노테이션 종합 정리](./java/jackson/annotations.md)
 
