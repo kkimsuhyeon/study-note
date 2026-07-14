@@ -35,6 +35,23 @@ map.getOrDefault(key, 0L);          // 없으면 기본값 반환 (맵에 저장
 map.containsKey(key);               // 존재 여부 — get()==null 판별과 다름 (null 값 허용 맵에서)
 ```
 
+### 크기 계열 — size / isEmpty
+```java
+map.size();          // 키 개수 — O(1) (내부 size 필드를 꾺내줄 뿐, 세지 않는다)
+map.isEmpty();       // 비었나 — size() == 0 보다 의도가 명확
+map.keySet().size(); // == map.size() (돌아가는 길 — 굳이)
+map.values().size(); // == map.size()
+```
+→ 루프 안에서 몇 번을 불러도 부담 없다. `Set`도 동일(`set.size()` = 원소 개수, O(1)).
+
+⚠️ **`size()`는 "키 개수"지 "값의 합"이 아니다.** 카운팅 맵에선 둘이 전혀 다른 숫자다:
+```java
+// participant = {lee, lee, kim}  →  map = {lee=2, kim=1}
+map.size();                                              // 2  ← 이름의 "종류"
+map.values().stream().mapToInt(Integer::intValue).sum();  // 3  ← 실제 "총 인원"
+```
+동명이인이 있으면 `size()`는 사람 수보다 **작다**. → *종류 = `size()` / 총량 = 값의 합*
+
 ### 저장 계열
 ```java
 map.putIfAbsent(key, value);        // 없을 때만 put. value를 "미리 만들어서" 전달 (즉시 평가)
@@ -213,3 +230,4 @@ Map.ofEntries(Map.entry("a", 1), ...);   // 쌍이 많을 때
 계기: 근태 마감 rewrite 중 `policyByWkSys.computeIfAbsent(...)` 캐시 패턴을 보고 "이건 어떤 함수?"에서 출발
 보강: 2026-07-08 — SSE emitter 교체 코드의 `remove(key, value)` 조건부 제거에서 막혀, 토대(기본 put/get/remove·remove 2종 대비)와 조건부(CAS) 형제·`Map.of` 중복 예외를 추가. (관련: [SseEmitter 노트](../spring/sse-emitter.md))
 보강: 2026-07-14 — merge 심화(두 번째 인자 = 초기값 겸 함수 2번째 인자 / 갱신 함수는 `BiFunction` 2인자라 `(v)->v+1` 1인자 불가 / 감소는 `-1` 넘겨 `Integer::sum` / 초기값≠증분이면 `compute`)와 `Integer::sum` 아닌 커스텀 람다 예시(쉼표 join·상한 카운터) 추가. `forEach`가 `void`(`BiConsumer`)라 값 못 뽑고 break도 없는 함정을 순회 절에 보강 (실제 `merge((v)->v+1)` 컴파일 에러·`forEach`에서 `return key` 시도에서 출발).
+보강: 2026-07-14 — 크기 계열(`size`·`isEmpty`) 절 추가. **`size()` = 키 개수(종류)이지 값의 합(총량)이 아니다**는 구분이 핵심 — 카운팅 맵에선 동명이인 때문에 둘이 갈라진다. (코테 "종류가 몇 개" 유형에서 바로 쓰임)
