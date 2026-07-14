@@ -53,6 +53,17 @@ map.replaceAll((k, v) -> transform(v));   // 모든 값 일괄 변환
 for (Map.Entry<K, V> e : map.entrySet()) { ... }   // 키+값 둘 다 필요하면 entrySet (keySet+get 반복보다 낫다)
 ```
 
+⚠️ **`forEach`는 `BiConsumer`(반환 `void`)라 값을 뽑아낼 수 없다.** 람다 안에서 `return key`는 컴파일 에러("void 람다는 값 반환 불가")고, `return`으로 중간 탈출(break)도 안 된다(끝까지 다 돈다). 람다는 별개 메서드라 그 안의 `return`은 *람다 한 번*만 빠져나갈 뿐 바깥 메서드를 못 끝낸다. **조건 맞는 키/값 "찾기"는 forEach가 아니라 stream·for로**:
+```java
+// 값이 1인 키 찾기 — stream
+Optional<K> key = map.entrySet().stream()
+        .filter(e -> e.getValue().equals(1))
+        .map(Map.Entry::getKey).findFirst();
+// 또는 for — 여기선 return이 진짜 메서드를 끝내고 찾자마자 멈춘다
+for (var e : map.entrySet()) if (e.getValue().equals(1)) return e.getKey();
+```
+→ **forEach = 각 엔트리로 부수효과(출력·누적)만. 값 추출·조기 탈출이 필요하면 stream·for.**
+
 ## 실전 패턴
 
 ### ① 캐시 패턴 — computeIfAbsent
@@ -85,6 +96,28 @@ map.computeIfAbsent(date, k -> new ArrayList<>()).add(segment);
 ```java
 counts.merge(word, 1, Integer::sum);               // 단어 세기
 minutes.merge(date, dayMinutes, Long::sum);         // 일자별 분 합산
+```
+
+**`merge(key, value, fn)`의 두 번째 인자 `value`는 "한 몸 두 역할"** — 키가 **없으면** 그대로 새로 저장(초기값), **있으면** 함수의 **두 번째 인자**로 들어간다:
+```java
+V old = map.get(key);
+map.put(key, old == null ? value                 // 없음 → value를 그대로 (초기값)
+                         : fn.apply(old, value));  // 있음 → fn(기존값, value)
+```
+- 갱신 함수는 **`BiFunction`(인자 2개: `기존값, 넘긴값`)** — `(value) -> value + 1`처럼 **1인자로 쓰면 컴파일 에러**. `(old, cur) -> old + cur` 또는 `Integer::sum`으로.
+- 카운팅이 예쁜 건 **초기값(1) = 증분(1)이 같은 숫자**라 `1` 하나가 둘 다 커버해서다. **감소는 두 번째 인자를 `-1`로**: `merge(k, -1, Integer::sum)` = 없으면 -1, 있으면 기존-1. ⚠️ `(a, b) -> a - b`로 짜면 키 없을 때 함수를 안 부르고 두 번째 인자를 그냥 저장해 의도와 어긋난다.
+
+**`Integer::sum` 말고 진짜 람다가 필요한 예** — 커스텀 병합은 method reference로 안 되니 `(old, cur) -> ...`로 직접:
+```java
+// 같은 키의 값을 쉼표로 이어붙이기 (없으면 member 하나, 있으면 "기존, 새값")
+names.merge(team, member, (old, cur) -> old + ", " + cur);
+// 상한선 있는 카운터 (100에서 멈춤)
+counts.merge(key, 1, (old, cur) -> Math.min(old + cur, 100));
+```
+
+⚠️ **초기값 ≠ 증분이면 merge로 안 된다** (두 번째 인자 하나가 둘을 겸하므로) → `compute`로 분리:
+```java
+map.compute(k, (key, old) -> old == null ? 10 : old + 1);  // 초기 10, 이후 +1
 ```
 
 ## putIfAbsent vs computeIfAbsent
@@ -160,11 +193,13 @@ Map.ofEntries(Map.entry("a", 1), ...);   // 쌍이 많을 때
 - `getOrDefault`는 **저장하지 않는다** — 기본값을 맵에 남기고 싶으면 computeIfAbsent.
 - **HashMap은 null 키 1개/null 값 허용, ConcurrentHashMap은 null 키·값 전부 금지.** null 값을 넣는 순간 `get()==null`이 "없음"인지 "null 저장"인지 구별 불가가 되므로, 애초에 null 값을 안 넣는 게 정신 건강에 좋다.
 - ConcurrentHashMap의 computeIfAbsent는 **원자적**이지만, 실행 중 해당 빈(bin)이 잠기므로 람다에 오래 걸리는 작업(원격 호출)을 넣으면 병목이 된다.
+- **`merge`로 센 카운트를 꺼내서 `==`/`!=`로 비교하면 안 된다.** `Map<K, Integer>`의 값은 `Integer`(객체)라 참조 비교가 되고, **127을 넘는 순간 조용히 틀린다** (작은 데이터 테스트는 통과하므로 더 위험). 꺼낼 땐 `int c = map.getOrDefault(k, 0);`처럼 **원시 타입으로 받는다.** → [오토박싱 & 래퍼 캐시](../basics/autoboxing-wrapper-cache.md)
 
 ## 💡 판단 기준
 
 - **`get → if(null) → put` 3줄이 보이면 compute류 1줄로.** 근태 마감 rewrite에서 근로제 정책 캐시(`policyByWkSys`)를 이 패턴으로 정리 — "없으면 만들어 넣고 있으면 꺼내라"는 의도가 이름 그대로 드러난다.
 - 값 생성이 **비싸면 computeIfAbsent**(지연), 싸면 아무거나. **누적/카운팅은 merge**, **있을 때만 갱신은 computeIfPresent**.
+- **카운팅에 `computeIfAbsent`를 쓰려다 막히면 방향이 틀린 것** — computeIfAbsent엔 "있을 때" 분기가 **아예 없다**(있으면 아무것도 안 함). "없으면 초기화 + 있으면 누적"이 필요하면 `merge`(합치는 규칙이 단순 이항연산일 때) 또는 `compute`(없음/있음을 비대칭으로 다뤄야 할 때). *computeIfAbsent = 없을 때만 / merge·compute = 있든 없든.*
 - 단, 람다에서 null이 나올 수 있는 로드는 "실패가 반복 실행된다"를 알고 쓰기 — 실패까지 캐싱해야 하면 수동 get/put + try-catch가 오히려 명확하다.
 
 ## 참고
@@ -177,3 +212,4 @@ Map.ofEntries(Map.entry("a", 1), ...);   // 쌍이 많을 때
 학습 날짜: 2026-07-03
 계기: 근태 마감 rewrite 중 `policyByWkSys.computeIfAbsent(...)` 캐시 패턴을 보고 "이건 어떤 함수?"에서 출발
 보강: 2026-07-08 — SSE emitter 교체 코드의 `remove(key, value)` 조건부 제거에서 막혀, 토대(기본 put/get/remove·remove 2종 대비)와 조건부(CAS) 형제·`Map.of` 중복 예외를 추가. (관련: [SseEmitter 노트](../spring/sse-emitter.md))
+보강: 2026-07-14 — merge 심화(두 번째 인자 = 초기값 겸 함수 2번째 인자 / 갱신 함수는 `BiFunction` 2인자라 `(v)->v+1` 1인자 불가 / 감소는 `-1` 넘겨 `Integer::sum` / 초기값≠증분이면 `compute`)와 `Integer::sum` 아닌 커스텀 람다 예시(쉼표 join·상한 카운터) 추가. `forEach`가 `void`(`BiConsumer`)라 값 못 뽑고 break도 없는 함정을 순회 절에 보강 (실제 `merge((v)->v+1)` 컴파일 에러·`forEach`에서 `return key` 시도에서 출발).

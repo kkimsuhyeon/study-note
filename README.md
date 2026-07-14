@@ -35,6 +35,9 @@
 - [ ] ["배치"의 세 층위 - 쿼리 배치화(N+1→IN+groupingBy) / Spring Batch(스케줄러 없음!) / JDBC 쓰기 배치](./java/spring/batch-three-meanings.md)
 - [ ] [SseEmitter 서버 구현 - 서블릿 async(스레드 즉시 반납) / send·event()빌더·콜백3종 / 두 패턴(세션푸시+저장소·Pub/Sub / relay+구독) / 이벤트루프 블로킹 금지·boundedElastic](./java/spring/sse-emitter.md)
 
+### 기본 / 박싱 (Basics)
+- [ ] [오토박싱 & 래퍼 캐시 - `Integer`·`Long`끼리 `==` 금지 / -128~127 캐시(JLS 5.1.7) → 작은 값엔 우연히 맞고 커지면 조용히 틀림 / JPA `Long id` 비교도 같은 메커니즘](./java/basics/autoboxing-wrapper-cache.md)
+
 ### BigDecimal
 - [ ] [BigDecimal - 돈·정밀 계산, equals vs compareTo, scale, 반올림](./java/bigdecimal/bigdecimal.md)
 
@@ -102,6 +105,11 @@
 
 ## Git
 - [ ] [git worktree - clone 없이 여러 폴더에 동시 체크아웃 / .git 공유·커밋 실시간 공유 / MR·PR ref 활용 / 동일 브랜치 금지](./git/worktree.md)
+
+## Algorithm (코딩테스트)
+- [ ] [코테 로드맵 - 프로그래머스 STEP 1~7 문제 목록 · 체크박스로 진행 추적 · 복습 큐(3일 뒤 재풀이)](./algorithm/roadmap.md)
+- [ ] [자료구조 선택 - "신호 → 도구" 매핑 (누적 문서) / 풀이가 아닌 **신호**를 남긴다 / 개수=Map·존재=Set·최단거리=BFS](./algorithm/data-structure-selection.md)
+- [ ] [Big-O와 입력 크기 - 풀기 전에 N 제약으로 복잡도 **역산**하기 / "N=10만이면 이중 for 불가" / 스트림 vs for는 상수 차이일 뿐](./algorithm/big-o-and-input-size.md)
 
 ---
 
