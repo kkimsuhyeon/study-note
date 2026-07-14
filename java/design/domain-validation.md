@@ -91,6 +91,67 @@ String encoded = passwordEncoder.encode(raw.value());     // 인코딩(메커니
 
 ---
 
+## 2-3. 생성 팩토리(`create`) vs 복원 팩토리(`of`) — 입력 검증은 "생성 경로"에만
+
+§2-1이 검증을 *어느 계층*에 둘지였다면, 도메인 모델의 **정적 팩토리가 둘로 갈릴 때**(`create` / `of`) "*어느 팩토리*에 둘지"가 또 갈린다. 둘은 이름만 비슷할 뿐 역할이 다르다.
+
+| 팩토리 | 정체 | id | 누가 부르나 |
+|---|---|---|---|
+| **`create(...)`** | 새 도메인 객체 **생성** (기본값·`PENDING` 등 부여) | `null` | 비즈니스 흐름 (서비스/Assembler) |
+| **`of(...)`** | 전체 필드 **복원**(reconstruction) | 있음 | **`Entity.toModel()`**(DB→도메인) + `create`가 내부 위임 |
+
+> 핵심: **`of`는 단순 생성자 대용이 아니라 *영속성 복원 경로*다.** `PaymentEntity.toModel()`이 `Payment.of(...)`를 부른다 → `of`는 "DB에 이미 있는 행을 도메인 객체로 되살리는" 입구이기도 하다.
+
+### ⚠️ 그래서 입력 검증을 `of`에 두면 안 된다 (concrete: `Payment`)
+
+```java
+// 현재 코드 — 검증이 of(복원 경로)에 있다
+public static Payment create(String reservationId, BigDecimal amount) {
+    return Payment.of(null, PENDING, amount, reservationId, null);   // create가 of에 위임
+}
+public static Payment of(String id, PaymentStatus status, BigDecimal amount, String reservationId, String rmk) {
+    if (StringUtils.isEmpty(reservationId))
+        throw new BusinessException(CommonErrorCode.INVALID_INPUT);  // ⚠️ 복원 경로에 입력 검증
+    return new Payment(id, status, amount, reservationId, rmk);
+}
+```
+
+- **의미 충돌** — `INVALID_INPUT`은 "사용자 입력이 틀림"(보통 400 Bad Request) 뜻이다. 그런데 `of`는 **DB에 이미 저장된 결제를 `toModel()`로 되살릴 때도** 불린다 → *결제를 조회하는데 400 "입력 오류"가 터지는* 꼴. 깨진 DB 행은 "잘못된 입력"이 아니라 **데이터 정합성 문제**라 던질 예외의 종류부터 다르다.
+- **중복** — `reservation_id`는 이미 `@Column(nullable = false)`라 DB가 not-null을 보장. 복원 시 재검증은 군더더기.
+- **역할 위반** — 복원 팩토리는 *"있는 상태를 그대로 재조립"*하는 역할이지 거부하는 역할이 아니다. (cf. [변환 계층](./transform-layers.md): Factory는 "만든다", 복원도 그 일종)
+
+→ **입력 검증은 "새 객체가 입력으로부터 태어나는 생성 경로"에 둔다.**
+
+### 옵션 — 검증을 생성 경로로 옮기는 두 방법
+
+| 방식 | 설명 | 언제 |
+|---|---|---|
+| **(A) `create`에만 검증** | `of`는 순수 복원으로 비움 | 생성 팩토리가 **하나**면 충분 |
+| **(B) 생성 공용 통로(private)에 검증** | `create`·(미래)`fail` 등 모든 생성 팩토리가 공유, `of`(복원)는 제외 | 생성 팩토리를 **더 만들 계획**이면 |
+
+```java
+// (B) — 모든 "신규 생성"은 검증을 타고, 복원(of)은 안 탄다
+private static Payment newPayment(PaymentStatus status, BigDecimal amount, String reservationId, String rmk) {
+    if (StringUtils.isEmpty(reservationId)) throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+    return new Payment(null, status, amount, reservationId, rmk);
+}
+public static Payment create(String reservationId, BigDecimal amount) {
+    return newPayment(PENDING, amount, reservationId, null);
+}
+// public static Payment fail(...) { return newPayment(FAIL, ...); }  // 미래 추가 시도 같은 통로
+public static Payment of(String id, PaymentStatus status, BigDecimal amount, String reservationId, String rmk) {
+    return new Payment(id, status, amount, reservationId, rmk);   // 복원 — 검증 X
+}
+```
+
+> ⚠️ 생성 팩토리를 더 추가할 계획(`Payment.fail()` 등)이면 (B)를 택한다. **"단일 choke point에 불변식"** 이점은 살리되, 그 choke point를 **복원(`of`)과 분리**하는 게 요지. `create`에만 넣으면 나중에 만든 `fail`이 검증을 조용히 빠뜨린다.
+
+이 프로젝트 `User`도 `create`/`of`가 둘 다 있고 **`of`는 검증하지 않는다**(`toModel`이 부르는 복원 경로라서) — 같은 패턴. 즉 `Payment`의 현재 코드가 컨벤션에서 벗어난 쪽이다.
+
+> 💡 **입력 검증은 "복원 팩토리(`of`/`toModel` 경로)"가 아니라 "생성 팩토리(`create`) 경로"에 둔다.** `of`가 영속성 복원에 쓰이면 거기서 던지는 `INVALID_INPUT`은 "DB 읽다가 400" 식 의미 충돌 + `nullable` 제약과 중복이다. 생성 팩토리가 여러 개거나 늘어날 거면, 검증은 **복원과 분리된 private 생성 통로**에 모아 모든 신규 객체가 거치게 한다. (강제까지 원하면 §7 — 무검증 생성자를 private으로 닫아 "유효하지 않은 객체는 존재 불가"로.)
+
+---
+
 ## 4. ⭐ 핵심 구분 — 규칙(결정) vs 데이터 조회
 
 "이메일 유니크"는 사실 **두 조각**이다:
@@ -250,6 +311,40 @@ Controller (web)
 
 > 💡 **규칙/결정 → 도메인, 절차/조율 → 앱.** 단 Domain Service는 *필요해질 때* 추출(YAGNI) — 미리 만들면 고민만 늘고 이득 없다.
 
+### App Service가 위임(CRUD)만 가지면 빈약 — 애그리거트 연산을 줘라 (concrete: `PaymentCommandService`)
+
+§1의 Anemic은 *엔티티* 얘기였지만, **서비스 계층도 빈약해질 수 있다.**
+
+```java
+// PaymentCommandService — repository 호출만, 행위가 없음 = 빈약한 서비스 계층
+@Transactional public Payment create(Payment p) { return repository.save(p); }
+@Transactional public Payment update(Payment p) { return repository.update(p); }
+```
+
+"결제한다(`pay`)"를 어디 둘지가 헷갈리는데, 통째로 한 곳에 넣는 게 아니라 **두 조각으로 갈린다**(§5-3 표 그대로):
+
+| 부분 | 성격 | 위치 |
+|---|---|---|
+| 예약 검증·잔액 차감·좌석 확정 | **여러 애그리거트** 건드림 | **UseCase** (교차 도메인 조율) |
+| Payment 생성 → `pay()` 전이 → 저장 | **payment 애그리거트 한정** | **App Service** (단일 애그리거트 조율) ← `pay`가 여기 |
+
+```java
+// App Service — payment 애그리거트의 "결제" 연산을 응집 (create→도메인호출→save)
+@Transactional
+public Payment pay(String reservationId, BigDecimal amount) {
+    Payment payment = Payment.create(reservationId, amount);
+    payment.pay(amount);                 // 도메인 전이는 엔티티가
+    return repository.save(payment);
+}
+// UseCase는 교차 도메인만 조율하고 이 메서드에 위임 → 책임 분리
+```
+
+- 빈약 서비스 = **Repository 위 얇은 래퍼**(`create`/`update`처럼 위임만). 흩어져 있던 `Payment.create + payment.pay + save`를 **도메인 동사로 이름 붙인 한 메서드(`pay`)**로 모으면 응집이 생긴다.
+- 위임만 하던 `create`/`update`는 `pay`가 흡수하면 **호출처가 사라져 제거 가능**(실패 이력·상태변경 등 다른 용도 없으면).
+- ⚠️ §5-3 "미리 쪼개지 마라"와 충돌 아님 — **판단 축은 "그게 이 도메인의 의미 있는 연산이라 이름값을 하나 + 재사용/응집"**. 결제·충전처럼 핵심 연산이면 이름값을 하니 빼고, 정말 사소한 한 줄이면 UseCase에 둬도 된다.
+
+> 💡 **UseCase = 교차 도메인 조율 / App Service = 단일 애그리거트 조율(load/create→도메인 호출→save) / Entity = 상태 전이.** App Service가 `create`/`update` 같은 CRUD 위임만 갖고 있으면 빈약 신호 — 애그리거트의 의미 있는 연산(`pay`)을 줘서 UseCase에 흩어진 조율을 끌어내린다. (단 사소하면 YAGNI로 UseCase에 둬도 무방)
+
 ## 5-4. IO는 못 없앤다 — pull vs push
 
 유니크 검증은 DB 쿼리(IO)가 무조건 필요하다. 아키텍처는 **"누가 IO를 유발하고 규칙을 누가 소유하느냐"**만 정할 뿐, IO 자체는 못 없앤다. 실제 IO는 **항상 repository(인프라 어댑터)**에서 일어난다. 형태는 둘뿐:
@@ -353,3 +448,7 @@ Domain Service를 만들어도 `User.create(email, password)`가 **여전히 pub
 
 **학습 날짜**: 2026-06-07
 **계기**: `UserCommandService.create`는 fail이 없는데 중복 이메일 검증이 `AuthService`에 있는 걸 보고 — "검증은 엔티티에 있어야 DDD 아니냐"는 의문에서 출발. 단일 불변식 vs 집합 유니크, Anemic vs Rich, 도메인 서비스/체커 주입(규칙=도메인·조회=인프라), 유니크 최종보장=DB 제약을 정리.
+
+**추가(2026-06-25)**: §2-3 생성(`create`) vs 복원(`of`) 팩토리 — 입력 검증은 복원 경로(`of`/`toModel`)가 아니라 생성 경로에 둔다. `Payment.of`에 `INVALID_INPUT` 검증이 들어가 있는데 그 `of`를 `PaymentEntity.toModel()`이 복원에 쓰는 걸 보고 정리.
+
+**추가(2026-06-25)**: §5-3에 "빈약한 App Service" 보강 — `PaymentCommandService`가 `create`/`update` 위임만 가진 걸 보고, 애그리거트 연산(`pay`=생성→도메인호출→저장)을 줘서 UseCase(교차 도메인)에 흩어진 조율을 끌어내리는 판단. UseCase=교차 도메인 / App Service=단일 애그리거트 조율 경계 정리.
