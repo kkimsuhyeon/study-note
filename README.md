@@ -46,6 +46,7 @@
 - [ ] [리스트 생성 - singletonList/List.of/Arrays.asList, "불변 × 원소 개수"는 별개 축](./java/collections/list-creation.md)
 - [ ] [Map 주요 메서드 - getOrDefault/putIfAbsent/computeIfAbsent(캐시)/merge(카운팅) / 람다 null·재진입 함정](./java/collections/map-methods.md)
 - [ ] [컬렉션 계층 구조 - List/Set/Queue는 Collection, Map은 별도 / Set 집합연산=Collection 공통 / equals·hashCode](./java/collections/collection-hierarchy.md)
+- [ ] [SortedSet · NavigableSet - TreeSet의 진짜 인터페이스 / first·last vs Collections.min·max / floor·ceiling 근처탐색 / ⚠️같음=compare==0(정렬기준이 중복기준)](./java/collections/sorted-navigable-set.md)
 
 ### Generics (제네릭)
 - [ ] [가변인자(varargs) & @SafeVarargs - 제네릭 varargs의 heap pollution(타입안전성 오염) / 붙일 수 있는 위치 / 읽기만·노출 금지](./java/generics/varargs-safevarargs.md)
