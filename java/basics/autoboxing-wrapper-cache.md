@@ -77,6 +77,23 @@ if (c1 != c2) { ... }
   if (order.getUserId().equals(user.getId()))     // ✅
   ```
 
+- **제네릭은 원시타입을 못 담는다 — 그래서 `toArray()`로는 `int[]`가 안 나온다.**
+  ```java
+  list.toArray();                  // Object[]   ❌
+  list.toArray(Integer[]::new);    // Integer[]  ❌ (여전히 객체 배열)
+  list.stream().mapToInt(i -> i).toArray();   // int[]  ✅
+  ```
+  람다 몸통이 `int`를 뱉어도 **`map`은 다시 박싱해 `Stream<Integer>`로 되돌린다**(`Stream<T>` → `Stream<R>`). 원시 배열을 얻는 유일한 길은 **`mapToInt`로 `IntStream`으로 갈아타는 것.** 역방향은 `Arrays.stream(arr).boxed()`.
+
+- **`Arrays.asList(int[])`는 원소 1개짜리 리스트가 된다.** 그런데 **컴파일은 통과한다** — 조용히 틀리는 유형.
+  ```java
+  int[] prim = {1, 2, 3};
+  List<int[]> wrong = Arrays.asList(prim);      // size == 1  ⚠️ (배열 자체가 원소 1개)
+  Integer[] boxed = {1, 2, 3};
+  List<Integer> ok = Arrays.asList(boxed);      // size == 3  ✅
+  ```
+  가변인자 `asList(T... a)`가 `T`를 객체로만 받으므로, `int[]` 전체가 **하나의 객체**로 묶인다.
+
 ## 💡 판단 기준
 
 - **기본은 원시 타입(`int`/`long`), 래퍼는 "어쩔 수 없을 때만".** 어쩔 수 없는 건 딱 둘 — **① 제네릭 안**(`Map<String, Integer>` — 컴파일러가 강제), **② `null`이 "값 없음"이라는 의미를 가질 때**(nullable 컬럼 매핑 등). 그 외 지역변수·계산·리턴은 전부 원시 타입.
@@ -99,6 +116,18 @@ if (test1 != test2) return name;   // ⚠️ Integer끼리 != → 참조 비교
 
 → **교훈: "큰 입력에서만 실패"가 항상 성능 문제인 건 아니다.** 값의 크기가 동작을 바꾸는 코드(래퍼 캐시)를 먼저 의심할 것.
 
+### 재발 기록 — "문자열 내 p와 y의 개수" (2026-07-14, 같은 날)
+`Map<String,Integer>`에 p·y 카운트를 담은 뒤 **똑같은 실수를 반복**했다:
+```java
+return resultMap.get("p") == resultMap.get("y");   // ⚠️ Integer 끼리 ==
+```
+- 예제(`pPoooyY`, 개수 1~2개) → **통과** (캐시 범위)
+- p·y 각 **128개 이상** → 개수가 같은데도 **`false`** ❌
+
+문제 제약상 문자열 길이가 짧아 채점은 통과할 수 있지만, **그건 운이지 정답이 아니다.** → `.equals()`로 수정.
+
+→ **한 번 정리했다고 손에 붙지 않는다.** 문제 세 개 뒤에 같은 함정을 다시 밟았다 — *꿀내어 보는 복습이 필요한 이유.*
+
 ## 참고
 
 - [JLS 5.1.7 — Boxing Conversion (-128~127 동일 객체 보장)](https://docs.oracle.com/javase/specs/jls/se17/html/jls-5.html#jls-5.1.7)
@@ -109,3 +138,4 @@ if (test1 != test2) return name;   // ⚠️ Integer끼리 != → 참조 비교
 ---
 학습 날짜: 2026-07-14
 계기: 코테(프로그래머스 "완주하지 못한 선수") 첫 문제에서 `Integer != Integer`로 효율성 테스트만 실패 → 시간 초과인 줄 알았으나 실제론 Integer 캐시(127) 경계 오답. 실무 JPA `Long id` 비교와 동일 메커니즘이라 확장 정리.
+보강: 2026-07-14 — **제네릭은 원시타입을 못 담는다**는 같은 뿌리에서 나오는 함정 2개 추가(`toArray()`로 `int[]` 불가 → `mapToInt`로 `IntStream` 경유 / `Arrays.asList(int[])`는 size 1). "p와 y의 개수" 문제에서 `Integer ==` 재발 기록 추가.
