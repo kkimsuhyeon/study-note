@@ -2,7 +2,7 @@
 
 > **한 줄 요약**: `@Valid`(표준)는 "여기서 검증을 시작/전파해라"는 **트리거**, `@Validated`(Spring)는 그 위에 **그룹 검증 + 메서드 파라미터 검증**을 얹은 것. 제일 헷갈리는 함정은 **중첩 객체/리스트는 "부모 *필드*"에 `@Valid`를 붙여야 안쪽 제약이 검증된다**는 것 — 클래스 선언부에 붙이면 아무 일도 안 한다.
 
-관련 노트: [@Transactional](./transactional.md) · [Jackson 어노테이션](../jackson/annotations.md)
+관련 노트: [@Transactional](./transactional.md) · [Jackson 어노테이션](../jackson/annotations.md) · [@AssertTrue 필드 조합 검증](./assert-true-cross-field.md)
 
 ---
 
