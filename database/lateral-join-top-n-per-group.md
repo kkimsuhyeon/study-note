@@ -71,7 +71,7 @@ for (ChatRoom room : rooms) {
 - **`GROUP BY + MAX`로는 못 푼다**: `MAX(reg_dtm)`은 최신 *시각*을 줄 뿐, "그 행의 mode"를 못 집는다. `MAX(mode)`는 그냥 알파벳순 최대값. 시각으로 재조인하는 우회는 동시각 2건이면 다시 중복 발생 — top-1-per-group은 일반 집계로 표현 불가능한 문제다
 - **`LIMIT 1` 빠뜨리면 조용히 중복**: 에러가 아니라 그룹의 자식 수만큼 바깥 행이 늘어난 결과가 나온다 (목록 화면에 같은 방이 여러 줄)
 - **동점(tie) 주의**: `ORDER BY reg_dtm DESC LIMIT 1`에서 동일 시각 2건이면 어느 쪽이 뽑힐지 비결정적. 재현 가능해야 하면 `ORDER BY reg_dtm DESC, id DESC`처럼 유니크 타이브레이커를 붙인다
-- **상관 조건을 ON으로 빼면 의미가 달라진다**: `ON TRUE` 대신 `ON q.grp_id = 부모.grp_id`로 옮기면, 서브쿼리가 먼저 **전체에서 LIMIT 1**을 자른 뒤에 ON이 검사됨 → 전체 최신 1건이 속한 그룹만 값이 붙고 나머지는 전부 NULL. 조건이 서브쿼리 **안**에 있어야 "그룹 안에서 정렬→LIMIT"이 된다 (빼는 순간 바깥 참조가 사라져 LATERAL 의미 자체가 소멸). `ON TRUE`는 "조건은 이미 안에 있고, LEFT JOIN 문법이 요구하는 ON 자리만 채운다"는 관용구. INNER 성격이면 `CROSS JOIN LATERAL` — CROSS JOIN은 원래 조건 없는 조인이라 ON 자체가 안 붙음
+- **상관 조건을 ON으로 빼면 의미가 달라진다**: `ON TRUE` 대신 `ON q.grp_id = 부모.grp_id`로 옮기면, 서브쿼리가 먼저 **전체에서 LIMIT 1**을 자른 뒤에 ON이 검사됨 → 전체 최신 1건이 속한 그룹만 값이 붙고 나머지는 전부 NULL. 조건이 서브쿼리 **안**에 있어야 "그룹 안에서 정렬→LIMIT"이 된다 (빼는 순간 바깥 참조가 사라져 LATERAL 의미 자체가 소멸). `ON TRUE`는 "조건은 이미 안에 있고, LEFT JOIN 문법이 요구하는 ON 자리만 채운다"는 관용구. INNER 성격이면 `CROSS JOIN LATERAL` — CROSS JOIN은 원래 조건 없는 조인이라 ON 자체가 안 붙음. 일반 LEFT JOIN에서 조건을 ON에 두나 WHERE에 두나의 문제는 → [left-join-on-vs-where](./left-join-on-vs-where.md)
 - **실행 = nested loop → 상관 조건+정렬 인덱스 필수**: `(chat_room_id, reg_dtm)`(상관 컬럼들 + 정렬 컬럼) 복합 인덱스가 있으면 반복 1회가 "인덱스 끝 1건 집기"로 끝나지만, 없으면 바깥 행마다 자식 테이블을 스캔한다 — 바깥이 클수록 비용이 곱으로 늘어남
 - **반대 케이스도 있다**: "전 테이블의 모든 그룹에 대해 top-1"처럼 결국 자식 테이블 대부분을 읽어야 하는 배치성 쿼리라면, 인덱스 probe를 그룹 수만큼 하는 LATERAL보다 **한 번 스캔하는 윈도우 함수가 더 빠를 수 있다**. LATERAL의 이점은 "바깥에서 이미 걸러진 소수 행"이 전제
 
