@@ -88,6 +88,7 @@
 - [ ] [SQL 케이스 쿡북 - 상황별 해법 (날짜 범위 조회, 인덱스/sargable 등)](./database/sql-cookbook.md)
 - [ ] [PostgreSQL 날짜 함수 - to_date/make_date/EXTRACT/date_trunc](./database/postgresql-date-functions.md)
 - [ ] [인덱스와 실행 계획 - EXPLAIN, range scan, full scan, sargable 조건](./database/index-explain.md)
+- [ ] [LATERAL 조인과 top-N per group - FROM 절 for-each 루프 / MAX()론 "최신 행의 다른 컬럼" 못 뽑음 / LIMIT 없으면 조용히 중복 / N+1을 쿼리 안으로](./database/lateral-join-top-n-per-group.md)
 
 ## Infra / 분산 환경
 - [ ] [스케일 아웃 & 배포 모델 - 1 JVM/인스턴스 복제/로드밸런서 vs 오토스케일러/무상태](./infra/scaling.md)

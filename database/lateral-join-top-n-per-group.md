@@ -1,0 +1,89 @@
+# LATERAL 조인과 top-N per group
+
+> **한 줄 요약**: `LATERAL`은 FROM 절의 서브쿼리가 **앞선 테이블의 현재 행을 참조**할 수 있게 해주는 키워드 — 바깥 행마다 서브쿼리를 실행하는 "SQL 안의 for-each 루프"다. 대표 용도는 **그룹마다 최신/상위 N건**(top-N per group) 붙이기. 핵심 함정: `MAX()`로는 "최신 행의 **다른 컬럼**"을 못 뽑는다는 것이 이 도구가 존재하는 이유.
+
+## 언제 쓰나
+
+- **그룹마다 최신 1건의 (다른 컬럼)이 필요할 때** — 채팅방마다 마지막 메시지, 주문마다 최근 상태 이력, 사용자마다 최근 로그인 기록. (카카오톡 채팅 목록에서 방마다 "마지막 메시지 한 줄"이 보이는 구조가 정확히 이것)
+- 앱 코드로 짜면 **N+1 루프**(목록 1번 + 행마다 1번)가 되고 싶어지는 조회를 **쿼리 한 방**으로 밀어넣을 때
+- 바깥 행의 값을 인자로 **집합 반환 함수**나 복잡한 계산 서브쿼리를 호출할 때
+
+## 사용 예시
+
+```sql
+-- 채팅방 목록 + 방마다 "가장 최근 질문"의 mode
+SELECT  cr.chat_room_id,
+        cr.chat_room_name,
+        q.mode
+FROM    chat_room cr
+LEFT JOIN LATERAL (
+    SELECT  q.mode
+    FROM    user_question q
+    WHERE   q.chat_room_id = cr.chat_room_id   -- ★ 바깥 테이블(cr) 참조 — LATERAL이 허용
+    ORDER BY q.reg_dtm DESC
+    LIMIT 1                                    -- ★ 방당 정확히 1줄 보장
+) q ON TRUE                                    -- 조인 조건은 이미 서브쿼리 WHERE에 있음
+WHERE   cr.usr_id = :usrId
+ORDER BY cr.reg_dtm DESC;
+```
+
+실행 모델은 루프다: `cr`의 각 행에 대해 → 서브쿼리 실행 → 결과를 옆에 붙임. 질문이 0건인 방은 `LEFT`라서 살아남고 `mode = NULL`.
+
+각 요소의 역할:
+
+| 요소 | 역할 |
+|---|---|
+| `LATERAL` | 서브쿼리에서 앞선 테이블 컬럼 참조 허용 (없으면 문법 에러) |
+| `LEFT ... ON TRUE` | 매칭 0건이어도 바깥 행 유지. 조건은 서브쿼리 안에 있으니 `ON TRUE`가 관용구 |
+| `ORDER BY ... LIMIT 1` | "최신 1건" — 이게 없으면 질문 수만큼 방이 **중복**돼서 나옴 |
+
+애플리케이션 N+1과의 관계 — LATERAL이 하는 일은 개념적으로 아래 루프와 **완전히 같다**. 차이는 루프가 도는 위치뿐:
+
+```java
+List<ChatRoom> rooms = mapper.selectAll(usrId);          // 1
+for (ChatRoom room : rooms) {
+    mapper.selectLatestMode(room.getChatRoomId());       // + N (방마다 왕복)
+}
+```
+
+- 앱 N+1: 반복마다 **네트워크 왕복 + 파싱 + 커넥션** 비용 → 이게 N+1이 "문제"인 이유 (N은 데이터 양에 비례해 자람 — 개발 DB 방 3개일 땐 멀쩡, 운영 방 500개면 501번)
+- LATERAL: 왕복 1번, 루프는 DB 엔진 내부의 nested loop → 인덱스만 있으면 반복 1회 = 인덱스 조회 1번 수준
+- JPA 쪽 N+1과 fetch 전략은 → [n-plus-one-fetch](../java/jpa/n-plus-one-fetch.md)
+
+## 종류/옵션 비교 — top-N per group 4가지 해법
+
+| 방법 | 형태 | 특징 |
+|---|---|---|
+| **LATERAL** (표준) | `LEFT JOIN LATERAL (... LIMIT n) ON TRUE` | 바깥 행마다 인덱스 top-n 집기. 여러 컬럼 한 번에. **바깥 행이 적을 때 최강** |
+| 윈도우 함수 | `ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...) = 1` | 서브쿼리가 독립 실행 → **파티션 대상 전체를 스캔·정렬** 후 걸러냄. 전 그룹을 다 필요로 할 때 유리 |
+| 스칼라 서브쿼리 | SELECT 절 `(SELECT ... LIMIT 1)` | 실행 모델은 LATERAL과 유사하나 **컬럼 1개만** 반환 가능. 컬럼 늘면 서브쿼리도 개수만큼 반복 |
+| `DISTINCT ON` | `SELECT DISTINCT ON (grp) ... ORDER BY grp, ts DESC` | PostgreSQL 전용. 문법 가장 짧지만 top-**1**만 되고 이식성 없음 |
+
+방언/버전:
+
+- SQL 표준(SQL:1999)의 lateral derived table. **PostgreSQL 9.3+**, **MySQL 8.0.14+** 지원
+- SQL Server는 같은 개념을 `CROSS APPLY`(≒ `CROSS JOIN LATERAL`) / `OUTER APPLY`(≒ `LEFT JOIN LATERAL ... ON TRUE`)로 씀. Oracle 12c+는 LATERAL과 APPLY 둘 다 지원
+- `CROSS JOIN LATERAL`은 INNER 성격 — 서브쿼리 결과 0건이면 바깥 행도 **탈락**. "없어도 목록에 나와야 하면" 반드시 `LEFT ... ON TRUE`
+- PostgreSQL에서 FROM 절의 집합 반환 함수(`generate_series` 등)는 LATERAL 키워드 없이도 암묵적으로 lateral 취급
+
+## ⚠️ 함정/메커니즘
+
+- **`GROUP BY + MAX`로는 못 푼다**: `MAX(reg_dtm)`은 최신 *시각*을 줄 뿐, "그 행의 mode"를 못 집는다. `MAX(mode)`는 그냥 알파벳순 최대값. 시각으로 재조인하는 우회는 동시각 2건이면 다시 중복 발생 — top-1-per-group은 일반 집계로 표현 불가능한 문제다
+- **`LIMIT 1` 빠뜨리면 조용히 중복**: 에러가 아니라 그룹의 자식 수만큼 바깥 행이 늘어난 결과가 나온다 (목록 화면에 같은 방이 여러 줄)
+- **동점(tie) 주의**: `ORDER BY reg_dtm DESC LIMIT 1`에서 동일 시각 2건이면 어느 쪽이 뽑힐지 비결정적. 재현 가능해야 하면 `ORDER BY reg_dtm DESC, id DESC`처럼 유니크 타이브레이커를 붙인다
+- **실행 = nested loop → 상관 조건+정렬 인덱스 필수**: `(chat_room_id, reg_dtm)`(상관 컬럼들 + 정렬 컬럼) 복합 인덱스가 있으면 반복 1회가 "인덱스 끝 1건 집기"로 끝나지만, 없으면 바깥 행마다 자식 테이블을 스캔한다 — 바깥이 클수록 비용이 곱으로 늘어남
+- **반대 케이스도 있다**: "전 테이블의 모든 그룹에 대해 top-1"처럼 결국 자식 테이블 대부분을 읽어야 하는 배치성 쿼리라면, 인덱스 probe를 그룹 수만큼 하는 LATERAL보다 **한 번 스캔하는 윈도우 함수가 더 빠를 수 있다**. LATERAL의 이점은 "바깥에서 이미 걸러진 소수 행"이 전제
+
+## 💡 판단 기준
+
+- 채팅방 목록에 방별 최신 질문 mode를 붙여야 했다 → `MAX()`로는 최신 행의 다른 컬럼을 못 뽑는다는 걸 확인 → **"그룹마다 최신 행의 컬럼"이 보이면 집계가 아니라 top-1-per-group 도구(LATERAL)를 꺼낸다**
+- **앱에서 루프 돌며 건별 조회(N+1)를 짜고 싶어지는 순간이 LATERAL의 신호**다 — 그 루프를 쿼리 안으로 밀어넣는 도구라고 기억하면 언제 쓸지 헷갈리지 않는다
+- 선택 공식: 바깥 행이 적고(WHERE로 걸러진 목록) 인덱스가 있다 → LATERAL / 전 그룹 대상 배치 집계 → 윈도우 함수 / 필요한 게 컬럼 딱 1개 → 스칼라 서브쿼리도 충분
+
+## 참고
+
+- PostgreSQL 공식 문서 — Table Expressions, LATERAL Subqueries: https://www.postgresql.org/docs/current/queries-table-expressions.html#QUERIES-LATERAL
+- PostgreSQL SELECT 문서 (DISTINCT ON): https://www.postgresql.org/docs/current/sql-select.html
+- MySQL 8.0 Lateral Derived Tables: https://dev.mysql.com/doc/refman/8.0/en/lateral-derived-tables.html
+- 학습 날짜: 2026-08-03
+- 계기: 실무 MyBatis 매퍼에서 채팅방 목록 쿼리의 `LEFT JOIN LATERAL (... ORDER BY reg_dtm DESC LIMIT 1) ON TRUE`를 만나 "이게 무슨 조인인지"부터 GROUP BY로 안 되는 이유, N+1과의 관계까지 따라가며 정리
