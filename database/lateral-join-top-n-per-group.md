@@ -80,6 +80,20 @@ for (ChatRoom room : rooms) {
 - **앱에서 루프 돌며 건별 조회(N+1)를 짜고 싶어지는 순간이 LATERAL의 신호**다 — 그 루프를 쿼리 안으로 밀어넣는 도구라고 기억하면 언제 쓸지 헷갈리지 않는다
 - 선택 공식: 바깥 행이 적고(WHERE로 걸러진 목록) 인덱스가 있다 → LATERAL / 전 그룹 대상 배치 집계 → 윈도우 함수 / 필요한 게 컬럼 딱 1개 → 스칼라 서브쿼리도 충분
 
+### 행의 단위 공식 — 부모-자식 조회 도구 선택
+
+LATERAL이 N+1 만능 해법인가 헷갈렸는데, **"결과 한 줄이 무엇을 나타내는가"**부터 정하면 도구가 저절로 갈린다:
+
+| 결과 한 줄의 단위 | 붙이려는 값 | 도구 | 예시 |
+|---|---|---|---|
+| 부모 (방당 1줄) | 자식의 **집계값** (개수·합계·최신 시각 자체) | GROUP BY + 집계함수 | 방 목록 + 질문 개수 |
+| 부모 (방당 1줄) | **특정 자식 행의 컬럼** (최신 행의 mode) | **LATERAL** | 방 목록 + 마지막 질문 mode |
+| 자식 (질문당 1줄) | 부모 정보를 각 줄에 | 일반 JOIN | 질문 전체 목록 (방 이름 포함) — 부모 반복이 뻥튀기가 아니라 원하는 모양 |
+| 중첩 (부모 안에 자식 리스트) | — | **IN 배치 + groupingBy** (쿼리 2번) | 방 상세 API `{방, questions:[...]}` — JOIN하면 부모가 자식 수만큼 반복돼 다시 접어야 함 |
+
+- IN 배치 = 목록 1번 + `WHERE 자식FK IN (부모ID들)` 1번 → 앱에서 `Collectors.groupingBy`로 조립. N이 얼마든 쿼리 2번. JPA `@BatchSize`가 내부적으로 하는 일이 정확히 이 패턴
+- 쓰기 N+1(루프 UPDATE)은 조회 도구로 못 푼다 → `foreach`로 VALUES 묶는 배치 UPDATE / JDBC batch가 해법. DB 밖 N+1(외부 API 루프)도 SQL 밖(배치 API·캐시)에서 푼다
+
 ## 참고
 
 - PostgreSQL 공식 문서 — Table Expressions, LATERAL Subqueries: https://www.postgresql.org/docs/current/queries-table-expressions.html#QUERIES-LATERAL
