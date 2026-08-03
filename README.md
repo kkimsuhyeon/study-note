@@ -56,6 +56,7 @@
 
 ### 함수형 / 람다 (Functional)
 - [ ] [람다 ≠ 비동기 - 람다는 "코드 값"일 뿐, 실행 타이밍은 받는 메서드가 정함 / forEach=즉시·on~/then~=콜백·submit/Async=다른 스레드 / 스트림 lazy·콜백 스레드엔 ThreadLocal 없음](./java/functional/lambda-execution-timing.md)
+- [ ] [Stream API 종합 - 파이프라인(소스→중간lazy→최종) / 중간·최종·Collectors 연산 지도 / 1회용·peek=디버깅용·toMap 중복키 예외 / "for문의 목적을 말로 하면 연산 이름"](./java/functional/stream-api.md)
 
 ### Test (테스트 도구 사용법)
 - [ ] [AssertJ 사용법 - assertThat / isEqualByComparingTo / assertThatThrownBy](./java/test/assertj.md)
