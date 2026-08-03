@@ -104,6 +104,18 @@ Map<Long, Long> countByRoom = questions.stream()
 - **박싱 비용**: 합계·통계는 `Stream<Integer>`의 `reduce`보다 `mapToInt(...).sum()` — 원소마다 박싱/언박싱이 사라짐
 - **성능은 for문과 상수 차이**: 스트림이라서 빨라지지 않는다 (오히려 근소하게 느림) — 복잡도 관점은 [big-o-and-input-size](../../algorithm/big-o-and-input-size.md)
 
+## 스트림 디버깅 (IntelliJ)
+
+체인 중간에 문장을 못 넣으니 디버깅 방법도 스트림 전용 도구를 쓴다:
+
+- **람다 중단점**: 람다가 있는 줄의 거터 클릭 → **"All / Line / Lambda" 선택 팝업** → Lambda를 고르면 그 람다가 실행될 때마다(= 원소마다) 멈추고 그 시점 원소를 Variables에서 확인. **Line은 파이프라인 "조립" 시점에 1번** 멈출 뿐 람다 안은 못 본다
+  - 팁: **연산마다 줄을 쪼개** 두면 원하는 람다에 정확히 걸 수 있다 (한 줄 체인이면 선택이 헷갈림)
+- **Stream Trace**: 스트림 줄에서 멈춘 상태로 디버그 창의 **"Trace Current Stream Chain"** → 연산별 입력→출력 원소 흐름을 시각화 (filter에서 뭐가 탈락했는지, map에서 뭐가 뭘로 변했는지 한 화면). 원소마다 멈출 필요 없이 전체 흐름 확인 — peek println보다 강력
+- **조건부 중단점**: 원소가 많을 때 람다 중단점 우클릭 → Condition에 `a.getId().equals("Q-123")` → 그 원소만 멈춤
+- **메서드 참조**(`String::toUpperCase`)는 람다 본문이 없어 그 줄에선 못 건다 → 참조된 메서드 **안에** 걸거나, 잠깐 람다로 풀어서
+- **람다가 복잡하면 메서드 추출**(`filter(this::isValid)`)이 정답 — 중단점도 평범하게 걸리고 가독성도 좋아짐. 람다 2줄 넘으면 어차피 이쪽
+- 빠르게 값만 보고 싶으면 `peek(System.out::println)` — 단, lazy라 소비된 원소만 찍힘 (위 ⚠️)
+
 ## 💡 판단 기준
 
 - **"이 for문의 목적"을 말로 해보면 연산 이름이 된다**: 변환 → `map` / 걸러내기 → `filter` / 중첩 펴기 → `flatMap` / 그룹핑 → `groupingBy` / 하나로 접기 → `reduce` / 있는지만 → `anyMatch`. 목적이 이름과 일치할 때 스트림이 for문보다 읽기 좋다
