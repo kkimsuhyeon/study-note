@@ -27,6 +27,9 @@
 - [ ] [Criteria · Specification · Pageable · Page - 출처(Spring Data/JPA/자작)와 동적 조회·페이징](./java/jpa/spring-data-query.md)
 - [ ] [N+1과 fetch 전략 - fetch join, EntityGraph, batch size 판단 기준](./java/jpa/n-plus-one-fetch.md)
 
+### MyBatis
+- [ ] [resultMap 중첩 매핑 - association(단수)·collection(1:N) / `<id>`=정체성 판별(없으면 전컬럼 비교·그룹핑 오동작) / "이미 JOIN하면 컬럼+매핑 추가가 0비용" / 중첩 select는 N+1 / collection+LIMIT 함정](./java/mybatis/resultmap-association-collection.md)
+
 ### Spring
 - [ ] [@Transactional - 선언적 트랜잭션·전파(propagation)·롤백 규칙·프록시 함정](./java/spring/transactional.md)
 - [ ] [예제로 보는 트랜잭션 전파·롤백 - a→b→c 워크스루](./java/spring/transaction-rollback-example.md)
