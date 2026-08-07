@@ -42,6 +42,7 @@
 
 ### 기본 / 박싱 (Basics)
 - [ ] [오토박싱 & 래퍼 캐시 - `Integer`·`Long`끼리 `==` 금지 / -128~127 캐시(JLS 5.1.7) → 작은 값엔 우연히 맞고 커지면 조용히 틀림 / JPA `Long id` 비교도 같은 메커니즘](./java/basics/autoboxing-wrapper-cache.md)
+- [ ] [switch 문 vs 식 - Java14 JEP361 / 식은 enum 전체 커버 강제(exhaustiveness) = 상수 추가 시 컴파일 에러로 매핑 누락 잡는 안전망 / default는 "모든 미래 값에 공통 처리가 옳을 때"만(아니면 버그 은닉처) / 암묵 default→ICCE / values() 순회 검증도 함께 오염](./java/basics/switch-expression-exhaustiveness.md)
 
 ### BigDecimal
 - [ ] [BigDecimal - 돈·정밀 계산, equals vs compareTo, scale, 반올림](./java/bigdecimal/bigdecimal.md)
