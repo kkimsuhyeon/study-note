@@ -50,6 +50,63 @@ for (ChatRoom room : rooms) {
 - LATERAL: 왕복 1번, 루프는 DB 엔진 내부의 nested loop → 인덱스만 있으면 반복 1회 = 인덱스 조회 1번 수준
 - JPA 쪽 N+1과 fetch 전략은 → [n-plus-one-fetch](../java/jpa/n-plus-one-fetch.md)
 
+## 왜 LATERAL이 필요한가 — 절 평가 순서
+
+"서브쿼리는 바깥을 못 본다"가 아니라 **FROM 절 서브쿼리만 못 본다.** 같은 상관 참조를 SELECT 절에 쓰면 LATERAL 없이도 된다:
+
+```sql
+-- ❌ FROM 절: ERROR - column "o.org_id" does not exist
+FROM   org o
+LEFT JOIN (SELECT code FROM history WHERE org_id = o.org_id ORDER BY dtm DESC LIMIT 1) h ON TRUE
+
+-- ✅ SELECT 절 스칼라 서브쿼리: 바깥 참조 OK
+SELECT o.org_id,
+       (SELECT h.code FROM history h WHERE h.org_id = o.org_id ORDER BY h.dtm DESC LIMIT 1) AS code
+FROM   org o
+```
+
+이유는 절이 평가되는 순서다. **FROM → WHERE → GROUP BY → HAVING → SELECT → ORDER BY** 순으로 처리되는데:
+
+- FROM은 가장 먼저 평가돼 "어떤 행들이 있는지"를 만드는 단계 — 이 시점엔 `o`의 현재 행이라는 개념 자체가 없다. 그래서 참조 불가이고, **LATERAL이 "이 서브쿼리는 앞 항목의 행마다 다시 실행하라"고 예외를 여는 것**
+- SELECT는 행이 하나씩 확정된 뒤 계산 — 그래서 그 행의 컬럼을 자유롭게 쓴다
+
+같은 순서 규칙에서 나오는 실무 결과 두 가지:
+
+- **WHERE에서는 SELECT 별칭을 못 쓴다** (`WHERE ttl_point > 0` 불가) — WHERE가 SELECT보다 먼저이기 때문. 반면 ORDER BY는 SELECT 뒤라 별칭 사용 가능
+- 스칼라 서브쿼리는 **반드시 1행 1열**. 2행 이상이면 런타임 에러(`more than one row returned by a subquery used as an expression`) → `LIMIT 1` 필수. 컬럼이 2개 필요하면 서브쿼리를 2벌 써야 하고(같은 테이블 2회 스캔), 그 지점이 LATERAL로 갈아탈 신호
+
+## top-N 외의 LATERAL 용도
+
+**① 여러 값을 한 번의 스캔으로** — 스칼라 서브쿼리는 컬럼당 1벌씩 필요하지만 LATERAL은 한 번에:
+
+```sql
+LEFT JOIN LATERAL (
+    SELECT COUNT(*) AS cnt, MAX(h.use_dtm) AS last_dt
+    FROM   history h
+    WHERE  h.org_id = o.org_id
+) s ON TRUE
+```
+
+(집계 함수는 매칭 0건이어도 항상 1행을 돌려주므로 `cnt = 0`, `last_dt = NULL`이 된다)
+
+**② 계산식에 이름 붙여 재사용** — 위의 "WHERE에서 별칭 못 씀" 문제의 해법:
+
+```sql
+-- 같은 식을 SELECT·WHERE·ORDER BY에 세 번 반복하는 대신
+CROSS JOIN LATERAL (SELECT COALESCE(p.paid,0) + COALESCE(p.free,0) AS ttl) t
+WHERE  t.ttl > 10000
+ORDER  BY t.ttl DESC
+```
+
+FROM 단계에서 만들어진 컬럼이라 WHERE에서도 보인다. 항상 1행이므로 `CROSS JOIN LATERAL`.
+
+**③ 집합 반환 함수로 행 펼치기** — 배열/JSON 1행을 원소 수만큼의 행으로:
+
+```sql
+CROSS JOIN LATERAL unnest(o.tags) AS t(tag)
+CROSS JOIN LATERAL jsonb_array_elements(l.payload -> 'items') AS e
+```
+
 ## 종류/옵션 비교 — top-N per group 4가지 해법
 
 | 방법 | 형태 | 특징 |
@@ -58,6 +115,26 @@ for (ChatRoom room : rooms) {
 | 윈도우 함수 | `ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...) = 1` | 서브쿼리가 독립 실행 → **파티션 대상 전체를 스캔·정렬** 후 걸러냄. 전 그룹을 다 필요로 할 때 유리 |
 | 스칼라 서브쿼리 | SELECT 절 `(SELECT ... LIMIT 1)` | 실행 모델은 LATERAL과 유사하나 **컬럼 1개만** 반환 가능. 컬럼 늘면 서브쿼리도 개수만큼 반복 |
 | `DISTINCT ON` | `SELECT DISTINCT ON (grp) ... ORDER BY grp, ts DESC` | PostgreSQL 전용. 문법 가장 짧지만 top-**1**만 되고 이식성 없음 |
+
+### DISTINCT ON 자세히 (PostgreSQL 전용)
+
+"지정한 식이 같은 행들의 묶음에서 **첫 행만** 남긴다". 그 "첫 행"을 정하는 건 `ORDER BY`다:
+
+```sql
+SELECT DISTINCT ON (org_id)
+       org_id, promotion_cd, use_dtm
+FROM   promotion_history
+ORDER  BY org_id, use_dtm DESC;   -- org_id마다 use_dtm 최대인 1행
+```
+
+규칙과 함정:
+
+- **`DISTINCT ON` 식은 `ORDER BY`의 맨 앞과 일치해야 한다** (공식 규정). 뒤에 오는 정렬식이 "그룹 안에서 어느 행이 첫 행인가"를 결정
+- **`ORDER BY`를 빼면 어느 행이 남을지 예측 불가** — 문서가 명시하는 unpredictable. 에러가 아니라 **조용히 아무 행**이라 위험. (실무 예: `ORDER BY org_id, use_dtm`처럼 `DESC`를 빼먹으면 최신이 아니라 **가장 오래된** 이력이 뽑힌다 — 의도와 반대인데 결과는 그럴듯해서 눈치채기 어렵다)
+- 최종 결과를 다른 기준으로 정렬하려면 서브쿼리로 감싸고 바깥에서 다시 `ORDER BY`
+- `DISTINCT`(및 `DISTINCT ON`)는 `FOR UPDATE`/`FOR SHARE` 등 잠금 절과 **함께 쓸 수 없다** → 락이 필요하면 [select-for-update](./select-for-update.md) 쪽 방식으로 분리
+
+윈도우 함수와의 차이: `ROW_NUMBER() OVER (PARTITION BY grp ORDER BY ts DESC)` + `WHERE rn = 1`은 **표준 SQL이고 top-N(N>1)도 되지만**, 서브쿼리로 한 겹 감싸야 한다(윈도우 함수는 WHERE에서 직접 못 씀 — 위의 절 평가 순서 때문). `DISTINCT ON`은 짧지만 top-1 전용 + PostgreSQL 전용.
 
 방언/버전:
 
