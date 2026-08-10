@@ -50,6 +50,34 @@ for (ChatRoom room : rooms) {
 - LATERAL: 왕복 1번, 루프는 DB 엔진 내부의 nested loop → 인덱스만 있으면 반복 1회 = 인덱스 조회 1번 수준
 - JPA 쪽 N+1과 fetch 전략은 → [n-plus-one-fetch](../java/jpa/n-plus-one-fetch.md)
 
+### "루프면 LATERAL도 N+1만큼 느린 거 아닌가?"
+
+**반복 횟수는 같고, 반복 1회의 비용이 다르다.** N+1이 느린 진짜 원인은 "쿼리를 N번 해서"가 아니라 **한 번마다 프로세스 경계를 넘는 것**이기 때문:
+
+| | 반복 1회에 드는 일 | 자릿수 (환경마다 다름) |
+|---|---|---|
+| 앱 N+1 | 커넥션 획득 → 네트워크 왕복 → SQL 파싱 → 실행계획 수립 → 결과 직렬화 → JDBC/ORM 매핑 | **0.5~50 ms** (같은 DC ~1ms, 원격/클라우드면 수십 ms) |
+| LATERAL | 이미 세워진 실행계획 안에서 인덱스 탐색 1회 | **수 µs** (shared buffer 히트 기준) |
+
+500건 목록이면 대략 `500 × 1ms ≈ 500ms` 대 `왕복 1번 + 500 × 5µs ≈ 3ms`. 같은 "루프"라도 하나는 **프로세스 간 통신 500번**, 다른 하나는 **함수 호출 500번**이라 비교 대상이 아니다. 게다가 옵티마이저가 상황에 따라 nested loop 대신 다른 조인 전략을 고르기도 해서 "무조건 루프"도 아니다.
+
+**EXPLAIN으로 실제 확인하기** — `EXPLAIN (ANALYZE, BUFFERS)`를 찍고 `loops`를 본다:
+
+```
+Nested Loop Left Join            (actual time=0.020..3.120 rows=500 loops=1)
+  ->  Seq Scan on chat_room cr   (actual time=0.008..0.120 rows=500 loops=1)
+  ->  Limit                      (actual time=0.005..0.005 rows=1 loops=500)
+        ->  Index Scan Backward using idx_q_room_dtm on user_question q
+                                 (actual time=0.004..0.004 rows=1 loops=500)
+              Index Cond: (chat_room_id = cr.chat_room_id)
+```
+
+- `loops=500` = 바깥 행마다 반복한 횟수
+- ⚠️ 그 옆 `actual time`은 **총합이 아니라 1회 평균**이다. 실제 소요는 `actual time × loops`로 계산해야 한다 (EXPLAIN 읽을 때 가장 흔한 오해)
+- 여기서 `Index Scan`이 아니라 **`Seq Scan`이 `loops=500`과 함께** 뜨면 위험 신호 — 인덱스가 없어서 바깥 행마다 자식 테이블을 통째로 훑고 있다는 뜻
+
+즉 LATERAL이 빠른 건 공짜가 아니라 **상관 조건+정렬 인덱스가 있다는 전제** 위에서다. 인덱스가 없거나 바깥 행이 수만 건인 배치성 쿼리라면 오히려 윈도우 함수가 낫다 (아래 함정 항목 참고).
+
 ## 왜 LATERAL이 필요한가 — 절 평가 순서
 
 "서브쿼리는 바깥을 못 본다"가 아니라 **FROM 절 서브쿼리만 못 본다.** 같은 상관 참조를 SELECT 절에 쓰면 LATERAL 없이도 된다:
