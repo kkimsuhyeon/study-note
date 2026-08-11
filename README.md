@@ -4,11 +4,69 @@
 
 > ☑️ **읽음 표시**: `- [x]` 읽음 / `- [ ]` 안 읽음. **새 문서는 `- [ ]`(안 읽음)로 추가**되고, 읽으면 체크(`- [x]`)한다. (Obsidian에서 체크박스 클릭으로 토글)
 
+---
+
+## 📍 하루 루틴 (틈틈이 공부용)
+
+**한 번에 노트 1개.** 대부분 5~10분이면 끝난다. 틈날 때 하나씩이 주말에 몰아 읽는 것보다 낫다. (코테는 [로드맵](./algorithm/roadmap.md)에서 별도로 진행 — 읽기 순서와 섞지 않는다)
+
+1. **읽기 전 30초 — 인출 먼저.** 아래 목록의 *한 줄 요약만* 보고 "내가 아는 걸 말해봐". 그다음 본문을 편다. 아는 부분은 스킵하고, **어긋난 부분이 그날의 진짜 학습**이다. (코테 로드맵의 "30초 루틴"과 같은 방식)
+2. **읽고 나면 `- [x]` 체크 + 맨 끝 💡을 자기 말로 다시 써본다.** 못 쓰면 안 읽은 것 — 체크하지 말 것.
+3. **막히면 그 자리에 `❓ ...` 한 줄 남긴다.** 다음 세션에 그 `❓`만 주면 노트를 보강한다. *노트는 완성품이 아니라 계속 자라는 문서.*
+4. **트랙 하나가 끝나면 제목만 보고 💡 재생** → 안 나오는 노트만 다시 읽는다. (읽은 걸 다시 읽는 건 낭비, 못 꺼내는 걸 찾는 게 복습)
+
+> 🕐 **2회분으로 쪼갤 큰 노트**: [도메인 검증](./java/design/domain-validation.md)(제일 큼) · [@Lock 실무](./java/jpa/lock-practical.md) · [@Transactional](./java/spring/transactional.md) · [Map 메서드](./java/collections/map-methods.md) · [JVM 동시성 도구](./java/concurrency/jvm-concurrency-tools.md) · [락 개념](./java/concurrency/locks.md) · [@Lock 심화](./java/jpa/lock-concepts.md) · [Jackson](./java/jackson/annotations.md) · [신호→도구](./algorithm/data-structure-selection.md)
+
+## 🗺️ 추천 학습 순서 (트랙 1 → 9)
+
+**카테고리 목록(아래)은 "찾아보는 사전", 이 순서는 "읽어나가는 길".** 순서는 노트끼리 실제로 서로를 참조하는 방향(선행 → 후행)으로 뽑았다. 앞 트랙을 건너뛰면 뒤 트랙에서 그 노트를 결국 다시 열게 된다.
+
+> 🕒 **최근에 쓴 노트는 오히려 뒤로.** 방금 쓴 걸 읽는 건 인출이 아니라 재독이라 "안다"는 착각만 굳는다. 2~3주 지나 아래 순서에서 제 자리로 만날 때 읽는 게 낫다. (2026-08-03~04 작성분: [Stream API](./java/functional/stream-api.md) · [Spring Cache](./java/spring/spring-cache.md) · [메서드 보안](./java/security/method-security.md) · [계산 파이프라인](./java/design/calculation-pipeline.md) · [LATERAL](./database/lateral-join-top-n-per-group.md) · [LEFT JOIN ON/WHERE](./database/left-join-on-vs-where.md))
+
+**트랙 1 · Java 기본기 (5개, 워밍업)** — *짧고, 나머지 트랙이 쓰는 어휘. 여기서 페이스를 만든다.*
+[컬렉션 계층](./java/collections/collection-hierarchy.md) → [오토박싱·래퍼 캐시](./java/basics/autoboxing-wrapper-cache.md) → [Map 메서드](./java/collections/map-methods.md) → [리스트 생성](./java/collections/list-creation.md) → [람다 실행 타이밍](./java/functional/lambda-execution-timing.md)
+> [SortedSet](./java/collections/sorted-navigable-set.md) · [BigDecimal](./java/bigdecimal/bigdecimal.md) · [varargs](./java/generics/varargs-safevarargs.md) · [Stream API](./java/functional/stream-api.md)는 **레퍼런스로 미룬다** — 다른 노트가 이들을 전제하지 않아서, 순서에 끼우면 본선만 늦어진다. 필요할 때 꺼내 읽는 쪽이 맞다.
+> 람다 → Stream 순서만은 지킬 것. "람다는 코드 값일 뿐"을 먼저 잡아야 스트림의 lazy가 이상하지 않다.
+
+**트랙 2 · 트랜잭션 · JPA (10개)** — *이 볼트의 최대 허브. 다른 노트 10개 이상이 여기를 참조한다.*
+[영속성 컨텍스트](./java/jpa/persistence-context.md) → [@Transactional](./java/spring/transactional.md) → [롤백 예제](./java/spring/transaction-rollback-example.md) → [격리 수준](./java/jpa/transaction-isolation.md) → [Read-Modify-Write](./java/jpa/read-modify-write.md) → [@Lock 기본](./java/jpa/lock.md) → [@Lock 심화](./java/jpa/lock-concepts.md) → [@Lock 실무](./java/jpa/lock-practical.md) → [Criteria·Pageable](./java/jpa/spring-data-query.md) → [N+1](./java/jpa/n-plus-one-fetch.md)
+
+**트랙 3 · 테스트 (8개)** — *트랙 2에서 배운 걸 "손으로 확인하는" 수단. 그래서 트랙 2 다음.*
+[테스트 방법론](./java/test/test-writing-guide.md) → [JUnit 라이프사이클](./java/test/junit-lifecycle.md) → [AssertJ](./java/test/assertj.md) → [픽스처](./java/test/test-fixtures.md) → [파라미터화](./java/test/parameterized-test.md) → [Mockito](./java/test/mockito-service-test.md) → [repository 테스트](./java/test/jpa-repository-test.md) → [테스트 슬라이스](./java/test/spring-boot-test-slices.md)
+
+**트랙 4 · 동시성 (8개)** — *락 노트가 JPA 락을 참조하므로 트랙 2 뒤가 자연스럽다.*
+[스레드 기초](./java/concurrency/threads.md) → [메모리 가시성](./java/concurrency/memory-visibility.md) → [JVM 동시성 도구](./java/concurrency/jvm-concurrency-tools.md) → [락 개념](./java/concurrency/locks.md) → [데드락](./java/concurrency/deadlock.md) → [동시성 테스트](./java/test/concurrency-test.md) → [가상 스레드](./java/concurrency/virtual-threads.md) → [도구 선택 가이드](./java/concurrency/concurrency-tool-guide.md)
+
+**트랙 5 · Spring 웹 · 프록시 계열 (9개)**
+[@Valid·@Validated](./java/spring/validation.md) → [@AssertTrue](./java/spring/assert-true-cross-field.md) → [예외 처리](./java/spring/exception-handling.md) → [Jackson](./java/jackson/annotations.md) → [커스텀 어노테이션](./java/annotation/custom-annotation.md) → [Spring Cache](./java/spring/spring-cache.md) → [메서드 보안](./java/security/method-security.md) → ["배치"의 세 층위](./java/spring/batch-three-meanings.md) → [비밀번호 인코딩](./java/security/password-encoding.md)
+> 💡 **묶어서 읽으면 한 번에 잡히는 것**: [커스텀 어노테이션](./java/annotation/custom-annotation.md) · [Spring Cache](./java/spring/spring-cache.md) · [메서드 보안](./java/security/method-security.md) · [@AssertTrue](./java/spring/assert-true-cross-field.md) · [@Transactional](./java/spring/transactional.md) — 전부 같은 함정을 공유한다. **① 활성화(`@Enable~`) 안 하면 예외가 아니라 "조용히 무시" ② 프록시라서 자기호출(this.method())은 안 먹는다.** 어노테이션 이름만 다를 뿐 같은 메커니즘이라, 붙여 읽으면 다섯 번 배울 걸 한 번에 배운다.
+
+**트랙 6 · 설계 · DDD (6개)** — *제일 오래 사는 ③층. 단, 앞 트랙의 구체 경험이 있어야 와닿는다. 먼저 읽으면 격언집이 된다.*
+[변환 계층](./java/design/transform-layers.md) → [포트와 어댑터](./java/design/ports-and-adapters.md) → [도메인 검증](./java/design/domain-validation.md) → [애그리거트 소유권](./java/design/aggregate-ownership.md) → [일급 컬렉션](./java/design/first-class-collection.md) → [계산 파이프라인](./java/design/calculation-pipeline.md)
+
+**트랙 7 · 분산 · 실시간 (9개)** — *분산 락은 "락 + Redis + 스케일아웃"을 전부 요구해서 제일 뒤.*
+[스케일 아웃](./infra/scaling.md) → [Redis 기초](./infra/redis/redis-basics.md) → [Pub/Sub](./infra/redis/redis-pubsub.md) → [Redisson 분산 락](./infra/redis/redisson-distributed-lock.md) → [실시간 통신 비교](./infra/network/realtime-communication.md) → [SSE](./infra/network/sse.md) → [SseEmitter](./java/spring/sse-emitter.md) → [WebSocket](./infra/network/websocket.md) → [Flux/Mono](./java/reactive/flux-mono-basics.md)
+
+**트랙 8 · SQL 심화 (5개)** — *트랙 2(JPA)를 끝낸 뒤에 오면 "N+1을 쿼리로 푸는" 쪽이 보인다.*
+[인덱스·실행계획](./database/index-explain.md) → [SQL 쿡북](./database/sql-cookbook.md) → [LEFT JOIN ON vs WHERE](./database/left-join-on-vs-where.md) → [LATERAL·top-N per group](./database/lateral-join-top-n-per-group.md) → [PG 날짜 함수](./database/postgresql-date-functions.md)
+
+**트랙 10 · Spring 프록시 → AOP (김영한 고급편, 작성 중)** — *챕터의 한계가 다음 챕터를 부르는 서사가 있는 트랙. 강의 순서대로 읽는다.*
+[ThreadLocal](./java/concurrency/thread-local.md) → 템플릿 메서드/전략/콜백 (예정) → 프록시/데코레이터 (예정) → 동적 프록시 (예정) → ProxyFactory (예정) → 빈 후처리기 (예정) → @Aspect (예정) → AOP 개념 (예정) → AOP 구현 (예정) → 포인트컷 (예정)
+
+**트랙 9 · 레퍼런스 (8개, 순서 무관 — 필요할 때 꺼내 읽기)**
+*도구*: [포트와 listen](./infra/network/ports-and-listen.md) → [SSH 포워딩](./infra/network/ssh-port-forwarding.md) → [SSH config](./infra/network/ssh-config.md) / [git worktree](./git/worktree.md)
+*기본기 잔여*: [Stream API](./java/functional/stream-api.md) · [SortedSet](./java/collections/sorted-navigable-set.md) · [BigDecimal](./java/bigdecimal/bigdecimal.md) · [varargs](./java/generics/varargs-safevarargs.md) — 다른 노트의 선행이 아니라, 그 API를 실제로 쓸 때 펴는 쪽이 남는다
+
+> ⚠️ **트랙을 섞지 말 것.** 매일 다른 트랙을 뽑아 읽으면 전부 "반씩 아는" 상태가 된다 — 코테 로드맵에 적어둔 것과 같은 이유. 한 트랙을 끝내고 다음으로.
+
+---
+
 ## Java
 
 ### Concurrency (동시성)
 - [ ] [스레드 기초 - 프로세스/스레드/플랫폼 스레드(OS 1:1)/생명주기 / 힙 공유→race](./java/concurrency/threads.md)
 - [ ] [스레드 풀 내부 - core/max/queue 처리 순서(⚠️큐가 max보다 먼저→maxPoolSize 死) / Executors 팩토리는 큐·스레드 무한(OOM) / queueCapacity=0=SynchronousQueue 트릭 / 거부정책 4종·CallerRuns 백프레셔(shutdown 시 무음 유실) / @Async 폴백은 풀이 아님·자기호출 함정 / "병렬화보다 호출 묶기가 먼저"](./java/concurrency/thread-pool.md)
+- [ ] [ThreadLocal - 쓰레드 전용 저장소 / 싱글톤 빈 필드 동시성 문제 해결 / 쓰레드 풀 재활용→remove() 필수(안 하면 타 사용자 데이터 노출) / 비동기·가상 스레드에선 배신](./java/concurrency/thread-local.md)
 - [ ] [가상 스레드 - Java 21 JEP444 / M:N·캐리어·unmount / pinning(JEP491) / 락은 그대로 필요](./java/concurrency/virtual-threads.md)
 - [ ] [메모리 가시성 - volatile·happens-before(JMM) / 가시성≠원자성 / volatile로 count++ 안 됨](./java/concurrency/memory-visibility.md)
 - [ ] [락 개념 종합 - 낙관적/비관적/분산 락](./java/concurrency/locks.md)
