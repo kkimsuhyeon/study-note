@@ -8,6 +8,7 @@
 
 ### Concurrency (동시성)
 - [ ] [스레드 기초 - 프로세스/스레드/플랫폼 스레드(OS 1:1)/생명주기 / 힙 공유→race](./java/concurrency/threads.md)
+- [ ] [스레드 풀 내부 - core/max/queue 처리 순서(⚠️큐가 max보다 먼저→maxPoolSize 死) / Executors 팩토리는 큐·스레드 무한(OOM) / queueCapacity=0=SynchronousQueue 트릭 / 거부정책 4종·CallerRuns 백프레셔(shutdown 시 무음 유실) / @Async 폴백은 풀이 아님·자기호출 함정 / "병렬화보다 호출 묶기가 먼저"](./java/concurrency/thread-pool.md)
 - [ ] [가상 스레드 - Java 21 JEP444 / M:N·캐리어·unmount / pinning(JEP491) / 락은 그대로 필요](./java/concurrency/virtual-threads.md)
 - [ ] [메모리 가시성 - volatile·happens-before(JMM) / 가시성≠원자성 / volatile로 count++ 안 됨](./java/concurrency/memory-visibility.md)
 - [ ] [락 개념 종합 - 낙관적/비관적/분산 락](./java/concurrency/locks.md)

@@ -11,7 +11,7 @@
 | 도구 | 등장 | **한 가지 임무** | 안 하는 것 |
 |---|---|---|---|
 | `Thread`/`Runnable` | Java 1 | 실행 흐름 1개 직접 만들기(저수준) | 재사용·결과관리 |
-| `ExecutorService`(+`Executors`) | Java 5 | **스레드 풀** — 일꾼 만들고 작업 분배·재사용 | 결과 조합 |
+| `ExecutorService`(+`Executors`) | Java 5 | **스레드 풀** — 일꾼 만들고 작업 분배·재사용 (내부 설정 → [스레드 풀 내부](./thread-pool.md)) | 결과 조합 |
 | `Future` | Java 5 | submit한 작업의 **미래 결과 핸들**(`get()`으로 대기) | 조합·변환 |
 | **`CompletableFuture`** | Java 8 | **비동기 실행+변환+합성+에러처리 파이프라인** | (스레드 직접 생성 X — 풀 위에서 돎) |
 | `CountDownLatch` | Java 5 | **N개 끝날/모일 때까지 한 번 대기**(게이트, 일회성) | 결과 보관·세기 |
@@ -58,7 +58,7 @@ CompletableFuture.allOf(f1, f2, f3).join();
 
 > 💡 **서비스 코드에서 "여러 비동기 호출을 실행·합쳐서 반환"하면 보통 `CompletableFuture`.** scatter-gather(병렬 호출→집계)도 `allOf`가 `CountDownLatch`보다 흔하다. 단순 fire-and-forget이면 Spring `@Async`.
 
-> ⚠️ 기본은 공용 `ForkJoinPool.commonPool`에서 돈다 — 블로킹 작업엔 **전용 Executor를 넘겨라**(`supplyAsync(task, executor)`). 안 그러면 공용 풀이 막힌다.
+> ⚠️ 기본은 공용 `ForkJoinPool.commonPool`에서 돈다 — 블로킹 작업엔 **전용 Executor를 넘겨라**(`supplyAsync(task, executor)`). 안 그러면 공용 풀이 막힌다. 그 전용 풀을 어떻게 설정하나(core/max/queue·거부 정책), `@Async`와의 갈림길은 → [스레드 풀 내부](./thread-pool.md)
 
 ---
 

@@ -37,7 +37,7 @@
 - **컨텍스트 스위칭** 비용 — OS가 스레드를 바꿔 끼울 때 CPU 레지스터·캐시 교체 → 많아질수록 오버헤드.
 - 그래서 **현실적으로 수천 개가 한계.** "요청당 스레드"가 동시 접속 폭증 시 무너지는 이유. (→ 이 한계를 깨려고 나온 게 [가상 스레드](./virtual-threads.md))
 
-> 💡 그래서 **직접 `new Thread()` 남발 대신 스레드 풀**(`ExecutorService`)로 **미리 만들어 재사용**한다(생성 비용·개수 제어). → [JVM 동시성 도구 §0](./jvm-concurrency-tools.md)
+> 💡 그래서 **직접 `new Thread()` 남발 대신 스레드 풀**(`ExecutorService`)로 **미리 만들어 재사용**한다(생성 비용·개수 제어). → [JVM 동시성 도구 §0](./jvm-concurrency-tools.md) · 풀의 **내부 동작(core/max/queue·거부 정책)**은 [스레드 풀 내부](./thread-pool.md)
 
 ---
 
@@ -55,6 +55,7 @@ pool.shutdown();
 ```
 - **`Runnable`/`Callable` = 할 일, `Thread` = 그 일을 실행하는 일꾼.** 둘은 다르다(혼동 주의).
 - `start()` ≠ `run()`: `start()`라야 **새 스레드에서** 실행. `run()`을 직접 부르면 그냥 현재 스레드에서 메서드 호출(동시성 X).
+- ⚠️ `Executors.newFixedThreadPool`은 **큐가 무한**이라 작업이 밀리면 OOM까지 간다. 실무에선 팩토리 대신 `ThreadPoolExecutor`로 경계를 명시한다. → [스레드 풀 내부 §4](./thread-pool.md)
 
 ---
 
