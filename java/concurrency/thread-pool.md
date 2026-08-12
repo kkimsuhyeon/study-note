@@ -256,6 +256,29 @@ Spring이 **프록시(대리인)**로 가로채는 방식이라 **밖에서 들�
 
 > ⚠️ `supplyAsync(task)`처럼 **executor를 생략하면 `ForkJoinPool.commonPool`**에서 돈다. 크기가 `CPU 코어 수 - 1`로 아주 작고 앱 전체가 공유하므로, 블로킹 I/O를 넣으면 무관한 작업까지 굶는다. (→ [동시성 도구 가이드 §2](./concurrency-tool-guide.md)) **전용 풀을 반드시 넘길 것.**
 
+### ⚠️ `join()`은 예외를 한 겹 감싼다 — 벗기지 않으면 예외 처리가 통째로 바뀐다
+
+작업이 예외로 끝나면 `join()`은 원래 예외를 **`CompletionException`으로 감싸서** 던진다(`get()`은 checked `ExecutionException`). 그대로 올리면 상위의 **타입별 예외 핸들러를 못 탄다.**
+
+```java
+try {
+    return futures.stream().map(CompletableFuture::join).flatMap(List::stream).toList();
+} catch (CompletionException e) {
+    throw e.getCause() instanceof RuntimeException cause ? cause : e;   // 원래 예외로 복원
+}
+```
+
+`CompletionException`은 `RuntimeException`의 하위라 컴파일도 되고 동작도 하지만, Spring `@RestControllerAdvice` 기준으로 이만큼 달라진다.
+
+| | 벗김 | 안 벗김 |
+|---|---|---|
+| 타는 핸들러 | `@ExceptionHandler(BizException.class)` | `@ExceptionHandler(RuntimeException.class)` 폴백 |
+| 응답 | 도메인 에러코드 + 다국어 메시지 | 일반 실패 코드 |
+| 로그 레벨 | 원인 유무로 WARN/ERROR 구분 | 무조건 ERROR |
+| 운영 알림 | 지정한 코드만 발송 | **전부 발송** (의도된 거부까지 알림) |
+
+> 💡 **병렬화는 "예외가 지나가는 길"까지 바꾼다.** 순차 코드를 `CompletableFuture`로 옮길 때 성능만 보고 예외 경로를 안 보면, 배포 후 운영 알림이 갑자기 시끄러워지는 식으로 드러난다. (스트림 lazy 때문에 `try` 블록 안에서 `toList()`로 소비해야 catch가 유효한 것도 함께 → [Stream API 함정](../functional/stream-api.md))
+
 ---
 
 ## 10. 풀 크기는 어떻게 정하나

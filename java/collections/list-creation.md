@@ -89,6 +89,11 @@ merger.merge(Collections.singletonList(holiday));   // "입력은 이 1개" 가 
 - **불변 위반은 런타임에 터진다.** 타입은 다 같은 `List<T>`라 시그니처만 보고는 가변/불변을 구분할 수 없다 → `add()` 하는 순간 `UnsupportedOperationException`. 받은 리스트를 수정해야 하면 `new ArrayList<>(받은것)`으로 복사부터.
 - **`Arrays.asList`는 불변이 아니라 "고정 크기"** — `add`/`remove`는 ❌지만 **`set`은 된다.** 게다가 원본 배열의 뷰라서 배열을 바꾸면 리스트에도 비친다(반대도 마찬가지).
 - **`List.of`는 null 불허** — 원소에 null 넣으면 NPE. (덜 알려진 함정: `List.of("a").contains(null)`도 NPE를 던진다.) null 원소가 정말 필요하면 `singletonList` — 단, 그 전에 "리스트에 null이 들어가는 설계"부터 의심.
+- **`Map.of`도 같은 규칙 — 빈 맵 조회조차 NPE** — `Map.of()`에 `get(null)`을 하면 "없으니 null"이 아니라 **NPE를 던진다**(불변 컬렉션은 null 키/값을 아예 거부). "결과가 없으면 빈 맵을 반환"하는 메서드에서 `return Map.of();` 를 쓰고, 호출부가 null일 수 있는 키로 조회하면 그 자리에서 터진다 → **조회 전에 키의 null/공백을 걸러내거나** 가변 `HashMap`을 반환할 것.
+  ```java
+  Map<String, X> result = Map.of();
+  result.get(null);            // 💥 NPE  (new HashMap<>() 이었다면 그냥 null 반환)
+  ```
 - **`unmodifiableList`는 복사가 아니라 뷰** — 감싼 원본을 바꾸면 "불변" 리스트 내용도 바뀐다. 진짜 스냅샷이 필요하면 `List.copyOf`(10+).
 
 ---

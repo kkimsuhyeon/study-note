@@ -81,6 +81,23 @@ new BigDecimal("10").divide(new BigDecimal("3"), 2, RoundingMode.HALF_UP); // �
 
 > 돈 계산은 보통 `HALF_UP`. 회계 표준이 필요하면 `HALF_EVEN`.
 
+### ⚠️ "나누기 → 곱하기" 순서면 중간 scale을 최종보다 넉넉히
+
+비율을 %로 낼 때처럼 **나눈 뒤 100을 곱하면**, 곱하기가 소수점을 두 칸 밀어내므로 **중간에서 자른 자리가 그대로 최종 결과**가 된다.
+
+```java
+// ❌ 중간 scale 2 → 곱하는 순간 소수부가 통째로 사라짐
+BigDecimal.valueOf(1).divide(BigDecimal.valueOf(3), 2, RoundingMode.HALF_UP)  // 0.33
+        .multiply(BigDecimal.valueOf(100));                                    // 33.00  ← 33.33 이어야 함
+
+// ✅ 중간은 넉넉히(6), 최종에서 한 번 더 맞춤
+BigDecimal.valueOf(1).divide(BigDecimal.valueOf(3), 6, RoundingMode.HALF_UP)  // 0.333333
+        .multiply(BigDecimal.valueOf(100))                                     // 33.333300
+        .setScale(2, RoundingMode.HALF_UP);                                    // 33.33
+```
+
+> 💡 **곱하기를 먼저** 하면(`×100` 후 나누기) 반올림이 한 번으로 줄어 이론상 더 정확하다. 다만 표시용 소수 2자리에서는 두 방식 결과가 사실상 같으므로, **프로젝트에 이미 "나누기 → 곱하기" 관례가 있으면 일관성을 택한다** — 계산식이 여러 곳에 흩어져 있을 때 한 곳만 모양이 다르면 그게 더 큰 비용이다.
+
 ---
 
 ## 5. ⚠️ 비교는 `compareTo`, `equals` 아님 (scale 함정)

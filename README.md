@@ -65,7 +65,7 @@
 
 ### Concurrency (동시성)
 - [ ] [스레드 기초 - 프로세스/스레드/플랫폼 스레드(OS 1:1)/생명주기 / 힙 공유→race](./java/concurrency/threads.md)
-- [ ] [스레드 풀 내부 - core/max/queue 처리 순서(⚠️큐가 max보다 먼저→maxPoolSize 死) / Executors 팩토리는 큐·스레드 무한(OOM) / queueCapacity=0=SynchronousQueue 트릭 / 거부정책 4종·CallerRuns 백프레셔(shutdown 시 무음 유실) / @Async 폴백은 풀이 아님·자기호출 함정 / "병렬화보다 호출 묶기가 먼저"](./java/concurrency/thread-pool.md)
+- [ ] [스레드 풀 내부 - core/max/queue 처리 순서(⚠️큐가 max보다 먼저→maxPoolSize 死) / Executors 팩토리는 큐·스레드 무한(OOM) / queueCapacity=0=SynchronousQueue 트릭 / 거부정책 4종·CallerRuns 백프레셔(shutdown 시 무음 유실) / @Async 폴백은 풀이 아님·자기호출 함정 / ⚠️join은 CompletionException으로 감싸 예외 핸들러·운영알림이 바뀜 / "병렬화보다 호출 묶기가 먼저"](./java/concurrency/thread-pool.md)
 - [ ] [ThreadLocal - 쓰레드 전용 저장소 / 싱글톤 빈 필드 동시성 문제 해결 / 쓰레드 풀 재활용→remove() 필수(안 하면 타 사용자 데이터 노출) / 비동기·가상 스레드에선 배신](./java/concurrency/thread-local.md)
 - [ ] [가상 스레드 - Java 21 JEP444 / M:N·캐리어·unmount / pinning(JEP491) / 락은 그대로 필요](./java/concurrency/virtual-threads.md)
 - [ ] [메모리 가시성 - volatile·happens-before(JMM) / 가시성≠원자성 / volatile로 count++ 안 됨](./java/concurrency/memory-visibility.md)
@@ -107,7 +107,7 @@
 - [ ] [BigDecimal - 돈·정밀 계산, equals vs compareTo, scale, 반올림](./java/bigdecimal/bigdecimal.md)
 
 ### Collections (컬렉션)
-- [ ] [리스트 생성 - singletonList/List.of/Arrays.asList, "불변 × 원소 개수"는 별개 축](./java/collections/list-creation.md)
+- [ ] [리스트 생성 - singletonList/List.of/Arrays.asList, "불변 × 원소 개수"는 별개 축 / ⚠️불변 컬렉션은 null 거부→`List.of().contains(null)`·`Map.of().get(null)`도 NPE](./java/collections/list-creation.md)
 - [ ] [Map 주요 메서드 - getOrDefault/putIfAbsent/computeIfAbsent(캐시)/merge(카운팅) / 람다 null·재진입 함정](./java/collections/map-methods.md)
 - [ ] [컬렉션 계층 구조 - List/Set/Queue는 Collection, Map은 별도 / Set 집합연산=Collection 공통 / equals·hashCode](./java/collections/collection-hierarchy.md)
 - [ ] [SortedSet · NavigableSet - TreeSet의 진짜 인터페이스 / first·last vs Collections.min·max / floor·ceiling 근처탐색 / ⚠️같음=compare==0(정렬기준이 중복기준)](./java/collections/sorted-navigable-set.md)
