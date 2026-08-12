@@ -2,7 +2,7 @@
 
 > **한 줄 요약**: 같은 JVM(프로세스) 안의 스레드들을 제어하는 도구 모음. `synchronized`·`ReentrantLock` 등 **락**과, `Semaphore`·`CountDownLatch` 등 **동기화 장치(synchronizer)**로 나뉜다. (멀티 서버에선 무력 — 그땐 DB 락/분산락. [락 개념 종합](./locks.md) 참고)
 
-관련 노트: [락 개념 종합](./locks.md) · [데드락](./deadlock.md)
+관련 노트: [락 개념 종합](./locks.md) · [데드락](./deadlock.md) · [ThreadLocal](./thread-local.md)
 
 대부분 `java.util.concurrent`(+ `.locks`) 패키지. `synchronized`만 언어 키워드.
 
