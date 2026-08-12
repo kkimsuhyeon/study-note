@@ -60,6 +60,19 @@ CompletableFuture.allOf(f1, f2, f3).join();
 
 > ⚠️ 기본은 공용 `ForkJoinPool.commonPool`에서 돈다 — 블로킹 작업엔 **전용 Executor를 넘겨라**(`supplyAsync(task, executor)`). 안 그러면 공용 풀이 막힌다. 그 전용 풀을 어떻게 설정하나(core/max/queue·거부 정책), `@Async`와의 갈림길은 → [스레드 풀 내부](./thread-pool.md)
 
+### 2-1. 층 관계 — Thread / ExecutorService / CompletableFuture (혼동 주의)
+
+```
+Thread            = 일꾼 그 자체 (진짜 실행 흐름 1개)
+ExecutorService   = 일꾼들을 고용해둔 "회사" — 내부에 Thread 여러 개(ThreadFactory로 생성) + 작업 큐
+CompletableFuture = 작업 지시서·결과 핸들 — 스레드를 안 만들고 "이 일을 저 회사(풀)에서 실행해줘"
+```
+
+- `supplyAsync(task, executor)`에 넘기는 건 **스레드가 아니라 풀(Executor)** — "어느 풀에서 실행할지" 지정. 특정 스레드를 찍어 주는 게 아니라 회사에 맡기면 노는 일꾼이 배정된다.
+- Spring `ThreadPoolTaskExecutor` 빈(@Configuration의 corePoolSize 등)이 바로 이 "회사" — 주입받아 `supplyAsync`에 넘기는 게 실무 패턴.
+- `corePoolSize`·큐 용량·keepAlive는 **집단 관리(풀) 옵션**이라 단일 `new Thread()`엔 개념 자체가 없다. 단일 스레드 옵션은 이름·데몬·우선순위 정도.
+- 풀 안의 일꾼도 결국 내부에서 `new Thread()`로 만든 **진짜 플랫폼 스레드** — 풀은 "다르게 만드는" 게 아니라 "미리 만들어 재사용·관리"하는 방식 차이.
+
 ---
 
 ## 3. 선택 가이드 — "내가 뭘 하려나"로
