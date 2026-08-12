@@ -295,6 +295,23 @@ B:    count(0) 읽음 ── +1 ── 1 씀   ← 둘 다 +1 했는데 결과 1
 - 락(blocking) vs Atomic(non-blocking/CAS): 단일 변수 카운터·플래그엔 Atomic이 훨씬 가볍다. 여러 변수를 묶어 불변식을 지켜야 하면 락.
 - 비유: `@Version` 낙관락도 본질이 CAS(`WHERE version=?`) — Atomic은 그 **메모리 단일 변수판**.
 
+### 주요 메서드 가족 — 전부 CAS 위에 지어져 있다
+모든 Atomic 클래스(`AtomicInteger`/`AtomicLong`/`AtomicBoolean`/`AtomicReference`)의 기반은 `compareAndSet`. 나머지는 전부 "CAS 될 때까지 재시도" 루프를 감싼 편의 메서드다.
+
+| 분류 | 메서드 | 뜻 |
+|---|---|---|
+| 기본 | `get()` / `set(v)` | 읽기 / 쓰기 |
+| 증감 | `incrementAndGet()` / `getAndIncrement()` | `++x` / `x++` |
+| 덧셈 | `addAndGet(d)` / `getAndAdd(d)` | `x += d` 두 버전 |
+| 교체 | `getAndSet(v)` | 새 값 넣고 이전 값 받기 |
+| CAS | `compareAndSet(expect, update)` | 기대값이면 바꿔라 (기반) |
+| 함수형 | `updateAndGet(fn)` / `getAndUpdate(fn)` | **임의 계산을 원자적으로** — CAS 루프를 직접 안 짜도 됨 (Java 8+) |
+
+- **이름 규칙**: `xxxAndGet` = 새 값 반환, `getAndXxx` = 이전 값 반환 (`++x` vs `x++`).
+- 함수형 버전으로 check-then-act를 한 줄에: `int before = stock.getAndUpdate(c -> c > 0 ? c - 1 : c);` → `before > 0`이면 내가 깎은 승자. (**이전 값**을 봐야 "깎았는지/이미 품절이었는지" 구분 가능 → `getAndUpdate`를 쓰는 이유)
+- 선착순 1명 등 boolean 한 번 뒤집기: `won.compareAndSet(false, true)` — 성공한 단 한 명만 true를 받는다.
+- 💡 고경합 카운터(수십 스레드가 초당 수만 ++)는 `AtomicLong` 대신 **`LongAdder`** — 내부를 쪼개 CAS 재시도 폭풍 회피. 통계·집계용은 LongAdder, 매번 정확한 현재값이 필요하면 AtomicLong.
+
 ### ⚠️ 단일 변수라도 check-then-act는 깨진다 — 원자적 연산 두 개 ≠ 원자적
 ```java
 if (stock.get() > 0) {           // ① 확인 — 원자적
