@@ -51,7 +51,7 @@
 [인덱스·실행계획](./database/index-explain.md) → [SQL 쿡북](./database/sql-cookbook.md) → [LEFT JOIN ON vs WHERE](./database/left-join-on-vs-where.md) → [LATERAL·top-N per group](./database/lateral-join-top-n-per-group.md) → [PG 날짜 함수](./database/postgresql-date-functions.md)
 
 **트랙 10 · Spring 프록시 → AOP (김영한 고급편, 작성 중)** — *챕터의 한계가 다음 챕터를 부르는 서사가 있는 트랙. 강의 순서대로 읽는다.*
-[ThreadLocal](./java/concurrency/thread-local.md) → 템플릿 메서드/전략/콜백 (예정) → 프록시/데코레이터 (예정) → 동적 프록시 (예정) → ProxyFactory (예정) → 빈 후처리기 (예정) → @Aspect (예정) → AOP 개념 (예정) → AOP 구현 (예정) → 포인트컷 (예정)
+[ThreadLocal](./java/concurrency/thread-local.md) → [템플릿 메서드/전략/콜백](./java/design/template-method-strategy-callback.md) → 프록시/데코레이터 (예정) → 동적 프록시 (예정) → ProxyFactory (예정) → 빈 후처리기 (예정) → @Aspect (예정) → AOP 개념 (예정) → AOP 구현 (예정) → 포인트컷 (예정)
 
 **트랙 9 · 레퍼런스 (8개, 순서 무관 — 필요할 때 꺼내 읽기)**
 *도구*: [포트와 listen](./infra/network/ports-and-listen.md) → [SSH 포워딩](./infra/network/ssh-port-forwarding.md) → [SSH config](./infra/network/ssh-config.md) / [git worktree](./git/worktree.md)
@@ -140,6 +140,7 @@
 - [ ] [포트와 어댑터 - 콘센트(규격)/플러그(구현) 비유 / 인터페이스는 의존 역전 필요할 때만 / 포트 소유권](./java/design/ports-and-adapters.md)
 - [ ] [일급 컬렉션 - 컬렉션 하나만 감싼 클래스 / 응집·불변(방어적 복사) / vs 값 객체(Tell Don't Ask·널 객체)](./java/design/first-class-collection.md)
 - [ ] [계산 파이프라인 구조 - Pipes and Filters + supports-execute + Collecting Parameter / 불변 Factor·정책·순서 고정 / ⚠️순서가 곧 스펙·supports 스킵은 무음 / 조회는 밖에서·계산 코어에 I/O 금지](./java/design/calculation-pipeline.md)
+- [ ] [템플릿 메서드/전략/템플릿 콜백 - 변하는·변하지 않는 코드 분리 / 상속→위임→위임+람다 발전사 / V1(선조립=DI) vs V2(실행시 콜백=xxxTemplate) / 함수형 인터페이스=추상 메서드 1개→람다 / ⚠️원본 수정은 여전→프록시(4장) 예고](./java/design/template-method-strategy-callback.md)
 
 ### 보안 (Security)
 - [ ] [비밀번호 - PasswordEncoder(단방향 해시) vs AttributeConverter(양방향 암호화) / 복호화 여부가 갈림길](./java/security/password-encoding.md)

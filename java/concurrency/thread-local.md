@@ -2,7 +2,7 @@
 
 > **한 줄 요약**: `ThreadLocal`은 **해당 쓰레드만 접근할 수 있는 전용 저장소** — 같은 `ThreadLocal` 객체에 접근해도 내부적으로 쓰레드별로 값이 분리된다. **싱글톤 빈의 필드에 상태를 저장하면 동시성 문제**(여러 쓰레드가 값을 덮어씀)가 터지는데, 필드를 `ThreadLocal`로 감싸면 해결. 단 **WAS 쓰레드 풀은 쓰레드를 재활용**하므로 **요청이 끝날 때 반드시 `remove()`** — 안 하면 다음 사용자가 이전 사용자의 데이터를 본다(보안 사고).
 
-관련 노트: [스레드 기초](./threads.md) · [가상 스레드](./virtual-threads.md) · [메모리 가시성](./memory-visibility.md) · [락 개념](./locks.md) · [JVM 동시성 도구](./jvm-concurrency-tools.md)
+관련 노트: [스레드 기초](./threads.md) · [가상 스레드](./virtual-threads.md) · [메모리 가시성](./memory-visibility.md) · [락 개념](./locks.md) · [JVM 동시성 도구](./jvm-concurrency-tools.md) · [템플릿 메서드/전략/콜백](../design/template-method-strategy-callback.md) (트랙 10 다음 챕터 — 이 로그 추적기를 패턴으로 분리)
 
 ---
 
