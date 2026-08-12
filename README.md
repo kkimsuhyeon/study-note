@@ -84,7 +84,7 @@
 - [ ] [@Lock 실무 패턴 - 프록시·네이밍·테스트·재시도·벌크/조건부 UPDATE](./java/jpa/lock-practical.md)
 - [ ] [Read-Modify-Write와 트랜잭션 경계 - 쓰기 서비스가 조회 서비스에 의존하면 안 되는 이유](./java/jpa/read-modify-write.md)
 - [ ] [Criteria · Specification · Pageable · Page - 출처(Spring Data/JPA/자작)와 동적 조회·페이징](./java/jpa/spring-data-query.md)
-- [ ] [N+1과 fetch 전략 - fetch join, EntityGraph, batch size 판단 기준](./java/jpa/n-plus-one-fetch.md)
+- [ ] [N+1과 fetch 전략 - fetch join, EntityGraph, batch size 판단 기준 / ⚠️"쿼리 1회=빠름"이 아니다 — 페이징 없어도 컬렉션 fetch join은 행×컬럼으로 비쌈(안 쓰는 연관이 전 행에 중복) / SQL은 55ms인데 fetch()가 2,553ms면 매핑 비용 → 프로젝션 + 직접 groupingBy](./java/jpa/n-plus-one-fetch.md)
 
 ### MyBatis
 - [ ] [resultMap 중첩 매핑 - association(단수)·collection(1:N) / `<id>`=정체성 판별(없으면 전컬럼 비교·그룹핑 오동작) / "이미 JOIN하면 컬럼+매핑 추가가 0비용" / 중첩 select는 N+1 / collection+LIMIT 함정](./java/mybatis/resultmap-association-collection.md)
