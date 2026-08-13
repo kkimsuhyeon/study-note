@@ -86,6 +86,16 @@
 - [ ] [Read-Modify-Write와 트랜잭션 경계 - 쓰기 서비스가 조회 서비스에 의존하면 안 되는 이유](./java/jpa/read-modify-write.md)
 - [ ] [Criteria · Specification · Pageable · Page - 출처(Spring Data/JPA/자작)와 동적 조회·페이징 / ⚠️파생 쿼리는 OR 괄호 표현 불가 → 조용히 틀린 결과](./java/jpa/spring-data-query.md)
 - [ ] [N+1과 fetch 전략 - fetch join, EntityGraph, batch size 판단 기준 / ⚠️"쿼리 1회=빠름"이 아니다 — 페이징 없어도 컬렉션 fetch join은 행×컬럼으로 비쌈(안 쓰는 연관이 전 행에 중복) / SQL은 55ms인데 fetch()가 2,553ms면 매핑 비용 → 프로젝션 + 직접 groupingBy](./java/jpa/n-plus-one-fetch.md)
+- [ ] [연관관계 매핑 - 연관관계 주인·mappedBy(양방향=단방향 2개, FK는 하나) / ⚠️역방향에만 값 넣으면 FK null / 편의 메서드 / 1:N 단방향·N:M 금지 / ToOne은 기본 EAGER→LAZY 명시](./java/jpa/relation-mapping.md)
+- [ ] [엔티티 설계 실무 규칙 - Setter 금지·모든 연관관계 LAZY·컬렉션 필드 초기화 후 교체 금지(PersistentBag)·@Enumerated STRING 강제 / @Entity 제약·hbm2ddl 환경별 규칙](./java/jpa/entity-design-rules.md)
+- [ ] [기본 키 생성 전략 - IDENTITY는 persist 즉시 INSERT(쓰기 지연 무력화) / SEQUENCE+allocationSize / Long+대체키가 정석](./java/jpa/id-generation.md)
+- [ ] [상속 매핑 - JOINED/SINGLE_TABLE(기본값)/TABLE_PER_CLASS(금지) 트레이드오프 / @MappedSuperclass는 상속 매핑이 아니라 BaseEntity(공통 필드) 도구](./java/jpa/inheritance-mapping.md)
+- [ ] [프록시와 지연 로딩 - getReference 동작 원리 / ⚠️3대 함정: == 비교·find/getReference 순서별 동일성·LazyInitializationException(트랜잭션 밖 지연 로딩의 근본 원인)](./java/jpa/proxy.md)
+- [ ] [영속성 전이와 고아 객체 - cascade·orphanRemoval은 "소유자 하나+수명 동일"일 때만 / ALL+orphanRemoval=애그리거트 루트 구현 / 정적 생성 메서드 패턴](./java/jpa/cascade-orphan-removal.md)
+- [ ] [값 타입 - @Embeddable/@Embedded / 공유 참조 부작용→불변 설계 / ⚠️값 타입 컬렉션은 전체 DELETE+재INSERT→일대다 엔티티로 대체](./java/jpa/value-types.md)
+- [ ] [준영속 엔티티 수정: 변경 감지 vs merge - ⚠️merge는 전체 교체(폼에 없는 필드 null 덮어쓰기) / save()의 정체=id 있으면 merge / "id+DTO 넘겨 변경 감지"가 정답](./java/jpa/merge-vs-dirty-checking.md)
+- [ ] [JPQL 심화 - ⚠️벌크 연산은 영속성 컨텍스트 우회(@Modifying clearAutomatically) / 묵시적 조인 금지 / fetch join 한계 3종(별칭·컬렉션 2개·페이징) / getSingleResult 예외](./java/jpa/jpql-advanced.md)
+- [ ] [OSIV - 기본 ON: 응답 완료까지 영속성 컨텍스트+커넥션 유지→실시간 트래픽에서 커넥션 고갈 / "고객 API는 OFF, ADMIN은 ON" / OFF 대응=커맨드·쿼리 서비스 분리](./java/jpa/osiv.md)
 
 ### MyBatis
 - [ ] [resultMap 중첩 매핑 - association(단수)·collection(1:N) / `<id>`=정체성 판별(없으면 전컬럼 비교·그룹핑 오동작) / "이미 JOIN하면 컬럼+매핑 추가가 0비용" / 중첩 select는 N+1 / collection+LIMIT 함정](./java/mybatis/resultmap-association-collection.md)

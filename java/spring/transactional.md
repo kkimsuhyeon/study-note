@@ -289,6 +289,7 @@ outer가 커넥션을 쥔 채 suspend되고 inner가 **또 다른 커넥션**을
 
 ### (5) 읽기 전용은 `readOnly = true`
 조회 전용 서비스는 `@Transactional(readOnly = true)` — flush를 막아 약간의 최적화 + 의도 명시. (쓰기-읽기 분리는 [Read-Modify-Write](../jpa/read-modify-write.md))
+- 실제 효과의 정체: ① Hibernate flush 모드가 MANUAL로 — **더티 체킹용 스냅샷 비교·flush 자체를 생략**(메모리·CPU 절약) ② 드라이버/DB에 읽기 전용 힌트 전달(지원 시 추가 최적화, 라우팅 분기 등). "약간"이 아니라 조회 데이터가 많을수록 스냅샷 생략 효과가 커진다.
 
 ### (6) REQUIRES_NEW만으로는 "부수 작업 격리"가 안 된다 — try-catch까지 세트
 **커밋은 분리돼도 예외는 여전히 한 배**(§4-A)라서, 부수 작업(알림·이력)에 REQUIRES_NEW만 붙이고 예외를 안 삼키면 부수 작업 실패가 **본 업무까지 롤백**시킨다. 실제 코드에서 본 대비:

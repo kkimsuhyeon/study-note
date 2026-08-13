@@ -53,3 +53,8 @@
 ### 동시성 7개 노트 1회독 완료 (8/12)
 - 남은 스윕 항목: 재출제(Q13 두 축, Q15①②), 단어 회상(스택 1MB·volatile·check-then-act·compareAndSet), jvm-tools 각론(ReentrantLock·Semaphore·CyclicBarrier·StampedLock), happens-before·DCL, Coffman 명칭, JIT 호이스팅(보류), pinning(virtual-threads §5 — 미출제)
 - 다음 세션 계획: ①스윕 → ②[동시성 컬렉션](java/concurrency/concurrent-collections.md) 신규 노트(8/12 작성) 읽기 → 확인 퀴즈
+
+## 2026-08-13 — JPA 트랙 시작
+- **Q21 (미답변·보류)**: 더티 체킹 — save() 없이 UPDATE 나가는 이름/시점/감지 방법. persistence-context.md 기반. 다음 세션 재출제.
+- 김영한 PDF 3종(기본편·활용1·활용2) 전수 리뷰 → JPA 신규 노트 10개 작성(연관관계 매핑·엔티티 설계 규칙·키 생성·상속 매핑·프록시·cascade·값 타입·merge·JPQL 심화·OSIV) + 기존 노트 5개 보강(n-plus-one 권장순서·distinct, transform-layers 직렬화 근거, domain-validation 패턴 용어·check-then-act 링크, transactional readOnly 근거, persistence-context 링크). 전부 README 등록.
+- JPA 퀴즈는 노트 읽기와 병행 예정 — 추천 순서: persistence-context(기존) → relation-mapping → proxy → cascade → merge → 이후 @Lock 트랙(동시성 선행지식 활용).
