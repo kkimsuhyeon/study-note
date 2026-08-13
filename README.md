@@ -83,7 +83,7 @@
 - [ ] [@Lock 심화 개념 - @Version·공유/배타·FORCE_INCREMENT](./java/jpa/lock-concepts.md)
 - [ ] [@Lock 실무 패턴 - 프록시·네이밍·테스트·재시도·벌크/조건부 UPDATE](./java/jpa/lock-practical.md)
 - [ ] [Read-Modify-Write와 트랜잭션 경계 - 쓰기 서비스가 조회 서비스에 의존하면 안 되는 이유](./java/jpa/read-modify-write.md)
-- [ ] [Criteria · Specification · Pageable · Page - 출처(Spring Data/JPA/자작)와 동적 조회·페이징](./java/jpa/spring-data-query.md)
+- [ ] [Criteria · Specification · Pageable · Page - 출처(Spring Data/JPA/자작)와 동적 조회·페이징 / ⚠️파생 쿼리는 OR 괄호 표현 불가 → 조용히 틀린 결과](./java/jpa/spring-data-query.md)
 - [ ] [N+1과 fetch 전략 - fetch join, EntityGraph, batch size 판단 기준 / ⚠️"쿼리 1회=빠름"이 아니다 — 페이징 없어도 컬렉션 fetch join은 행×컬럼으로 비쌈(안 쓰는 연관이 전 행에 중복) / SQL은 55ms인데 fetch()가 2,553ms면 매핑 비용 → 프로젝션 + 직접 groupingBy](./java/jpa/n-plus-one-fetch.md)
 
 ### MyBatis
@@ -140,6 +140,7 @@
 - [ ] [포트와 어댑터 - 콘센트(규격)/플러그(구현) 비유 / 인터페이스는 의존 역전 필요할 때만 / 포트 소유권](./java/design/ports-and-adapters.md)
 - [ ] [일급 컬렉션 - 컬렉션 하나만 감싼 클래스 / 응집·불변(방어적 복사) / vs 값 객체(Tell Don't Ask·널 객체)](./java/design/first-class-collection.md)
 - [ ] [계산 파이프라인 구조 - Pipes and Filters + supports-execute + Collecting Parameter / 불변 Factor·정책·순서 고정 / ⚠️순서가 곧 스펙·supports 스킵은 무음 / 조회는 밖에서·계산 코어에 I/O 금지](./java/design/calculation-pipeline.md)
+- [ ] [집계를 SQL vs 애플리케이션 - 판단 축은 건수와 유지보수성 / 수천 건 이하면 앱(테스트 가능·읽힘) / ⚠️"읽을 수 없는 SQL은 느려져도 아무도 못 고친다" — 성능 문제 방치의 진짜 원인 / 기간 오프바이원(N-1 시작·배타 상한 +1)](./java/design/aggregation-placement.md)
 - [ ] [템플릿 메서드/전략/템플릿 콜백 - 변하는·변하지 않는 코드 분리 / 상속→위임→위임+람다 발전사 / V1(선조립=DI) vs V2(실행시 콜백=xxxTemplate) / 함수형 인터페이스=추상 메서드 1개→람다 / ⚠️원본 수정은 여전→프록시(4장) 예고](./java/design/template-method-strategy-callback.md)
 
 ### 보안 (Security)

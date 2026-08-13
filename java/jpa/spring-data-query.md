@@ -147,6 +147,27 @@ public Page<User> findAllByCriteria(UserCriteria criteria, Pageable pageable) {
 
 > 한 줄: **`Specification`은 "조건이 들어올 때만 WHERE에 붙이는" 동적 쿼리용.** 조건이 고정이면 그냥 파생 쿼리/`@Query`가 단순하다. 페이징(`Pageable`/`Page`)은 그 위에 얹는 별개 축(Spring Data).
 
+### ⚠️ 파생 쿼리(메서드 이름)로는 `OR` 괄호를 표현할 수 없다
+
+조건이 고정이어도 **`AND` 와 `OR` 가 섞이면** 파생 쿼리를 쓸 수 없다. 메서드 이름에 **괄호를 넣을 방법이 없기 때문**이다.
+
+```
+원하는 조건:  org = ? AND usr = ? AND date < ?
+              AND (expired IS NULL OR expired >= ?)
+                   └──── 이 괄호 ────┘
+```
+```java
+findByOrgAndUsrAndDateLessThanAndExpiredIsNullOrExpiredGreaterThanEqual(...)
+// 실제 해석 → (org=? AND usr=? AND date<? AND expired IS NULL) OR (expired>=?)
+//              뒤쪽 OR 가 앞 조건을 통째로 무시한다
+```
+
+**컴파일도 되고 실행도 되는데 결과만 조용히 틀린다.** 다른 소유자·다른 사용자의 행까지 딸려온다.
+
+부가로 파생 쿼리는 **엔티티/인터페이스 프로젝션만** 반환한다 — 필요한 컬럼만 뽑는 DTO 프로젝션은 `@Query`가 필요하다(→ [N+1 §5-1](./n-plus-one-fetch.md)).
+
+> 💡 **`OR` 가 괄호로 묶여야 하면 그 순간 `@Query`(JPQL) 또는 QueryDSL이다.** 이름이 길어지는 게 문제가 아니라 **표현 자체가 불가능**한 것. 이름이 세 줄 넘어가기 시작하면 대개 이 신호다.
+
 ---
 
 ## 8. 다른 선택지 — 동적 조회 / 페이징은 이것만 있는 게 아니다
