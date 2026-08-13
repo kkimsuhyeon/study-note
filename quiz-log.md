@@ -52,3 +52,4 @@
 
 ### 동시성 7개 노트 1회독 완료 (8/12)
 - 남은 스윕 항목: 재출제(Q13 두 축, Q15①②), 단어 회상(스택 1MB·volatile·check-then-act·compareAndSet), jvm-tools 각론(ReentrantLock·Semaphore·CyclicBarrier·StampedLock), happens-before·DCL, Coffman 명칭, JIT 호이스팅(보류), pinning(virtual-threads §5 — 미출제)
+- 다음 세션 계획: ①스윕 → ②[동시성 컬렉션](java/concurrency/concurrent-collections.md) 신규 노트(8/12 작성) 읽기 → 확인 퀴즈

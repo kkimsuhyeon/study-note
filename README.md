@@ -73,6 +73,7 @@
 - [ ] [JVM 동시성 도구 - synchronized/ReentrantLock/Semaphore/Latch/Barrier 등](./java/concurrency/jvm-concurrency-tools.md)
 - [ ] [동시성 도구 목적별 정리 & 선택 가이드 - 만들기/조합(CompletableFuture)/대기/세기/정합성 / 최신≠최선](./java/concurrency/concurrency-tool-guide.md)
 - [ ] [데드락(교착 상태) - Coffman 4조건/예방/DB 자동 감지](./java/concurrency/deadlock.md)
+- [ ] [동시성 컬렉션 - ConcurrentHashMap(개별 연산만 원자적·check-then-act는 computeIfAbsent로)/CopyOnWriteArrayList(읽기多쓰기小)/BlockingQueue(스레드 풀 큐의 정체)](./java/concurrency/concurrent-collections.md)
 
 ### JPA
 > 추천 읽는 순서: [영속성 컨텍스트](./java/jpa/persistence-context.md) → [@Transactional](./java/spring/transactional.md) → [트랜잭션 롤백 예제](./java/spring/transaction-rollback-example.md) → [Read-Modify-Write](./java/jpa/read-modify-write.md) → [@Lock 기본](./java/jpa/lock.md) → [@Lock 심화](./java/jpa/lock-concepts.md) → [@Lock 실무](./java/jpa/lock-practical.md)
