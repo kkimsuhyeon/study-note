@@ -51,7 +51,7 @@
 [인덱스·실행계획](./database/index-explain.md) → [SQL 쿡북](./database/sql-cookbook.md) → [LEFT JOIN ON vs WHERE](./database/left-join-on-vs-where.md) → [LATERAL·top-N per group](./database/lateral-join-top-n-per-group.md) → [PG 날짜 함수](./database/postgresql-date-functions.md)
 
 **트랙 10 · Spring 프록시 → AOP (김영한 고급편, 작성 중)** — *챕터의 한계가 다음 챕터를 부르는 서사가 있는 트랙. 강의 순서대로 읽는다.*
-[ThreadLocal](./java/concurrency/thread-local.md) → [템플릿 메서드/전략/콜백](./java/design/template-method-strategy-callback.md) → 프록시/데코레이터 (예정) → 동적 프록시 (예정) → ProxyFactory (예정) → 빈 후처리기 (예정) → @Aspect (예정) → AOP 개념 (예정) → AOP 구현 (예정) → 포인트컷 (예정)
+[ThreadLocal](./java/concurrency/thread-local.md) → [템플릿 메서드/전략/콜백](./java/design/template-method-strategy-callback.md) → [프록시/데코레이터](./java/design/proxy-decorator-pattern.md) → 동적 프록시 (예정) → ProxyFactory (예정) → 빈 후처리기 (예정) → @Aspect (예정) → AOP 개념 (예정) → AOP 구현 (예정) → 포인트컷 (예정)
 
 **트랙 9 · 레퍼런스 (8개, 순서 무관 — 필요할 때 꺼내 읽기)**
 *도구*: [포트와 listen](./infra/network/ports-and-listen.md) → [SSH 포워딩](./infra/network/ssh-port-forwarding.md) → [SSH config](./infra/network/ssh-config.md) / [git worktree](./git/worktree.md)
@@ -153,6 +153,7 @@
 - [ ] [계산 파이프라인 구조 - Pipes and Filters + supports-execute + Collecting Parameter / 불변 Factor·정책·순서 고정 / ⚠️순서가 곧 스펙·supports 스킵은 무음 / 조회는 밖에서·계산 코어에 I/O 금지](./java/design/calculation-pipeline.md)
 - [ ] [집계를 SQL vs 애플리케이션 - 판단 축은 건수와 유지보수성 / 수천 건 이하면 앱(테스트 가능·읽힘) / ⚠️"읽을 수 없는 SQL은 느려져도 아무도 못 고친다" — 성능 문제 방치의 진짜 원인 / 기간 오프바이원(N-1 시작·배타 상한 +1)](./java/design/aggregation-placement.md)
 - [ ] [템플릿 메서드/전략/템플릿 콜백 - 변하는·변하지 않는 코드 분리 / 상속→위임→위임+람다 발전사 / V1(선조립=DI) vs V2(실행시 콜백=xxxTemplate) / 함수형 인터페이스=추상 메서드 1개→람다 / ⚠️원본 수정은 여전→프록시(4장) 예고](./java/design/template-method-strategy-callback.md)
+- [ ] [프록시 패턴/데코레이터 패턴 - 같은 인터페이스 대리인(대체 가능성)→원본·클라이언트 수정 0 / 구조는 동일, **의도**로 구분(접근제어=프록시·기능추가=데코레이터) / 접근제어 3종(권한차단·캐싱·지연로딩)=@PreAuthorize·@Cacheable·getReference의 정체 / 클래스 기반 제약 3종(super(null)·final 클래스·final 메서드) ⚠️final 클래스는 기동시 시끄럽게 실패하지만 final 메서드는 CGLIB가 조용히 스킵→@Transactional 무음 사망 / V3 컴포넌트 스캔엔 못 끼움→빈 후처리기(7장) / 프록시 폭발→동적 프록시(5장)](./java/design/proxy-decorator-pattern.md)
 
 ### 보안 (Security)
 - [ ] [비밀번호 - PasswordEncoder(단방향 해시) vs AttributeConverter(양방향 암호화) / 복호화 여부가 갈림길](./java/security/password-encoding.md)
