@@ -2,7 +2,7 @@
 
 > **한 줄 요약**: 원본과 **같은 인터페이스를 구현한 대리인(프록시)** 을 중간에 세우면, 클라이언트는 진짜인지 대리인인지 모른 채 호출하고 부가 기능이 끼어든다 — 원본 수정 0, 클라이언트 수정 0. 구조가 똑같은 두 패턴을 GOF는 **의도(intent)** 로 가른다: **접근 제어면 프록시, 기능 추가면 데코레이터.** ⚠️ 단, 프록시 클래스를 대상마다 하나씩 만들어야 하고(→5장 동적 프록시), 컴포넌트 스캔으로 등록된 빈에는 이 방식으로 못 끼운다(→7장 빈 후처리기).
 
-관련 노트: [템플릿 메서드/전략/콜백](./template-method-strategy-callback.md) (트랙 10 직전 챕터 — 거기서 "원본에 한 줄은 남는다"로 끝난 자리가 이 노트의 출발점) · [ThreadLocal](../concurrency/thread-local.md) (`LogTrace`의 출처) · [JPA 프록시와 지연 로딩](../jpa/proxy.md) (같은 개념이 ORM에서 쓰인 사례 — `getReference()`) · [@Transactional](../spring/transactional.md) · [Spring Cache](../spring/spring-cache.md) · [메서드 보안](../security/method-security.md) · [커스텀 어노테이션](../annotation/custom-annotation.md) — **뒤 네 개가 공유하는 "프록시라서 자기호출은 안 먹는다" 함정의 메커니즘이 바로 이 노트**
+관련 노트: [템플릿 메서드/전략/콜백](./template-method-strategy-callback.md) (트랙 10 직전 챕터 — 거기서 "원본에 한 줄은 남는다"로 끝난 자리가 이 노트의 출발점) · [동적 프록시](./dynamic-proxy.md) (다음 챕터 — 이 노트가 남긴 "프록시 클래스 폭발"과 "final 제약 3종"을 그대로 받아 간다) · [ThreadLocal](../concurrency/thread-local.md) (`LogTrace`의 출처) · [JPA 프록시와 지연 로딩](../jpa/proxy.md) (같은 개념이 ORM에서 쓰인 사례 — `getReference()`) · [@Transactional](../spring/transactional.md) · [Spring Cache](../spring/spring-cache.md) · [메서드 보안](../security/method-security.md) · [커스텀 어노테이션](../annotation/custom-annotation.md) — **뒤 네 개가 공유하는 "프록시라서 자기호출은 안 먹는다" 함정의 메커니즘이 바로 이 노트**
 
 ---
 
@@ -495,7 +495,7 @@ client.execute();
 
 > 인터페이스 도입은 **구현을 변경할 가능성이 있을 때** 효과적이다. 바뀔 일이 거의 없는 코드에 무작정 인터페이스를 넣는 건 번거롭고 실용적이지 않다. 실무에는 V1 같은 구조도 V2 같은 구조도 있으니 **둘 다 대응할 수 있어야 한다.**
 
-그리고 이 의문이 그대로 5장의 구조가 된다:
+그리고 이 의문이 그대로 [5장의 구조](./dynamic-proxy.md)가 된다:
 
 - **JDK 동적 프록시** → 인터페이스 필수
 - **CGLIB** → 클래스 상속 방식, 인터페이스 없어도 됨
@@ -544,7 +544,7 @@ V1·V2는 `@Configuration`에서 **수동으로** 빈을 등록했으니, 설정
 
 프록시 클래스가 하는 일은 전부 똑같다(`LogTrace` 호출). **대상 클래스만 다를 뿐인데 대상이 100개면 프록시도 100개**를 만들어야 한다.
 
-→ **5장 동적 프록시**: 프록시 클래스를 직접 만들지 않고 **런타임에 자동 생성**한다.
+→ **[5장 동적 프록시](./dynamic-proxy.md)**: 프록시 클래스를 직접 만들지 않고 **런타임에 자동 생성**한다. 부가 로직을 `InvocationHandler`·`MethodInterceptor` **한 군데**에만 적고, 대상별 클래스는 JDK/CGLIB이 찍어낸다.
 
 ---
 
