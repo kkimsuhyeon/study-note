@@ -58,3 +58,23 @@
 - **Q21 (미답변·보류)**: 더티 체킹 — save() 없이 UPDATE 나가는 이름/시점/감지 방법. persistence-context.md 기반. 다음 세션 재출제.
 - 김영한 PDF 3종(기본편·활용1·활용2) 전수 리뷰 → JPA 신규 노트 10개 작성(연관관계 매핑·엔티티 설계 규칙·키 생성·상속 매핑·프록시·cascade·값 타입·merge·JPQL 심화·OSIV) + 기존 노트 5개 보강(n-plus-one 권장순서·distinct, transform-layers 직렬화 근거, domain-validation 패턴 용어·check-then-act 링크, transactional readOnly 근거, persistence-context 링크). 전부 README 등록.
 - JPA 퀴즈는 노트 읽기와 병행 예정 — 추천 순서: persistence-context(기존) → relation-mapping → proxy → cascade → merge → 이후 @Lock 트랙(동시성 선행지식 활용).
+
+## 2026-08-14 — @Aspect AOP (고급편 Ch.8)
+
+> 세션 시작 질문: "어디까지 알아야 하고 외워야 하는지 감이 안 잡힌다" → 결론: 외울 건 없고 **`AnnotationAwareAspectJAutoProxyCreator`의 2가지 역할** 하나. → [aspect-aop.md](java/design/aspect-aop.md)
+
+- [ ] **Q22. 자동 프록시 생성기의 2가지 역할** — "@Aspect를 어드바이저로 만든다"와 "프록시를 만든다" **둘 중 어느 쪽인지 헷갈려 함** — 정답은 **둘 다**. ①@Aspect→Advisor 변환·캐싱(`BeanFactoryAspectJAdvisorsBuilder`) ②Advisor 기반 프록시 생성(Ch.7 그대로). 이름의 `AnnotationAware`가 ①을 가리킨다는 암기법 제시. **면접 단골 — 재출제 필요.**
+- [x] **Q23. @Around 메서드는 무엇으로 변환되나** — "표현식=포인트컷, 안에 어드바이스"까지 감으로 정답. 다만 **"둘을 합쳐 Advisor로 자동 변환된다"는 결론까지는 도달 못 함**. Ch.6 `new DefaultPointcutAdvisor(pointcut, advice)`와 1:1 대응표로 정리.
+- [ ] **Q24. ProceedingJoinPoint의 정체** — ⚠️ 오답: **"프록시 생성 여부를 결정하는 조건"(=Pointcut)으로 혼동**. 실제는 Ch.6 `MethodInvocation`에 대응하는 **호출 핸들**(proceed()·getTarget·getArgs·getSignature). 이름의 `Point` 때문에 생긴 혼동으로 보임 → **Join Point(후보 지점) / Pointcut(고르는 규칙) / ProceedingJoinPoint(골라진 그 순간의 컨텍스트)** 3층 구분을 [aspect-aop.md §3](java/design/aspect-aop.md)에 별도 정리. **재출제 필요.**
+- [ ] **Q25. @Aspect만 붙이면 동작하나** — 방법(@Bean 직접 등록 / @Component 스캔)은 **정확히 답함**. 다만 이유가 "스프링이 관리해야 하니까"로 막연 → 구체화: 자동 프록시 생성기가 **"컨테이너에서 @Aspect 빈을 조회"**하므로, 빈이 아니면 조회 대상이 아니고 → 변환 자체가 안 일어난다. ⚠️ **예외도 경고도 없이 조용히 무시** — @EnableCaching·@EnableMethodSecurity와 같은 실패 모양. 이유 재진술 필요.
+- [x] **Q26. 횡단 관심사 설명** — "각 함수의 공통 작업과 고유 작업을 분리해 목적만 남긴다"로 **내용은 정확**. 본인이 "그림은 알겠는데 말로 설명하기가 어렵다"고 표현 → 정의 정리: **"특정 기능 하나에 속하지 않고 여러 기능을 가로질러(cross) 걸쳐(cutting) 있는 관심사"**. → 용어 회상 연습만 필요.
+
+### 세션 후 조사로 추가된 미출제 항목 (다음 세션 출제 후보)
+- `@Aspect` 클래스 자신은 `isInfrastructureClass`로 **프록시 대상에서 제외** → 안에 `@Transactional` 붙여도 안 먹힘
+- `@Order`가 **BPP에는 안 먹고(Ch.7) `@Aspect`에는 먹는다** — 단 **클래스 단위만**. 같은 aspect 안에서는 advice **타입 우선순위는 정의되고**(@Around>@Before>@After>@AfterReturning>@AfterThrowing, 5.2.7+) **같은 타입끼리만 미정의**(해결: 한 메서드로 합치거나 aspect 클래스 분리)
+- `proceed()` 빠뜨리면 target이 **아예 실행 안 되고 null 반환** (예외 없음)
+- Advice 5종 중 `ProceedingJoinPoint`는 **`@Around` 전용**, 나머지는 `JoinPoint`
+
+### 다음 세션 계획
+- 스윕: **Q22(2가지 역할 — 면접 단골)**, Q24(PJP 3층 구분), Q25(빈 등록 이유)
+- Ch.9 스프링 AOP 개념 → Ch.10 구현 → Ch.11 포인트컷 순서로 진행 예정

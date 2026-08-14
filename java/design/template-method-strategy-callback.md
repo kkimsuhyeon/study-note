@@ -153,8 +153,11 @@ public String request(String itemId) {
 
 ## 2. 전략 패턴 — 인터페이스 위임으로 분리
 
+> GOF: "알고리즘 제품군을 정의하고 각각을 캡슐화하여 상호 교환 가능하게 만들자. 전략을 사용하면 알고리즘을 사용하는 클라이언트와 독립적으로 알고리즘을 변경할 수 있다."
+
 - 변하지 않는 부분 = **Context** (템플릿 역할)
 - 변하는 부분 = **Strategy 인터페이스** (알고리즘 역할)
+- 템플릿 메서드와 결정적 차이: Context는 `Strategy` **인터페이스에만 의존** — 구현체가 바뀌어도 Context 코드는 그대로 (상속의 강결합 문제 해소)
 
 ```java
 public interface Strategy {
@@ -370,7 +373,19 @@ public class OrderServiceV5 {
 [aaaaaaaa] OrderController.request() time=1004ms
 ```
 
-스프링에서 이 패턴인 것들: **JdbcTemplate**(SQL+RowMapper 콜백) · **RestTemplate** · **TransactionTemplate**(트랜잭션 안에서 실행할 로직을 콜백으로) · RedisTemplate — 이름에 `xxxTemplate`이 붙어 있으면 거의 다 이 구조.
+스프링에서 이 패턴인 것들: **JdbcTemplate**(SQL+RowMapper 콜백) · **RestTemplate**(`execute()`가 RequestCallback·ResponseExtractor를 받음) · **TransactionTemplate**(트랜잭션 안에서 실행할 로직을 콜백으로) · RedisTemplate — 이름에 `xxxTemplate`이 붙어 있으면 거의 다 이 구조.
+
+```java
+// JdbcTemplate — 커넥션 획득/해제·예외 변환(변하지 않는 부분)은 템플릿이,
+// "한 행을 객체로 어떻게 바꾸는가"(변하는 부분)만 RowMapper 콜백으로 전달
+List<Member> members = jdbcTemplate.query(
+        "select id, name from member where age > ?",
+        (rs, rowNum) -> new Member(rs.getString("id"), rs.getString("name")),  // 콜백
+        20);
+
+// TransactionTemplate — begin/commit/rollback은 템플릿이, 비즈니스 로직만 콜백으로
+transactionTemplate.executeWithoutResult(status -> memberRepository.save(member));
+```
 
 ---
 
@@ -394,6 +409,7 @@ public class OrderService {
 
 ### 그 외 함정들
 
+- **캡처되는 지역변수는 effectively final이어야 한다**: V4·V5 코드가 익명 클래스/람다 안에서 바깥의 `itemId`를 쓸 수 있는 건, 자바가 그 값을 **복사(캡처)**해 넣기 때문 — 그래서 캡처된 변수는 재할당 불가(사실상 final)여야 한다. `itemId = itemId.trim();` 같은 재할당을 한 줄이라도 넣으면 람다 쪽에서 컴파일 에러. 원본이 아닌 복사본이라는 것은 [람다 실행 타이밍](../functional/lambda-execution-timing.md)의 "람다=코드 값"과 같은 맥락.
 - **제네릭 + void**: 반환값 없는 로직은 `Void`(래퍼) + `return null` — 제네릭은 기본 타입(`void`, `int`)을 못 받는다.
 - **함수형 인터페이스라는 용어**: "추상 메서드 1개면 람다 가능"까지 알아도 이름을 모르면 검색·면접에서 막힌다. `@FunctionalInterface`는 선택이지만 붙이는 게 안전망. (Effective Java Item 44가 이 주제 — 도달하면 여기 링크 추가)
 - **예외 되던지기(`throw e`)**: 템플릿의 catch에서 로그만 남기고 삼키면 상위 계층이 실패를 모른다. `exception()` 후 반드시 다시 던질 것.

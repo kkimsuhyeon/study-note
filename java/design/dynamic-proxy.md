@@ -2,7 +2,7 @@
 
 > **한 줄 요약**: 4장에서 프록시를 손으로 만들었더니 **대상마다 프록시 클래스가 하나씩** 필요했다. 동적 프록시는 그 클래스를 **런타임에 자동 생성**해서, 부가 로직 **핸들러 하나로 대상 전부**를 커버한다 — 인터페이스가 있으면 **JDK 동적 프록시**(`InvocationHandler` + `Proxy.newProxyInstance`), 없으면 **CGLIB**(`MethodInterceptor` + `Enhancer`). ⚠️ 이 API를 직접 칠 일은 거의 없다. **`@Transactional`·`@Cacheable`·`@Async`가 바로 이 기술로 동작한다**는 것, 그래서 **`this.method()` 자기호출이 왜 안 먹는지**가 이 챕터의 진짜 소득.
 
-관련 노트: [프록시/데코레이터 패턴](./proxy-decorator-pattern.md) (직전 챕터 — "프록시 클래스 폭발"로 끝난 자리가 이 노트의 출발점) · [템플릿 메서드/전략/콜백](./template-method-strategy-callback.md) · [ThreadLocal](../concurrency/thread-local.md) (`LogTrace`의 출처) · [@Transactional](../spring/transactional.md) · [Spring Cache](../spring/spring-cache.md) · [메서드 보안](../security/method-security.md) · [커스텀 어노테이션](../annotation/custom-annotation.md) — **이 네 노트가 공유하는 "자기호출은 안 먹는다" 함정의 실행 엔진이 이 노트** · [JPA 프록시](../jpa/proxy.md) (하이버네이트도 같은 원리의 프록시를 쓴다)
+관련 노트: [프록시/데코레이터 패턴](./proxy-decorator-pattern.md) (직전 챕터 — "프록시 클래스 폭발"로 끝난 자리가 이 노트의 출발점) · **ProxyFactory (6장, 아직 미작성)** — 이 노트가 남긴 "JDK/CGLIB 이중 관리"를 Advice 추상화로 해결 · [템플릿 메서드/전략/콜백](./template-method-strategy-callback.md) · [ThreadLocal](../concurrency/thread-local.md) (`LogTrace`의 출처) · [@Transactional](../spring/transactional.md) · [Spring Cache](../spring/spring-cache.md) · [메서드 보안](../security/method-security.md) · [커스텀 어노테이션](../annotation/custom-annotation.md) — **이 네 노트가 공유하는 "자기호출은 안 먹는다" 함정의 실행 엔진이 이 노트** · [JPA 프록시](../jpa/proxy.md) (하이버네이트도 같은 원리의 프록시를 쓴다)
 
 ---
 
@@ -78,6 +78,8 @@ private void dynamicCall(Method method, Object target) throws Exception {
 ```
 
 > ⚠️ **리플렉션은 주의해서 쓸 것.** 컴파일러가 잡아주던 오류가 **런타임 오류로 미뤄진다** — `getMethod("callAA")`처럼 오타를 내도 컴파일은 통과하고 실행 시점에 `NoSuchMethodException`이 터진다. 그래서 **일반 애플리케이션 로직에는 쓰지 않고, 프레임워크/공통 처리 같은 곳에 제한적으로** 쓴다. 우리가 리플렉션을 직접 칠 일이 없는 이유이기도 하다 — 스프링이 대신 쳐준다.
+>
+> 📚 **Effective Java Item 65 "리플렉션보다는 인터페이스를 사용하라"가 정확히 이 주제**다. 그래서 책이 제시하는 해법도 "**객체 생성만 리플렉션으로 하고, 사용은 인터페이스로**" — JDK 동적 프록시가 정확히 그 모양이다(프록시는 리플렉션으로 만들고, 클라이언트는 `AInterface`로 쓴다). *(EJ 노트 작성 시 여기 링크 추가)*
 
 ---
 
@@ -452,13 +454,20 @@ CGLIB은 호출 방법이 셋이라 헷갈린다.
 `MethodProxy`가 빠른 이유는 **FastClass** — 메서드마다 인덱스를 부여해 `switch`로 분기하는 클래스를 미리 생성해 두고, 리플렉션 대신 그 인덱스로 직접 호출한다.
 
 ```java
-// ⚠️ 무한 루프 3종
-methodProxy.invoke(obj, args);        // obj = 프록시 자신 → 자기가 자기를 다시 호출
-method.invoke(obj, args);             // 같은 이유
-methodProxy.invokeSuper(target, args) // target에 대고 super를 부르는 건 의미가 어긋남
+// ⚠️ 무한 루프 — 부가 로직이 자기 자신을 다시 부른다 (StackOverflowError)
+methodProxy.invoke(obj, args);   // obj = 프록시 자신
+method.invoke(obj, args);        // 같은 이유
+
+// ⚠️ 무한 루프가 아니라 "잘못된 짝" — 즉시 예외
+methodProxy.invokeSuper(target, args);
+// invokeSuper는 **프록시 클래스용 FastClass**로 호출한다.
+// target은 프록시가 아니라 CGLIB이 만든 synthetic 메서드가 없음
+// → 타입 불일치로 ClassCastException / IllegalArgumentException
 ```
 
 **규칙**: `target`을 주입받았으면 `invoke(target, ...)`, 안 받았으면 `invokeSuper(obj, ...)`. **첫 인수와 메서드 이름이 짝**이라고 외우면 안전하다.
+
+> 💡 **둘을 구분하는 말**: `invoke`는 "**남**의 원본 메서드", `invokeSuper`는 "**내** 부모 메서드". 전자는 위임(target 보유), 후자는 상속(target 없음) 구조다. — 4장의 [`target.save()` vs `super.save()`](./proxy-decorator-pattern.md) 구분과 정확히 같은 질문이 API로 나타난 것.
 
 ### 3-3. 실전 적용 — LogTrace를 CGLIB으로
 
@@ -543,7 +552,7 @@ public class CglibConfig {
 | 원본 호출 | `method.invoke(target, args)` | `methodProxy.invoke(target, args)` |
 | 인터페이스 필요? | **필수** | 불필요 |
 | 제약 | 인터페이스 없으면 불가 | `final` 클래스/메서드 |
-| 프록시 클래스명 | `$Proxy1` / `jdk.proxy1.$Proxy1` | `Xxx$$EnhancerByCGLIB$$1a2b3c` |
+| 프록시 클래스명 | `$Proxy1` / `jdk.proxy1.$Proxy1` | `Xxx$$EnhancerByCGLIB$$1a2b3c` (순수)<br>`Xxx$$SpringCGLIB$$0` (Spring 6+) |
 | 호출 성능 | 리플렉션 | FastClass로 리플렉션 회피 |
 
 ### ⚠️ 스프링이 실제로 무엇을 고르는가 — 강의와 현실의 차이
@@ -555,7 +564,14 @@ public class CglibConfig {
 | Spring Framework (순수) | 인터페이스 **있으면 JDK**, 없으면 CGLIB |
 | **Spring Boot 2.0+** | `spring.aop.proxy-target-class=true`가 기본 → **인터페이스가 있어도 CGLIB** |
 
-즉 **실무에서 `getClass()`를 찍으면 대부분 `$$EnhancerBySpringCGLIB`이 나온다.** 부트가 CGLIB을 기본으로 돌린 이유는 JDK 프록시가 만드는 사고 때문 — 인터페이스로만 캐스팅되므로 **구체 클래스 타입으로 주입받으면 실패**한다.
+즉 **실무에서 `getClass()`를 찍으면 대부분 CGLIB 프록시가 나온다.**
+
+| 버전 | 프록시 클래스명 |
+|---|---|
+| Spring 5 이하 (Boot 2.x) | `OrderService$$EnhancerBySpringCGLIB$$1a2b3c4d` |
+| **Spring 6+ (Boot 3.x)** | `OrderService$$SpringCGLIB$$0` |
+
+부트가 CGLIB을 기본으로 돌린 이유는 JDK 프록시가 만드는 사고 때문 — 인터페이스로만 캐스팅되므로 **구체 클래스 타입으로 주입받으면 실패**한다.
 
 ```
 Bean named 'orderService' is expected to be of type 'OrderServiceImpl'
@@ -601,10 +617,13 @@ class OrderService$$SpringCGLIB$$0 extends OrderService {
         TransactionStatus status = txManager.getTransaction(new DefaultTransactionDefinition());
         try {
             target.createOrder(request);                // 진짜 메서드
-            txManager.commit(status);
-        } catch (RuntimeException e) {
-            txManager.rollback(status);                 // ⚠️ 기본은 unchecked만 롤백
+            txManager.commit(status);                   // 성공 → 커밋
+        } catch (RuntimeException | Error e) {          // ⚠️ 기본 롤백 규칙은 이 둘뿐
+            txManager.rollback(status);
             throw e;
+        } catch (Exception e) {                         // checked 예외는 기본적으로
+            txManager.commit(status);                   // ⚠️ 롤백하지 않고 커밋한다!
+            throw e;                                    // → rollbackFor = Exception.class 필요
         }
     }
 }
@@ -618,7 +637,8 @@ class OrderService$$SpringCGLIB$$0 extends OrderService {
 @PostConstruct
 void check() {
     log.info("{}", orderService.getClass());
-    // class com.example.OrderService$$SpringCGLIB$$0
+    // class com.example.OrderService$$SpringCGLIB$$0   (Spring 6+)
+    // Spring 5라면 OrderService$$EnhancerBySpringCGLIB$$1a2b3c4d
     //   → @Autowired로 주입받은 건 원본이 아니라 프록시다
     log.info("{}", AopUtils.isAopProxy(orderService));     // true
     log.info("{}", AopUtils.isCglibProxy(orderService));   // true
@@ -689,13 +709,43 @@ CGLIB도 `Object` 메서드가 `intercept()`로 들어온다. 스프링 AOP는 �
 
 ### 5-4. ⚠️ 프록시는 공짜가 아니다
 
-- **클래스가 늘어난다**: 프록시 클래스 + (CGLIB이면) FastClass 두 개가 메서드 시그니처 조합마다 생성되어 메타스페이스를 쓴다. 빈이 수천 개면 기동 시간에 영향.
+- **클래스가 늘어난다**: 대상 1개당 프록시 클래스 1개 + (CGLIB이면) FastClass 2개(target용 f1 / 프록시용 f2)가 메타스페이스에 올라간다. 빈이 수천 개면 기동 시간과 메모리에 영향. (네이티브 이미지에서 CGLIB이 문제가 되는 것도 이 런타임 생성 때문 — AOT로 미리 찍어두어야 한다)
 - **호출 스택이 깊어진다**: 스택 트레이스에 `$Proxy`·`CglibAopProxy`·`ReflectiveMethodInvocation` 같은 프레임이 잔뜩 낀다. **예외를 읽을 때 이 프레임들은 건너뛰고 읽는다**는 감각이 필요.
 - **리플렉션 호출 비용**: `method.invoke()`는 직접 호출보다 느리다. CGLIB의 FastClass, 스프링의 캐싱이 이를 줄이지만 0은 아니다.
 
 ### 5-5. ⚠️ JDK 프록시는 인터페이스에 없는 메서드를 잃는다
 
 `Proxy.newProxyInstance`에 넘긴 인터페이스의 메서드만 프록시에 존재한다. 구현체에만 있는 public 메서드는 **호출할 방법이 없다**(캐스팅 시 `ClassCastException`). 인터페이스를 여러 개 구현했는데 배열에 하나만 넘겨도 마찬가지. 부트가 CGLIB을 기본으로 잡은 이유 중 하나.
+
+### 5-6. 💡 `@Configuration`도 CGLIB 프록시다 — 이 노트의 설정 코드가 동작하는 이유
+
+앞의 `DynamicProxyBasicConfig`를 다시 보면 이상한 게 있다.
+
+```java
+@Bean
+public OrderControllerV1 orderControllerV1(LogTrace logTrace) {
+    // orderServiceV1()을 직접 호출한다 — 새 인스턴스가 만들어지는 거 아닌가?
+    new OrderControllerV1Impl(orderServiceV1(logTrace));
+}
+```
+
+일반 자바라면 `orderServiceV1()`을 두 번 부르면 객체가 두 개 생긴다. 그런데 싱글톤이 깨지지 않는다. **`@Configuration` 클래스 자체가 CGLIB 프록시**로 바꿔치기 되어, `@Bean` 메서드 호출을 가로채고 "이미 컨테이너에 있으면 그걸 리턴"하기 때문이다.
+
+```java
+@Configuration
+public class AppConfig {
+    @Bean public A a() { return new A(b()); }
+    @Bean public B b() { return new B(); }   // 두 번 불려도 인스턴스는 하나
+}
+
+// 확인
+System.out.println(appConfig.getClass());
+// class AppConfig$$SpringCGLIB$$0   ← 설정 클래스도 프록시!
+```
+
+⚠️ **`@Configuration(proxyBeanMethods = false)`를 주면 이 프록시를 안 만든다** — 기동은 빨라지지만 `@Bean` 메서드를 직접 호출하는 순간 **새 인스턴스가 생긴다**. 스프링 부트의 자동구성 클래스들이 이 옵션을 쓰는데, 그래서 거기서는 메서드 직호출 대신 **파라미터 주입**을 쓴다.
+
+> 📌 `final` 클래스에 `@Configuration`을 못 붙이는 것도 같은 이유. 상속을 못 하니 프록시를 못 만든다.
 
 ---
 
@@ -704,7 +754,7 @@ CGLIB도 `Object` 메서드가 `intercept()`로 들어온다. 스프링 AOP는 �
 - **API 사용법은 잊어도 된다. 남길 것은 "스프링의 어노테이션 = 프록시"라는 한 문장.** 2026년에 `Proxy.newProxyInstance`를 손으로 칠 일은 프레임워크를 만들 때뿐이다. 하지만 `@Transactional`이 안 먹을 때 **"프록시가 개입할 자리가 있나?"**를 5초 안에 떠올릴 수 있느냐가 실무 디버깅 속도를 가른다 — 자기호출·`final`·`private`·`@Enable~` 누락이 전부 같은 질문의 변주.
 - **"인터페이스가 있으면 JDK"는 강의용 정리다. 실무 기본값은 CGLIB.** Spring Boot 2.0부터 `proxy-target-class=true`가 기본이라, 인터페이스가 있어도 CGLIB 프록시가 만들어진다. 그래서 **`final`을 붙일 때 "여기 `@Transactional`이 붙을 수 있나"를 한 번 물어야** 한다 — JDK 프록시라면 상관없을 `final`이 CGLIB에서는 무음 실패를 만든다.
 - **`getClass()`를 찍어보는 습관.** "이 빈이 프록시인가"는 로그 한 줄로 끝난다(`AopUtils.isAopProxy()`). 트랜잭션·캐시·보안이 안 먹는 상황에서 **원인을 코드에서 찾기 전에 객체 정체부터 확인**하는 게 훨씬 빠르다.
-- **디버깅할 때 `$Proxy`·`$$EnhancerBySpringCGLIB`·`ReflectiveMethodInvocation`이 보이면 "여긴 AOP 구간"으로 읽고 넘긴다.** 이 프레임들을 자기 코드로 착각해 파고들면 시간만 버린다. 진짜 원인은 그 아래(target) 또는 위(호출자)에 있다.
+- **디버깅할 때 `$Proxy`·`$$SpringCGLIB`·`$$EnhancerBySpringCGLIB`·`ReflectiveMethodInvocation`이 보이면 "여긴 AOP 구간"으로 읽고 넘긴다.** 이 프레임들을 자기 코드로 착각해 파고들면 시간만 버린다. 진짜 원인은 그 아래(target) 또는 위(호출자)에 있다.
 - **적용 대상 판단(Pointcut)과 부가 기능(Advice)이 한 클래스에 섞이면 확장할 때 복붙이 시작된다.** `LogTraceFilterHandler`가 `patterns`와 `logTrace`를 같이 들고 있는 게 그 신호였다. 직접 프록시 인프라를 짤 일은 없지만, **"판단 로직과 실행 로직이 한 덩어리인가"는 일반적인 설계 냄새**다 — 같은 냄새가 [계산 파이프라인](./calculation-pipeline.md)의 `supports`/`execute` 분리에도 나온다.
 
 ---
@@ -718,5 +768,7 @@ CGLIB도 `Object` 메서드가 `intercept()`로 들어온다. 스프링 AOP는 �
 - [spring-boot #12194](https://github.com/spring-projects/spring-boot/issues/12194) (Spring Boot 2.0부터 `spring.aop.proxy-target-class` 기본값이 true)
 - [spring-framework #26729](https://github.com/spring-projects/spring-framework/issues/26729) (`final` 메서드가 **조용히** 제외되는 근거)
 - [cglib: The missing manual](http://mydailyjava.blogspot.com/2013/11/cglib-missing-manual.html) (`MethodProxy`·FastClass·`invokeSuper` 동작)
+- [spring-framework #31272](https://github.com/spring-projects/spring-framework/issues/31272) (Spring 6 프록시 클래스명이 `$$SpringCGLIB$$N` 형태임을 보여주는 이슈)
+- Effective Java Item 65 — 리플렉션보다는 인터페이스를 사용하라 (§1 리플렉션 경고의 출처)
 
 **학습 날짜**: 2026-08-14 · **계기**: 김영한 고급편 Ch.5 수강 후 "거의 이해를 못 한 것 같다"며 Claude와 처음부터 재구성한 세션. 틀리거나 몰랐던 것 4가지 — ① `Method method`를 "실행될 구현체의 메서드"로 이해(→ 메타정보 객체) ② 인터페이스 필수인 이유를 "인터페이스 기반이라서"로만 답함(→ `implements`할 클래스를 런타임 생성하므로 메서드 목록의 출처가 필요) ③ **`@Transactional`이 이 기술로 동작한다는 사실 자체를 몰랐음**("이걸 실제로 쓸 일이 있나?"라는 질문에서 출발) ④ 자기호출 시 `this`를 프록시로 착각(→ target). ②④는 질문을 이어가며 스스로 도달함

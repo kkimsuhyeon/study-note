@@ -277,6 +277,8 @@ Component (인터페이스)
 
 > 📌 **자바 표준 라이브러리의 데코레이터**: `java.io`가 통째로 이 패턴이다. `new BufferedInputStream(new FileInputStream(f))` — `InputStream`이라는 같은 타입을 유지하면서 버퍼링이라는 책임을 덧입힌다. 위 체이닝 코드와 완전히 같은 모양.
 
+> 📘 **Effective Java Item 18과 같은 이야기**: "상속보다는 컴포지션을 사용하라"에서 권하는 **래퍼 클래스(wrapper class)** 가 바로 데코레이터다 — Bloch도 책에서 명시적으로 그렇게 부른다. 상속으로 기능을 확장하면 조합 폭발(기능 n개 → 클래스 2ⁿ)과 깨지기 쉬운 결합이 생기지만, 래퍼를 쌓으면 **런타임에 재귀적으로 조합**할 수 있다. 위 `new TimeDecorator(new MessageDecorator(real))`이 그 예. ⚠️ 단 Item 18은 래퍼의 약점도 같이 짚는다 — **콜백 프레임워크와는 안 어울린다(SELF 문제)**. 이건 §9의 자기호출 함정과 완전히 같은 메커니즘이다. (이펙티브 자바 노트 작성 시 상호 링크)
+
 ---
 
 ## 4. 프록시 vs 데코레이터 — 구조가 같은데 왜 두 패턴인가
@@ -424,47 +426,55 @@ public class ConcreteProxyConfig {
 
 ### 6-1. ❓ `super(null)`은 왜 하는 건가 (세션에서 막혔던 지점)
 
-자바 규칙: **자식 생성자가 실행될 때 부모 생성자가 무조건 먼저 호출되어야 한다.** 컴파일러가 강제한다. 부모에 기본 생성자가 있으면 컴파일러가 `super()`를 자동으로 넣어주지만, **파라미터 있는 생성자만 있으면** 직접 써야 한다.
+자바 규칙: **자식 생성자가 실행될 때 부모 생성자가 무조건 먼저 호출되어야 한다.** 컴파일러가 강제한다. 부모에 기본 생성자가 있으면 컴파일러가 `super()`를 몰래 넣어주므로 **아무 일도 안 일어난 것처럼 보인다.** 문제는 **부모에 파라미터 있는 생성자만 있을 때** — 이때는 직접 써야 하고, 넘길 값이 없다.
+
+위 `OrderRepositoryV2`는 생성자가 없어서(=기본 생성자) 프록시도 `super()`를 안 써도 됐다. 그런데 `OrderServiceV2`는 다르다.
 
 ```java
-// 부모 — 기본 생성자가 없다
-public class ConcreteLogic {
-    private String data;
-    public ConcreteLogic(String data) { this.data = data; }
+// 부모 — 생성자가 OrderRepositoryV2를 요구한다
+public class OrderServiceV2 {
+    private final OrderRepositoryV2 orderRepository;
 
-    public String operation() {
-        log.info("ConcreteLogic 실행");
-        return "data";
+    public OrderServiceV2(OrderRepositoryV2 orderRepository) {   // 기본 생성자 없음!
+        this.orderRepository = orderRepository;
+    }
+
+    public void orderItem(String itemId) {
+        orderRepository.save(itemId);
     }
 }
 
-// 프록시
-@Slf4j
-public class TimeProxy extends ConcreteLogic {
-    private ConcreteLogic realLogic;
+// 프록시 — 상속했으니 부모 생성자를 불러야 한다
+public class OrderServiceConcreteProxy extends OrderServiceV2 {
+    private final OrderServiceV2 target;
+    private final LogTrace logTrace;
 
-    public TimeProxy(ConcreteLogic realLogic) {
-        super(null);                 // ⚠️ 부모가 String을 받으니 뭐라도 넘겨야 컴파일 통과
-        this.realLogic = realLogic;
+    public OrderServiceConcreteProxy(OrderServiceV2 target, LogTrace logTrace) {
+        super(null);              // ⚠️ 부모가 OrderRepositoryV2를 요구 → null이라도 넘겨야 컴파일 통과
+        this.target = target;
+        this.logTrace = logTrace;
     }
 
     @Override
-    public String operation() {
-        log.info("TimeProxy 실행");
-        long startTime = System.currentTimeMillis();
-        String result = realLogic.operation();      // 실제 객체에 위임
-        log.info("TimeProxy 종료 resultTime={}ms", System.currentTimeMillis() - startTime);
-        return result;
+    public void orderItem(String itemId) {
+        TraceStatus status = null;
+        try {
+            status = logTrace.begin("OrderService.orderItem()");
+            target.orderItem(itemId);      // 부모의 orderRepository가 아니라 target에 위임
+            logTrace.end(status);
+        } catch (Exception e) {
+            logTrace.exception(status, e);
+            throw e;
+        }
     }
 }
-
-// 사용
-ConcreteLogic concreteLogic = new ConcreteLogic("실제 데이터");
-ConcreteClient client = new ConcreteClient(new TimeProxy(concreteLogic));
-client.execute();
 ```
 
-**`TimeProxy`는 부모의 기능을 하나도 안 쓴다.** `operation()`은 오버라이딩했고, 내부에선 `realLogic.operation()`을 부른다. 부모의 `data` 필드는 완전히 무용지물. 그런데도 **문법을 만족시키려고 억지로** `super(null)`을 넣는 것 — 의미 있는 초기화가 아니다. 인터페이스 기반이면 `implements`만 하면 되니 이 문제가 아예 없다.
+**프록시는 부모의 필드를 하나도 안 쓴다.** `orderItem()`은 오버라이딩했고, 내부에선 `target.orderItem()`을 부른다. 부모의 `orderRepository`는 `null`인 채로 영영 방치되고 **그래도 아무 문제가 없다** — 애초에 쓰이지 않으니까. 즉 `super(null)`은 의미 있는 초기화가 아니라 **문법을 통과시키려는 요식 행위**다.
+
+⚠️ 위험한 지점: 만약 오버라이딩을 빠뜨린 메서드가 있으면, 그 메서드는 **부모 구현이 실행되면서 `null`인 필드를 건드려 NPE**가 난다. 클래스 기반 프록시는 "모든 public 메서드를 빠짐없이 오버라이딩했는가"가 암묵적 전제다.
+
+인터페이스 기반이면 `implements`만 하면 되니 이 문제가 통째로 없다.
 
 ### 6-2. ⚠️ 클래스 기반 프록시의 제약 3가지
 
@@ -488,6 +498,9 @@ client.execute();
 | 상속 제약 | 없음 | `final` 클래스/메서드 제약 |
 | 생성자 | 문제 없음 | `super(null)` 필요 |
 | 전제 조건 | **인터페이스가 있어야 함** | 없어도 됨 |
+| 타입 캐스팅 | ⚠️ **구체 클래스로 캐스팅/주입 불가** | 자식 타입이라 구체 클래스 주입 가능 |
+
+⚠️ 마지막 줄이 실무에서 덧난다. 인터페이스 기반 프록시는 **인터페이스 타입으로만 존재**하므로 `OrderServiceImpl`처럼 구현체 타입으로 주입받으려 하면 터진다(`BeanNotOfRequiredTypeException`). 강의에서도 "인터페이스 기반 프록시는 캐스팅 관련 단점이 있다"고 뒷부분 예고를 달아둔다. 스프링 부트가 기본값을 CGLIB로 잡은 이유 중 하나.
 
 ### ❓ "그럼 왜 처음부터 인터페이스로 안 하나?" (세션에서 나온 질문 — 타당한 의문)
 
@@ -515,6 +528,32 @@ V1·V2는 `@Configuration`에서 **수동으로** 빈을 등록했으니, 설정
 ---
 
 ## 9. ⚠️ 그 외 함정 / 헷갈렸던 것
+
+### 🔴 자기호출(self-invocation)은 왜 프록시를 못 거치는가 — 볼트 전체가 공유하는 함정의 정체
+
+[@Transactional](../spring/transactional.md) · [Spring Cache](../spring/spring-cache.md) · [메서드 보안](../security/method-security.md) · [커스텀 어노테이션](../annotation/custom-annotation.md) 네 노트가 전부 "자기호출은 안 먹는다"를 경고한다. **이유는 손으로 짠 프록시에서 이미 드러난다.**
+
+```java
+public class OrderServiceV1Impl implements OrderServiceV1 {
+
+    @Override
+    public void orderItem(String itemId) {
+        this.cancelItem(itemId);   // ⚠️ 내부 호출
+    }
+
+    @Override
+    public void cancelItem(String itemId) { ... }
+}
+```
+
+```
+client → proxy.orderItem()  → [로그 남김] → target.orderItem()
+                                                    └─→ this.cancelItem()   ← 🔴 proxy를 안 거침 → 로그 없음
+```
+
+`target` 입장에서 `this`는 **자기 자신(실제 객체)이지 프록시가 아니다.** 프록시는 밖에서 들어오는 입구만 감싸고 있을 뿐, 객체 내부의 호출까지 가로채는 수단이 없다. 이건 스프링의 버그가 아니라 **프록시라는 구조의 필연적 결과**다. 그래서 `@Transactional`을 붙인 메서드를 같은 빈 안에서 부르면 트랜잭션이 안 열리고, 해결책도 전부 똑같다 — **호출을 객체 밖으로 내보내기**(별도 빈으로 분리하거나 자기 자신을 `@Lazy`로 주입받아 그 참조로 호출).
+
+> 💡 이건 *Effective Java* Item 18의 **SELF 문제**와 정확히 같은 메커니즘이다. 래퍼(데코레이터)로 감싼 객체가 콜백을 위해 `this`를 넘기면, 넘어가는 건 래퍼가 아니라 **감싸진 안쪽 객체**라 이후 콜백은 래퍼를 우회한다. "감싸기는 밖에서 들어오는 호출만 잡는다"는 한 문장이 자바 레벨에서도, 스프링 레벨에서도 그대로 적용된다.
 
 ### 스프링 시큐리티는 프록시인가? (세션 질문)
 
@@ -562,6 +601,7 @@ V1·V2는 `@Configuration`에서 **수동으로** 빈을 등록했으니, 설정
 
 - 김영한, 스프링 핵심 원리 고급편 — Ch.4 프록시 패턴과 데코레이터 패턴
 - GOF, *Design Patterns* — Proxy / Decorator (구조가 겹치는 패턴은 의도로 구분)
+- **Effective Java Item 18** — "상속보다는 컴포지션을 사용하라" (래퍼 클래스 = 데코레이터, SELF 문제) — 도달 시 상호 링크
 - [Baeldung — Proxy, Decorator, Adapter and Bridge Patterns](https://www.baeldung.com/java-structural-design-patterns)
 - [Stack Overflow — Differences between Proxy and Decorator Pattern](https://stackoverflow.com/questions/18618779/differences-between-proxy-and-decorator-pattern) ("데코레이터는 클라이언트에게 힘을 주고 프록시는 제한한다")
 - [spring-framework #26729 — Fail explicitly if a final method is invoked on a CGLIB proxy](https://github.com/spring-projects/spring-framework/issues/26729) (final 메서드가 **조용히** 제외되는 근거)
