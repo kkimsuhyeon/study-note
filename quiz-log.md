@@ -54,6 +54,19 @@
 - 남은 스윕 항목: 재출제(Q13 두 축, Q15①②), 단어 회상(스택 1MB·volatile·check-then-act·compareAndSet), jvm-tools 각론(ReentrantLock·Semaphore·CyclicBarrier·StampedLock), happens-before·DCL, Coffman 명칭, JIT 호이스팅(보류), pinning(virtual-threads §5 — 미출제)
 - 다음 세션 계획: ①스윕 → ②[동시성 컬렉션](java/concurrency/concurrent-collections.md) 신규 노트(8/12 작성) 읽기 → 확인 퀴즈
 
+## 2026-08-14 — 스윕 (하루 간격 복습)
+- ⚡ 라이트닝: L1 스택 1MB ❌(힙이라 답함 — "각자 갖는 건 스택" 앵커로 교정) / L2 volatile △(개념 회상 성공, 스펠링만) / L3 check-then-act ❌(해결책 CAS와 혼동 — "병명 vs 처방" 구분) / L4 compareAndSet △(getAndSet도 선착순엔 동작하나 조건형은 CAS만). **L1·L3 재출제 예약.**
+- [x] **Q13 재출제(2×2 표 배치)** — 5칸 배치 + "무력해지는 건 JVM 범위뿐" 전부 정답 ✅. JVM 낙관 칸(CAS)만 보충. 통과.
+- [x] **Q15 재출제(동료 말 교정)** — ①비교는 조회가 아니라 UPDATE 때 ②JPA는 예외+롤백까지, 수습은 앱 — 둘 다 스스로 교정 ✅. 통과.
+
+## 2026-08-14 — JPA 퀴즈 재개 (persistence-context)
+- [x] **Q21. 더티 체킹** — 이름·시점(③ commit 직전 flush) 정답. ③ 감지 방법은 "영속화"까지 접근 → **스냅샷 비교**(조회 때 찍은 사진 vs flush 때 현재)로 완성. merge 노트 자발적으로 읽음 — merge 조회 기준=PK 질문.
+- [x] **Q22. try-catch 헛스윙** — "트랜잭션 끝나고 터지니까 안 잡힌다" 스스로 도달 ✅. 파생 통찰(베스트 질문): "바깥에도 @Transactional 있으면 거기서도 안 잡히지 않나?" → 맞음, 같은 트랜잭션 참여 시 commit은 최외곽 1번 → **트랜잭션 없는 곳에서 잡기**(컨트롤러/파사드 또는 @Retryable=새 트랜잭션 재시도) 학습.
+- [ ] **Q23. 연관관계 주인 (FK null)** — ①주인/mappedBy 역할 구분 처음 배움(주인=FK 쓰기 권한, mappedBy 쪽=읽기 전용 거울, JPA는 주인만 봄) ②양쪽 세팅은 경험으로 정답 ✅ ③편의 메서드 "재귀" 공포 해소 — **한쪽에만 만들고 반대편은 단순 대입/add로**(상대 편의 메서드 호출 금지). ① 재출제 필요.
+- [x] **Q24. 주인 판별 즉석 확인** — 4/4 정답. 스스로 규칙 도출("FK 들고 있는 쪽이 주인") → @ManyToOne 쪽이 항상 주인으로 확정. 파생: 주인만 세팅 시 DB는 정상·같은 영속성 컨텍스트 안 컬렉션만 빈 상태(→양쪽 세팅 이유), 편의 메서드=공식 출입문 하나.
+- [ ] **Q25. ToOne 기본 EAGER + JPQL N+1** — ①EAGER ✅ ③LAZY 명시 규칙 △. ②"조인해서 1번"이라 답함 ❌ — **JPQL은 쓴 대로 번역 후 EAGER 계약 이행으로 1+N 강제**(em.find만 JOIN 한 방) 학습. LAZY vs EAGER = 제어권 차이. ② 재출제 필요.
+- [ ] **Q26. 프록시 메커니즘** — ①프록시 ✅ ③에러 방향 ✅(예외 이름은 몰랐음). ②초기화 메커니즘 처음 배움: 상속한 가짜(id+target), 메서드 가로채기 → **영속성 컨텍스트에 초기화 요청** → target 연결·위임. ③=LazyInitializationException("no Session") — 영속성 컨텍스트가 닫혀 요청할 곳이 없어서. OSIV ON이 이걸 가리는 이유까지 연결. ②③ 재출제 필요.
+
 ## 2026-08-13 — JPA 트랙 시작
 - **Q21 (미답변·보류)**: 더티 체킹 — save() 없이 UPDATE 나가는 이름/시점/감지 방법. persistence-context.md 기반. 다음 세션 재출제.
 - 김영한 PDF 3종(기본편·활용1·활용2) 전수 리뷰 → JPA 신규 노트 10개 작성(연관관계 매핑·엔티티 설계 규칙·키 생성·상속 매핑·프록시·cascade·값 타입·merge·JPQL 심화·OSIV) + 기존 노트 5개 보강(n-plus-one 권장순서·distinct, transform-layers 직렬화 근거, domain-validation 패턴 용어·check-then-act 링크, transactional readOnly 근거, persistence-context 링크). 전부 README 등록.
