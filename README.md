@@ -109,6 +109,8 @@
 - [ ] ["배치"의 세 층위 - 쿼리 배치화(N+1→IN+groupingBy) / Spring Batch(스케줄러 없음!) / JDBC 쓰기 배치](./java/spring/batch-three-meanings.md)
 - [ ] [SseEmitter 서버 구현 - 서블릿 async(스레드 즉시 반납) / send·event()빌더·콜백3종 / 두 패턴(세션푸시+저장소·Pub/Sub / relay+구독) / 이벤트루프 블로킹 금지·boundedElastic](./java/spring/sse-emitter.md)
 - [ ] [Spring Cache - @Cacheable·@CachePut·@CacheEvict 3형제 / 어노테이션=정책·CacheManager=저장소 분리 / @EnableCaching 없으면 조용히 무시 / 자기호출 우회→캐시 전용 컴포넌트 / ConcurrentMap·Caffeine·Redis "사본 허용?"](./java/spring/spring-cache.md)
+- [ ] [Spring 이벤트 - @EventListener(발행 즉시·같은 스레드) vs @TransactionalEventListener(phase 예약) / phase별 안전 작업 반대(BEFORE_COMMIT=DB만·AFTER_COMMIT=외부만) / 트랜잭션 없으면 침묵 / AFTER_COMMIT DB쓰기 증발→REQUIRES_NEW / "메서드의 끝≠트랜잭션의 끝"](./java/spring/application-events.md)
+- [ ] [이벤트 유실 방지 - @Async 큐=메모리→흔적 없는 증발 / 이중 쓰기 문제 / Transactional Outbox / 하이브리드(BEFORE_COMMIT 적재+AFTER_COMMIT 실행+PENDING 재처리) / at-least-once→멱등 청구서 / Spring Modulith](./java/spring/event-outbox-pattern.md)
 
 ### 기본 / 박싱 (Basics)
 - [ ] [오토박싱 & 래퍼 캐시 - `Integer`·`Long`끼리 `==` 금지 / -128~127 캐시(JLS 5.1.7) → 작은 값엔 우연히 맞고 커지면 조용히 틀림 / JPA `Long id` 비교도 같은 메커니즘](./java/basics/autoboxing-wrapper-cache.md)
