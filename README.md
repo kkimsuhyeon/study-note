@@ -17,6 +17,8 @@
 
 > 🕐 **2회분으로 쪼갤 큰 노트**: [도메인 검증](./java/design/domain-validation.md)(제일 큼) · [@Lock 실무](./java/jpa/lock-practical.md) · [@Transactional](./java/spring/transactional.md) · [Map 메서드](./java/collections/map-methods.md) · [JVM 동시성 도구](./java/concurrency/jvm-concurrency-tools.md) · [락 개념](./java/concurrency/locks.md) · [@Lock 심화](./java/jpa/lock-concepts.md) · [Jackson](./java/jackson/annotations.md) · [신호→도구](./algorithm/data-structure-selection.md)
 
+> 🎤 **면접 셀프 테스트**: [면접 질문 은행](./interview-questions.md) — 질문만 모아둔 파일. 소리 내어 답해보고 링크된 노트로 확인. (퀴즈 세션이 계속 추가)
+
 ## 🗺️ 추천 학습 순서 (트랙 1 → 9)
 
 **카테고리 목록(아래)은 "찾아보는 사전", 이 순서는 "읽어나가는 길".** 순서는 노트끼리 실제로 서로를 참조하는 방향(선행 → 후행)으로 뽑았다. 앞 트랙을 건너뛰면 뒤 트랙에서 그 노트를 결국 다시 열게 된다.
