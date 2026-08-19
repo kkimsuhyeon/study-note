@@ -5,8 +5,9 @@
 
 ## 🤝 세션 인수인계 (새 세션이 이어받는 법)
 - **역할**: 퀴즈 마스터. 노트 기반 출제(한 문제씩) → 답변 → 틀리면 힌트→재시도→해설 → 결과를 이 파일에 기록. 모르는 내용·파생 질문이 나오면 해당 노트에 ⚠️/💡 보강(캡처 모드, CLAUDE.md 참조). 문제 유형: 사용법/메커니즘/판단형 믹스, 판단형 비중 높게. 세션 시작 = 이 파일의 `- [ ]` 스윕부터(간격 반복).
-- **현재 위치 (2026-08-18)**: 트랙 10(스프링 프록시→AOP) 복습 진행 중 — "스프링 기본기 같이 배우기" 모드(챕터마다 스프링 연결 고리 문항 포함). ThreadLocal 챕터: Q27 완료, **Q28(remove 시나리오 ①②③) 답변 대기 중**. 다음 챕터: 템플릿 메서드/전략/콜백.
+- **현재 위치 (2026-08-18)**: 트랙 10(스프링 프록시→AOP) 복습 진행 중 — "스프링 기본기 같이 배우기" 모드(챕터마다 스프링 연결 고리 문항 포함). **ThreadLocal 챕터 완료(Q27·Q28)**. 8/18 주간 회독 1회차(동시성 W1~W3)도 완료. 다음 챕터: 템플릿 메서드/전략/콜백(Q29부터). 사용자 목적 확인(8/18): ①노트 전체 지도 인지 ②면접 준비(말로 설명 연습 포함) ③실전 감각 — 면접 각도 변형·챕터말 지도 연결·노트에 없는 내용 적극 보강+보고.
 - **일시 중단된 트랙**: JPA 퀴즈(Q26까지, persistence-context→relation-mapping→proxy 완료. 다음: cascade/merge/OSIV 확인 퀴즈). 동시성 잔여 스윕 항목은 8/12 섹션 하단 참조.
+- **주간 회독 (8/18 신설, 사용자 합의)**: 주 1회(주초 세션) 지난주 학습 범위 전체를 재스윕 — 로그 오답 재탕이 아니라 **변형 + 노트 기반 신규 문항** 위주로. 1일→4일→7일 간격 반복 사다리 완성 목적. 첫 대상: 동시성 전체(8/11~14) — 잔여 스윕 항목(8/12 섹션 하단)을 신규 문항으로 흡수해서 진행.
 
 ## 2026-08-11 — 동시성 (threads.md부터)
 
@@ -66,12 +67,21 @@
 
 ## 2026-08-18 — 스윕 (4일 간격)
 - ⚡ S1 스택 1MB ✅(힙→스택 교정 완료, L1 통과) / S2 check-then-act ✅(표기만 교정, L3 통과) / S3 LazyInitializationException △(개념 완벽·이름만 실패, "optimistic"과 혼선 — 이름만 한 번 더) / S4 101번 ✅(Q25② 통과) / S5 mappedBy=읽기 전용 거울 ✅(자기 말로 "JPA는 주인만 보고 UPDATE" — Q23① 통과).
-- 남은 재출제: LazyInitializationException 이름, Q26②(프록시 초기화 메커니즘).
+- ⚡ L5 LazyInitializationException 이름 ✅ — "lazyinitialization" 회상 성공 (S3 잔여 해소, 통과).
+- ⚡ L6 Q26② 재출제 — ①비어있는 건 target ✅, "가로채기=상속 오버라이드" 확인 질문으로 해소. ②초기화 요청 대상(영속성 컨텍스트)은 2회 회상 실패 → 해설: **"no Session의 Session = 영속성 컨텍스트"** 앵커 + "프록시가 직접 쿼리를 날릴 수 있다면 이 예외는 존재할 이유가 없다" 논증 → [proxy.md §3(3)](java/jpa/proxy.md) 앵커 보강.
+- 남은 재출제: Q26②(다음 스윕: "no Session의 Session은 누구?" 각도로 1회), ThreadLocal 정리 위치 명칭(필터 try-finally/인터셉터 afterCompletion — Q28③b), lost update 이름(앵커: "누락"=lost — W1, 2회째), 가시성↔원자성 오명명 교정 확인(W1).
 
 ## 2026-08-14~18 — 트랙 10: 스프링 프록시→AOP 복습 (ThreadLocal부터)
 - [x] **Q27. ThreadLocal 스토리 복원(+스프링 웜업)** — ⓪싱글톤 1개 ✅(이유는 보충: 재사용 효율 ↔ **무상태 계약**, 위반이 곧 ②) ①파라미터 오염 ✅ ②싱글톤 필드 공유→덮어씀 ✅ ③두 축 표는 처음엔 막힘 → **"값은 ThreadLocal이 아니라 각 Thread 객체(ThreadLocalMap)에 산다"** 반전 + 사물함 비유로 해소. "필드의 접근성 + 지역변수의 격리".
 - ⭐ 파생 통찰(스스로 도달): 공유 진영(synchronized/Atomic/volatile = 안전하게 공유) vs 격리 진영(ThreadLocal = 애초에 공유 안 함) — 노트 §5 구도를 자력 재발견. "톰캣 스레드 = 트랙 4의 그 플랫폼 스레드" 합류 확인. "뒤섞임 = 여러 번이 아니라 **동시에**"(순차 1,000번은 무사) 구분.
-- [ ] **Q28. remove 시나리오 ①②③** — 답변 대기 중.
+- [x] **Q28. remove 시나리오 ①②③** — ①풀 반납→재활용→A 데이터 잔존 사슬 스스로 복원 ✅ ②보안 사고 즉답 ✅, 메모리 릭은 GC 힌트 후 "계속 쌓인다"로 도달 ③(a) finally·level 0 시점 도달 ✅ — 단 "스레드가 끝났다"→"**요청**이 끝났다(스레드는 풀로 돌아갈 뿐)"로 교정 (b) 위치 명칭(필터 try-finally/인터셉터 afterCompletion)은 힌트로 노출됨 → **라이트닝 회상 1회 예약**. 파생 보강: 릭의 참조 사슬 + "키는 약한 참조인데 왜 릭?"(고아 엔트리, 면접 꼬리 질문) → [thread-local.md §4·§5](java/concurrency/thread-local.md) 추가. **ThreadLocal 챕터 완료.**
+
+## 2026-08-18 — 주간 회독 1회차: 동시성 전체 (8/11~14 범위)
+- [x] **W1. 선착순 쿠폰 종합(신규 시나리오)** — ①현상 재현 완벽(++ 겹침→1만 증가, if 통과 후 초과 발급) ✅, 단 "가시성"으로 오명명 → **가시성(안 보임, volatile) vs 원자성(겹침)** 재교정: 이 코드는 volatile로 안 고쳐진다 반증. 병2 check-then-act ✅ / **병1 lost update 이름 회상 실패(Q2 이후 2회째)** — 앵커: 본인 표현 "값이 누락"의 누락=lost. 라이트닝 예약. ②synchronized(어순: public synchronized void)+CAS 조건형 루프, 서버 2대 무력 이유(JVM 락 범위+필드 자체가 서버별) ✅ ③(a)분산락만으론 불가—값부터 공유 저장소로(각 서버 100장=200장), 값이 DB 가면 분산락 없이 DB 락으로 충분 (b)DB 비관락 FOR UPDATE, 초고충돌→낙관은 재시도 폭탄이라 탈락 ✅. 보너스: 단순 차감이면 **조건부 UPDATE 한 문장**([lock-practical.md §8](java/jpa/lock-practical.md)) — check+act를 SQL 한 문장으로.
+- [ ] **W2. 가상 스레드 × 커넥션 풀 50개 (Semaphore 신규 학습)** — ①"가상 스레드는 싸다" 직감 ✅이나 핵심(톰캣 200이 자연 상한이었는데 소멸 → 수만 손이 커넥션 50개에 몰림 → 타임아웃 폭탄)은 신규 학습. Q20 "throughput 도구, 한정 자원은 그대로" 연결. ②Semaphore 회상 실패(첫 출제) — permit N장, acquire/release(finally 필수), "풀에서 재사용 빼고 개수 제한만 남긴 도구" 프레임 학습. ③synchronized=1명 vs Semaphore=N명은 **스스로 추론 성공** ✅ (Semaphore(1)≈synchronized, 주차장 차단기 비유). 재진술: ②③ 통과, ①은 "커넥션이 늘었다"로 인과 뒤집음 → **"커넥션은 50개 그대로, 늘어난 건 줄 서는 손"** 교정 — ① 사슬+Semaphore 이름 재출제 예약. 노트: [jvm-concurrency-tools.md §5](java/concurrency/jvm-concurrency-tools.md). ⭐ 파생 통찰(스스로 도달): "스레드를 늘려서 좋을 건 항상 없다 — 상한은 병목이 정한다"(플랫폼=스택 비용, 가상=하류 한정 자원) + 커넥션 풀=DB의 방패(구조상 Semaphore) → [virtual-threads.md §7](java/concurrency/virtual-threads.md) ⭐ 캡처.
+- 파생 교정(W2 후속 문답): ①"풀링 금지"는 스레드 풀만 — 커넥션 풀(HikariCP)은 유지, 판단 기준 "그 자원이 아직 비싼가" → [virtual-threads.md §4](java/concurrency/virtual-threads.md) ⚠️ 보강 ②층 그림: 예전 요청→스레드풀(200)→커넥션풀(50)→DB에서 스레드 풀 층 소멸이 사고 원인, Semaphore=사라진 검문소 재건 ③ExecutorService는 계속 씀(newVirtualThreadPerTaskExecutor도 ExecutorService, 내용물이 풀→매번 새로).
+- [ ] **W3. pinning (미출제 신규)** — ①②③ 전부 회상 실패 + **"캐리어 스레드가 뭐야?" 용어 공백 발견**(Q19 통과했으나 증발) → 캐리어=플랫폼 스레드의 역할 이름(새 종류 아님)·버스 비유로 재구축 → [virtual-threads.md §2](java/concurrency/virtual-threads.md) ⚠️ 보강. ①pinning 해설(synchronized 안 블로킹→버스 깔고 앉음). ②"캐리어를 기다린다" 스스로 도달 ✅, 단 피해 프레임 교정: 부하가 아니라 **정지**(CPU 놀면서 처리량 0, 대기 자체는 거의 공짜 — 힙에 상태만). ③해설: Java 21=블로킹 임계구역 ReentrantLock / Java 24 JEP 491=synchronized pinning 해소. **전체 재출제 예약**(pinning 이름·메커니즘·처방). 파이프라인 재구성(스스로): 예전 요청→스레드풀→커넥션풀→DB / 지금 요청→가상스레드 생성→캐리어 탑승→(Semaphore)→커넥션풀→DB ✅.
+- **주간 회독 1회차 종료** — W1 통과 / W2·W3 신규 학습(재출제 예약). 다음 회차 후보: ReentrantLock 각론·happens-before·DCL·Coffman 4조건 명칭·concurrent-collections·CountDownLatch/CyclicBarrier.
 
 ## 2026-08-14 — JPA 퀴즈 재개 (persistence-context)
 - [x] **Q21. 더티 체킹** — 이름·시점(③ commit 직전 flush) 정답. ③ 감지 방법은 "영속화"까지 접근 → **스냅샷 비교**(조회 때 찍은 사진 vs flush 때 현재)로 완성. merge 노트 자발적으로 읽음 — merge 조회 기준=PK 질문.

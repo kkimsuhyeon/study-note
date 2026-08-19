@@ -176,6 +176,8 @@ WAS(톰캣)는 쓰레드 생성 비용 때문에 **쓰레드 풀**을 쓴다: �
 
 - 로그가 꼬이는 수준이 아니라 **다른 사람의 개인정보 노출** = 보안 사고로 직결.
 - 메모리 릭도 발생: 풀의 쓰레드는 애플리케이션과 수명을 같이하므로, remove 안 한 값은 GC 대상이 안 됨.
+  - 참조 사슬: `Thread`(풀에서 계속 생존) → `threadLocals`(ThreadLocalMap) → Entry의 **value 강한 참조** — GC 입장에선 "아직 쓰는 값". 요청마다 쌓이면 릭.
+  - ⚠️ 오해 주의(면접 꼬리 질문 단골): ThreadLocalMap의 **키(ThreadLocal 인스턴스)는 약한 참조**라 "알아서 정리되지 않나?" 싶지만 — 약한 건 키뿐이고 **value는 강한 참조로 남는다**(키만 사라진 고아 엔트리). 고아 정리는 이후 같은 스레드의 set/get/remove가 우연히 지나갈 때만 수행 → 보장이 아니라 보조 장치. **믿을 건 `remove()`뿐.**
 - ⚠️ 추가 함정: 콜백/비동기로 **다른 쓰레드에서 실행되는 코드는 ThreadLocal이 안 보인다** — 값은 쓰레드에 붙어 있으니까. (`@Async`, CompletableFuture, 이벤트 루프 등 → [람다 실행 타이밍](../functional/lambda-execution-timing.md), [Flux/Mono](../reactive/flux-mono-basics.md))
 - ⚠️ [가상 스레드](./virtual-threads.md) 환경: 가상 쓰레드는 풀링·재사용이 없어 "남은 데이터" 문제는 없지만, **수백만 개가 각자 ThreadLocal 사본을 들면 힙이 터진다** → ThreadLocal로 비싼 객체 캐싱 금지(JEP 444). Java 25의 `ScopedValue`(JEP 506)가 대체제(불변·스코프 종료 시 자동 정리).
 
@@ -207,7 +209,7 @@ WAS(톰캣)는 쓰레드 생성 비용 때문에 **쓰레드 풀**을 쓴다: �
 ### 그 다음 판단들
 
 - **"싱글톤 빈에 상태 필드를 둬야 하나?" → 두지 마라.** 상태가 필요하면 ① 파라미터로 넘기거나 ② 쓰레드별 상태면 ThreadLocal. `FieldLogTrace`가 단일 테스트를 통과하고 운영에서 터진 게 그 증거 — **테스트 통과 ≠ 동시성 안전**.
-- **ThreadLocal을 쓰기로 했다면 `remove()`는 옵션이 아니라 세트다.** "level이 0으로 돌아오는 지점(요청의 시작점이 끝나는 곳)"처럼 라이프사이클이 닫히는 위치를 정해서 반드시 제거. 서블릿 필터/인터셉터의 `finally`가 단골 위치.
+- **ThreadLocal을 쓰기로 했다면 `remove()`는 옵션이 아니라 세트다.** "level이 0으로 돌아오는 지점(요청의 시작점이 끝나는 곳)"처럼 라이프사이클이 닫히는 위치를 정해서 반드시 제거. 실무 표준 위치는 **서블릿 필터의 try-finally** 또는 **스프링 인터셉터의 `afterCompletion`**(예외가 나도 호출됨) — Spring Security가 `SecurityContextHolder`를 정리하는 곳도 필터 체인의 finally다.
 - 값이 **쓰레드에 붙는다**는 걸 항상 의식할 것 — 쓰레드가 바뀌는 순간(비동기·리액티브·가상 쓰레드 대량 생성) ThreadLocal은 배신한다.
 
 ---

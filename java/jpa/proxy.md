@@ -114,6 +114,8 @@ p1 == p2; // true (동일성 보장이 우선)
 
 초기화는 영속성 컨텍스트에게 부탁하는 것이므로, **영속성 컨텍스트가 닫혔거나(트랜잭션 종료) detach된 상태**면 초기화할 방법이 없다.
 
+> 💡 기억 앵커: 예외 메시지 "could not initialize proxy — **no Session**"의 Session이 곧 답이다. Session = 하이버네이트의 영속성 컨텍스트 구현체. **프록시가 스스로 쿼리를 날릴 수 있다면 이 예외는 존재할 이유가 없다** — 프록시는 DB 접근 능력이 없고, 자기를 만들어준 영속성 컨텍스트에 "target 채워달라"고 부탁만 할 수 있다.
+
 ```java
 Member member = em.getReference(Member.class, 1L);
 em.detach(member); // 또는 em.close() / 트랜잭션 종료
