@@ -67,6 +67,10 @@
 ## 스프링 — 싱글톤·프록시·AOP
 
 - [ ] ⭐ **싱글톤 빈에 상태 필드를 두면 안 되는 이유는? 해결책 2가지는?** → [thread-local.md](./java/concurrency/thread-local.md)
+- [ ] ⭐ **템플릿 메서드 패턴 vs 전략 패턴 — 뭐가 다르고, 왜 위임(전략) 쪽이 표준이 됐나?** (상속의 강결합·단일 상속) → [template-method-strategy-callback.md](./java/design/template-method-strategy-callback.md)
+- [ ] **JdbcTemplate·TransactionTemplate은 무슨 패턴인가?**
+  - 꼬리: GOF 패턴인가? 전략 패턴과의 관계는? (전략의 변형 — 실행 시점에 파라미터로) → [template-method-strategy-callback.md](./java/design/template-method-strategy-callback.md)
+- [ ] **함수형 인터페이스란? 람다로 구현할 수 있는 조건은?** (추상 메서드 딱 1개) → [template-method-strategy-callback.md §3-1](./java/design/template-method-strategy-callback.md)
 - [ ] ⭐ **@Transactional은 어떻게 동작하나?** (프록시)
   - 꼬리: 같은 클래스 안에서 자기 메서드 호출하면 왜 안 먹나? → [transactional.md](./java/spring/transactional.md) · [dynamic-proxy.md](./java/design/dynamic-proxy.md)
 - [ ] **횡단 관심사란? AOP가 해결하는 문제는?** → [aspect-aop.md](./java/design/aspect-aop.md) · [aop-concepts.md](./java/design/aop-concepts.md)

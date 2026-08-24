@@ -84,6 +84,8 @@ spring:
 - **Java 21**: `synchronized` 블록 안에서 블로킹하면 **pinning 발생**. → 당시 권고: 블로킹 구간엔 `synchronized` 대신 **`ReentrantLock`** 사용.
 - **Java 24 (JEP 491)**: JVM이 모니터 소유를 **가상 스레드 단위로 추적**하도록 바뀌어 **`synchronized` pinning 해소**. → 이제 `synchronized`를 굳이 `ReentrantLock`으로 바꿀 필요 **없음**(JEP 491 저자도 더는 권장 안 함).
 - 단 JEP 491 후에도 **다른 pinning 원인은 남음**: JNI 호출, 클래스 초기화, 일부 `Object.wait` 경로 등. `jdk.VirtualThreadPinned` JFR 이벤트로 감지.
+- pinning 자체는 **예외도 에러도 아니다** — 조용한 확장성 저하일 뿐이고, 블로킹이 끝나면(DB 응답 등) **저절로 풀린다**. 피해 크기 = 핀 시간 × 빈도 × 동시 수 (짧고 드물면 티도 안 남). 데드락(원형 대기·영원히 안 풀림)과 구분할 것 — pinning은 일방적 점유·시한부.
+- ⚠️ 단, 최악의 조합에선 **진짜 데드락으로 승격**된다(JEP 491의 동기 사례). Java 21에선 **monitor 진입 대기도 pinning**이라: 락 보유 VT가 unmount된 사이(락 쥔 채 I/O 대기) 캐리어 전원이 "그 락을 기다리는 VT"로 pinned되면 → 보유자가 다시 탈 캐리어가 없어 락을 영원히 못 놓는다. "보유자가 돌아올 자리를 대기자들이 점거"하는 원형 구조.
 
 > ⚠️ **이 프로젝트는 Java 21**이라 `synchronized`+블로킹 pinning이 *아직 실재*하는 버전. 가상 스레드를 적극 쓸 거면 블로킹 임계구역은 `ReentrantLock` 고려, 또는 JDK 24+로 올리면 신경 덜 써도 됨.
 
