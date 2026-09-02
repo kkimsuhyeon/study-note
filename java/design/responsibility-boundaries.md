@@ -1,6 +1,6 @@
 # 책임 경계 — 클래스·함수를 어디서 나누나 (리뷰에서 "얘의 역할이 뭘까요?"가 나오는 이유)
 
-> **한 줄 요약**: 코드가 돌아가는데 리뷰에 걸리는 건 대부분 **경계를 나눈 기준을 한 문장으로 말할 수 없을 때**다. 계층(Controller/Service/Mapper — 위아래)이 아니라 같은 계층 안에서 옆으로 나누는 **책임(responsibility)** 이야기. 나누는 기준은 정답이 없지만(테이블·유스케이스·트랜잭션…) **기준이 있어야** 하고, 기준이 없다는 신호는 세 가지 — ① 한 사실에 대한 **결정이 두 파일에 갈라져** 있다 ② 파라미터로 **완성품**이 넘어와 받는 쪽이 저장밖에 못 한다 ③ 클래스를 설명하면 **"그리고"**가 들어간다.
+> **한 줄 요약**: 코드가 돌아가는데 리뷰에 걸리는 건 대부분 **경계를 나눈 기준을 한 문장으로 말할 수 없을 때**다. (2026-09-02 보강: §3-1 — 재료를 Command로 감싸도 **번역이 없으면 봉투**라 같은 질문을 다시 듣는다.) 계층(Controller/Service/Mapper — 위아래)이 아니라 같은 계층 안에서 옆으로 나누는 **책임(responsibility)** 이야기. 나누는 기준은 정답이 없지만(테이블·유스케이스·트랜잭션…) **기준이 있어야** 하고, 기준이 없다는 신호는 세 가지 — ① 한 사실에 대한 **결정이 두 파일에 갈라져** 있다 ② 파라미터로 **완성품**이 넘어와 받는 쪽이 저장밖에 못 한다 ③ 클래스를 설명하면 **"그리고"**가 들어간다.
 
 관련 노트: [변환 계층](./transform-layers.md)(Command가 뭔지) · [도메인 검증 위치 §4·§5-1](./domain-validation.md)(규칙 vs 조회 / Command에 검증 필드 안티패턴) · [애그리거트 소유권](./aggregate-ownership.md)(사실 하나당 결정·저장하는 곳 하나 — 같은 원리를 도메인 *사이*에 적용한 것. 이 노트는 한 도메인 *안*의 클래스 사이) · [계산 파이프라인](./calculation-pipeline.md)(조회는 밖에서, 코어에 I/O 금지 — 경계 기준의 다른 예)
 
@@ -57,16 +57,16 @@ Helper를 한 문장으로 쓰면 — *"본체 회사를 저장하고, **그리�
 ```java
 // 서비스 — ext_* 만 책임
 public Response register(Request request, Admin admin) {
-    Company company = helper.save(SaveCompanyCommand.of(request, admin));   // 재료만 넘김
+    Company company = helper.save(request, admin);          // 재료만 넘김
     extMapper.insert(ExtCompany.create(company.getId(), request, admin));
     return Response.from(company);
 }
 
 // Helper — core_* 한 채를 "생성부터 저장까지"
-public Company save(SaveCompanyCommand command) {
-    Company company = Company.create(command);              // 어떤 값으로 만들지도 여기서
+public Company save(Request request, Admin owner) {
+    Company company = Company.create(request, owner);       // 어떤 값으로 만들지도 여기서
     companyMapper.insert(company);
-    userMapper.insert(newMasterUser(company.getId(), command.getOwner()));
+    userMapper.insert(newMasterUser(company.getId(), owner));
     return company;
 }
 ```
@@ -89,17 +89,46 @@ public Company save(SaveCompanyCommand command) {
 - `Company.create(request, admin)`을 호출한 서비스는 **저장을 모른다**. 만들었는데 어디 갔는지 모르는 객체.
 - 둘 다 반쪽이라 어느 쪽도 "회사 생성"을 책임진다고 말할 수 없다.
 
-**재료를 넘기면 받는 쪽이 결정을 갖는다.** `SaveCompanyCommand.of(request, owner)` — Command에는 "회사를 만드는 데 필요한 것"만 담고, 그걸로 뭘 만들지는 Helper 안에서 정한다.
+**재료를 넘기면 받는 쪽이 결정을 갖는다.** `helper.save(request, owner)` — 넘기는 건 "회사를 만드는 데 필요한 것"뿐이고, 그걸로 뭘 만들지는 Helper 안에서 정한다.
+
+이건 GRASP의 **Creator**(생성에 필요한 정보를 가진 쪽이 만든다)와 **Information Expert**(판단에 필요한 정보를 가진 객체에 책임을 준다)의 다른 표현이다.
+
+### 3-1. ⚠️ 재료를 Command로 감싸고 싶어질 때 — 번역이 없으면 봉투다
+
+파라미터 2~3개가 거슬려서 Command로 묶고 싶어진다. Fowler의 *Introduce Parameter Object*도 "파라미터 3~4개면 묶어라"라고 한다. 그런데 **Request를 통째로 필드에 담은 Command**는 이렇게 생긴다:
 
 ```java
+// ❌ 봉투 — 이름만 Command이고 실제로는 Pair<Request, Admin>
 @AllArgsConstructor(staticName = "of") @Getter
 public class SaveCompanyCommand {
-    private Request request;   // 화면 입력
-    private Admin owner;       // 회사 마스터 계정의 재료가 된다
+    private Request request;
+    private Admin owner;
 }
+// 받는 쪽: command.getRequest().getBrn() ... 결국 Request 구조를 다 안다
 ```
 
-이건 GRASP의 **Creator**(생성에 필요한 정보를 가진 쪽이 만든다)와 **Information Expert**(판단에 필요한 정보를 가진 객체에 책임을 준다)의 다른 표현이다. Fowler의 *Introduce Parameter Object*가 "파라미터 3~4개를 묶는다"는 1차 동기를 주지만, 핵심은 **묶는 것**이 아니라 **무엇을 묶나** — 완성품을 묶어 넘기면 파라미터 수만 줄고 책임 문제는 그대로다.
+Command의 존재 이유는 **번역**이다. web의 언어를 도메인의 언어로 바꿔서 도메인이 화면 사정을 모르게 하는 것. Request를 그대로 품으면 번역이 없어서, 받는 쪽은 여전히 Request를 알아야 하고 Command가 한 일은 파라미터를 하나로 묶은 것뿐이다. *"이게 `save(request, owner)`보다 뭐가 낫나요?"*에 답이 없으면 봉투다.
+
+```java
+// ✅ 번역이 있는 평탄 Command — 필드명·타입이 도메인 언어로 바뀐다
+public class SaveCompanyCommand {
+    private String companyName;   // request.getName()
+    private LocalDate openDate;   // LocalDate.parse(request.getOpenedAt())
+    private String ownerNo;       // admin.getNo()
+}
+// Company.create(command) 는 Request 를 import 하지 않는다 → FE 가 필드명을 바꿔도 Factory 한 곳만 수정
+```
+
+| 형태 | 코드 | 판정 |
+|---|---|---|
+| 완성품 | `helper.save(company, request, admin)` | ❌ 받는 쪽 결정권 없음 |
+| 봉투 Command | `helper.save(Command.of(request, owner))` | △ 재료는 맞지만 번역이 없음 |
+| **Request 직접** | `helper.save(request, owner)` | ✅ 기본값 |
+| **평탄 Command + Factory** | `helper.save(factory.create(request, owner))` | ✅ 번역이 필요할 때 |
+
+**평탄 Command로 올라가는 신호 셋** — ① 화면 필드명·타입이 도메인과 다르다 ② 입력 출처가 둘 이상이다(같은 팩토리를 화면 등록과 복제 양쪽에서 부른다) ③ 입력 단계에서 합치거나 변환할 게 있다. 셋 다 없으면 Request를 그대로 넘긴다. 실제로 내가 일하는 코드베이스도 Command 176개 중 Request를 품은 건 6개뿐이었고, 나머지는 전부 평탄 Command + Factory였다.
+
+⚠️ 봉투를 만들고 나면 **리뷰에서 "이 Command 역할이 뭐죠?"를 다시 듣는다** — §0에서 Helper에게 들었던 것과 똑같은 문장. 경계를 못 만든 자리에는 이름을 붙여도 같은 질문이 온다.
 
 📖 **"Command"라는 이름은 세 가지가 있다 — 여기선 첫째.**
 | 이름 | 뜻 | 출처 |
@@ -191,7 +220,7 @@ private void fill(Representative r, String orgId, String userId, String name) {
 | ② | **공통부 < 고유부면 합치지 않는다.** 표면상 같은 두 줄은 우연일 수 있다 | §5 `fill()` |
 | ③ | 한 사실의 **결정과 저장이 갈라지면 어느 쪽도 책임 못 진다** → 한 곳에 | §0·§2 Helper |
 | ④ | **나눈 기준을 한 문장으로** 말할 수 있어야 한다. 구현 수단(Redis·HTTP)은 기준이 아니다 | §2 "core_*는 Helper, ext_*는 서비스" / §6 Redis Helper |
-| ⑤ | **완성품을 넘기면 받는 쪽은 저장밖에 못 한다 — 재료를 넘긴다** | §3 Command |
+| ⑤ | **완성품을 넘기면 받는 쪽은 저장밖에 못 한다 — 재료를 넘긴다.** 재료는 Request 그대로여도 된다. Command 껍질은 **번역이 있을 때만** | §3 완성품 넘기기 / §3-1 봉투 Command |
 
 **공부 방법** — 이 주제는 책보다 **리뷰 받고 "왜"를 끝까지 파는 것**이 효과가 크다. 책의 사례는 남의 코드라 내 코드에 안 붙는다. 굳이 하나 고르면 Fowler 『리팩터링』의 **냄새 카탈로그** — 원칙이 아니라 "이 모양이 보이면 의심"이라 바로 쓸 수 있다. 클린 아키텍처·DDD는 구체 경험이 쌓인 뒤가 낫다(먼저 읽으면 격언집이 된다 — README 트랙 6 주석과 같은 얘기).
 
