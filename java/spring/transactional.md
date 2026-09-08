@@ -320,6 +320,64 @@ public void sendNoti(...) {
 
 > 💡 판단: 부수 작업을 REQUIRES_NEW로 뺐다면 **"이게 실패했을 때 본 업무가 죽어도 되는가?"**를 반드시 물을 것. No(알림·이메일·이력)라면 **내부 try-catch까지가 한 세트**다. 커밋 분리(REQUIRES_NEW)와 예외 격리(try-catch)는 별개의 장치라 둘 다 있어야 격리가 완성된다.
 
+### (7) 커밋 **전/후**까지 가리려면 — 스프링 이벤트(`AFTER_COMMIT` + `@Async`)
+
+(6)의 `REQUIRES_NEW + try-catch`로 완전 격리를 해도 구멍이 하나 남는다. **부수 작업은 본 업무가 커밋되기 전에 실행된다.** 그 뒤 커밋이 실패하면 (6) 후반의 "본 업무는 없던 일인데 알림은 이미 나간" 반쪽 상태가 그대로 재현된다.
+
+스프링 이벤트는 실행을 위치가 아니라 **"커밋에 성공했다"는 사건**에 건다.
+
+```java
+// 발행 측 — 트랜잭션 안에서 발행만 한다
+@Transactional
+public void joinClient(...) {
+    usrMapper.insert(client);
+    publisher.publishEvent(new ClientJoined(...));   // 아직 안 나간다
+    copyOrg(client);                                 // 여기서 터지면 메일도 없던 일이 된다
+}
+
+// 수신 측
+@Async                                               // 스레드 분리
+@TransactionalEventListener(phase = AFTER_COMMIT)    // 커밋 성공 후에만
+public void on(ClientJoined event) { mailSender.send(event); }
+```
+
+| 방식 | 커밋 분리 | 예외 격리 | 실행 시점 | 본 업무가 롤백되면 |
+|---|:---:|:---:|---|---|
+| 같은 트랜잭션 | ✗ | ✗ | — | 부수 작업도 롤백 |
+| `REQUIRES_NEW`만 | ✓ | **✗** | 커밋 **전** | 부수 효과 남음 |
+| `REQUIRES_NEW` + `try-catch` | ✓ | ✓ | 커밋 **전** | **부수 효과 남음** |
+| `AFTER_COMMIT` + `@Async` | ✓ | ✓ | 커밋 **후** | 아예 실행 안 됨 |
+
+**`@Async`가 하는 일은 세 가지다.** ① 스레드가 갈리므로 리스너의 예외가 발행자에게 **물리적으로 전파될 수 없다**(= try-catch를 손으로 맞출 필요가 없다) ② 요청 스레드가 메일 발송을 기다리지 않는다 ③ 아래 (나)의 함정을 자동으로 피한다. 단 **기다림이 사라지는 게 아니라 기다리는 주체가 바뀌는 것**이다 — 비동기 스레드 안에서 `send()`는 그냥 블로킹 호출이고, 그 스레드는 끝까지 기다린다.
+
+#### "그냥 메서드 맨 마지막 줄에서 부르면 되지 않나?"
+
+안 된다. 마지막 줄에서도 **트랜잭션은 아직 열려 있다.** 커밋은 메서드가 리턴한 뒤 프록시가 한다.
+
+```java
+@Transactional
+public void 본업무() {
+    ...
+    sendMail();   // ← 진짜 마지막 줄. 그래도 아직 커밋 전
+}                 // ← 프록시가 여기서 커밋한다 (실패할 수도 있다)
+```
+
+1. **그 커밋 자체가 실패할 수 있다** — 제약 위반(deferred), 커넥션 끊김, 락 타임아웃
+2. **호출자가 더 큰 트랜잭션을 갖고 있으면**(REQUIRED 합류) 커밋은 훨씬 바깥에서 일어난다. "마지막 줄"은 자기 메서드의 마지막일 뿐이라 이걸 못 본다. `AFTER_COMMIT`은 **가장 바깥 트랜잭션의 커밋**에 걸리므로 자동으로 맞는다.
+
+> **위치에 거는 것과 사건에 거는 것의 차이.** 위치는 누가 그 아래에 한 줄 추가하면 조용히 깨지고, 사건은 안 깨진다. 롤백되면 리스너는 아예 호출되지 않는다.
+
+⚠️ **함정 세 개**
+
+**(가) 트랜잭션이 없으면 이벤트를 조용히 버린다.** `@TransactionalEventListener`의 `fallbackExecution` 기본값이 `false`라, 발행 시점에 활성 트랜잭션이 없으면 리스너가 **아예 실행되지 않는다 — 에러도 없이**. 발행부의 `@Transactional`을 떼는 순간 메일이 소리 없이 사라진다. §6 서두의 "활성화 안 하면 예외가 아니라 조용히 무시"와 같은 계열.
+
+**(나) `AFTER_COMMIT` 리스너 안의 DB 쓰기는 커밋되지 않는다** — `@Async` 없이 **동기**로 둘 때. 이미 커밋이 끝난 트랜잭션에 올라타서 쓰기가 조용히 버려진다. 이때는 `@Transactional(propagation = REQUIRES_NEW)`로 새 트랜잭션을 열어야 한다. **`@Async`를 붙이면 이 문제가 없다** — 스프링 트랜잭션은 스레드 바운드라([ThreadLocal](../concurrency/thread-local.md)) 새 스레드에는 물려받을 컨텍스트가 없고, `@Transactional`이 깨끗하게 새 트랜잭션을 연다.
+> 이 함정이 고약한 이유: 외부 호출(메일 API)은 트랜잭션과 무관하게 **성공**하고 DB 이력만 안 남는다. "메일은 갔는데 발송 기록이 없는" 상태가 된다.
+
+**(다) `@Async`가 예외를 없애주진 않는다.** 발행자에게 전파되지 않을 뿐 리스너 안에서는 그대로 터진다. 리스너에 try-catch + 로그(+운영 알림)가 없으면 **부수 작업이 실패했다는 사실 자체를 아무도 모른다**. 그리고 `@Async`는 이벤트를 durable하게 만들지 않는다 — 그 순간 서버가 죽으면 유실이다. 자기호출 함정·스레드 풀 거부 정책은 [스레드 풀](../concurrency/thread-pool.md) 참고.
+
+> 💡 판단: **"이 부수 작업은 본 업무가 확정된 뒤에만 의미가 있는가?"**로 고른다. 메일·알림처럼 **롤백됐으면 나가면 안 되는 것**은 `AFTER_COMMIT`. 반대로 본 업무의 성패와 무관하게 남겨야 하는 감사 로그·시도 기록은 커밋 전에라도 남는 `REQUIRES_NEW + try-catch`가 맞다. 같은 "부수 작업"이라도 방향이 정반대다.
+
 ---
 
 ## 7. 정리
@@ -335,6 +393,8 @@ public void sendNoti(...) {
 ## 8. 참고
 - [Spring - Declarative Transaction Management](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative.html)
 - [Baeldung - Transaction Propagation and Isolation in Spring @Transactional](https://www.baeldung.com/spring-transactional-propagation-isolation)
+- [Spring - TransactionalEventListener javadoc](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/transaction/event/TransactionalEventListener.html)
+- [spring-framework #26974 - AFTER_COMMIT 리스너의 DB 쓰기 시맨틱](https://github.com/spring-projects/spring-framework/issues/26974)
 - 관련 노트: [영속성 컨텍스트](../jpa/persistence-context.md) · [Read-Modify-Write와 트랜잭션 경계](../jpa/read-modify-write.md) · [@Lock 실무 패턴](../jpa/lock-practical.md)
 
 ---
