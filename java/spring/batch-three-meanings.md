@@ -56,7 +56,7 @@ public Step settleStep(JobRepository jobRepository, PlatformTransactionManager t
 - **skip/retry**: 불량 데이터 건너뛰기, 일시 오류 재시도
 
 **포함 안 되는 것**:
-- **스케줄러 없음** — "매일 새벽 2시"는 `@Scheduled`/cron/Quartz/Jenkins 등 바깥 트리거 몫. 실무에서 늘 같이 쓰여서 내장으로 오해하기 쉽다.
+- **스케줄러 없음** — "매일 새벽 2시"는 `@Scheduled`/cron/Quartz/Jenkins 등 바깥 트리거 몫. 실무에서 늘 같이 쓰여서 내장으로 오해하기 쉽다. 스프링 코어만으로 DB 정의 스케줄을 도는 방법은 [동적 스케줄링](./dynamic-scheduling.md).
 - **쿼리 최적화 없음** — reader/writer 안에서 쿼리를 어떻게 날릴지는 여전히 개발자 코드. ①은 Spring Batch 를 쓰든 안 쓰든 별도로 해야 한다.
 
 ## ③ JDBC / MyBatis 쓰기 배치 — 왕복 줄이기

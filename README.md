@@ -109,6 +109,8 @@
 - [ ] [@AssertTrue 필드 조합 검증 - boolean getter에 붙는 cross-field 규칙 / is·get 네이밍 아니면 조용히 무시 / null 가드 필수·Jackson 노출 / vs 클래스 레벨 제약](./java/spring/assert-true-cross-field.md)
 - [ ] [Spring 예외 처리 - @ControllerAdvice, ErrorCode, Validation 예외 흐름](./java/spring/exception-handling.md)
 - [ ] ["배치"의 세 층위 - 쿼리 배치화(N+1→IN+groupingBy) / Spring Batch(스케줄러 없음!) / JDBC 쓰기 배치](./java/spring/batch-three-meanings.md)
+- [ ] [ApplicationContext - 컨테이너 객체 하나=BeanFactory+환경·이벤트·리소스·메시지 / 기동 7단계(Aware→@PostConstruct→후처리) / getBean·Aware·static홀더·run반환값 4가지 참조법 / ⚠️서비스 로케이터 안티패턴(의존성 은닉·테스트·런타임 예외·프레임워크 결합) / 실제론 List·Map<String,T> 주입·ObjectProvider·EventPublisher / 💡"주입으로 못 받는 이유를 한 문장으로"](./java/spring/application-context.md)
+- [ ] [동적 스케줄링 - @Scheduled(컴파일 고정) vs TaskScheduler+CronTrigger(DB 정의) vs Quartz / 스프링 크론 6자리·L·W·#·? (5.3+) / DB 빈 이름=계약→오타 1건이 init 전체 중단 / shutdown은 실행 중 작업 안 기다림 / 인스턴스 2대=2번 / 미스파이어 없음 / 💡"동적"의 범위는 언제·순서까지, 잡 종류는 배포](./java/spring/dynamic-scheduling.md)
 - [ ] [SseEmitter 서버 구현 - 서블릿 async(스레드 즉시 반납) / send·event()빌더·콜백3종 / 두 패턴(세션푸시+저장소·Pub/Sub / relay+구독) / 이벤트루프 블로킹 금지·boundedElastic](./java/spring/sse-emitter.md)
 - [ ] [Spring Cache - @Cacheable·@CachePut·@CacheEvict 3형제 / 어노테이션=정책·CacheManager=저장소 분리 / @EnableCaching 없으면 조용히 무시 / 자기호출 우회→캐시 전용 컴포넌트 / ConcurrentMap·Caffeine·Redis "사본 허용?"](./java/spring/spring-cache.md)
 - [ ] [Spring 이벤트 - @EventListener(발행 즉시·같은 스레드) vs @TransactionalEventListener(phase 예약) / phase별 안전 작업 반대(BEFORE_COMMIT=DB만·AFTER_COMMIT=외부만) / 트랜잭션 없으면 침묵 / AFTER_COMMIT DB쓰기 증발→REQUIRES_NEW / "메서드의 끝≠트랜잭션의 끝"](./java/spring/application-events.md)
