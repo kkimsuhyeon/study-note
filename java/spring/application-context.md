@@ -32,6 +32,33 @@ public class App {
 
 > ④가 ⑤보다 먼저다. 그래서 `ApplicationContextAware`로 받은 컨테이너를 같은 빈의 `@PostConstruct`에서 쓰는 건 안전하다. 반대로 **다른 빈**이 아직 ③~⑥ 중이면 `getBean`으로 받은 게 미완성일 수 있다 (§7).
 
+### 어노테이션은 표식, 일하는 건 processor
+
+위 표의 "끼어드는 것" 열을 정확히 말하면 — **어노테이션 자체는 아무 일도 안 한다.** 클래스·메서드·필드에 붙은 메타데이터(표식)일 뿐이다. 실제 일은 그 단계의 훅에 등록된 스프링 내장 processor가 "이 빈에 내 표식이 붙어 있나" 확인해서 **대신** 한다. 표식과 읽는 쪽이 항상 짝으로 있다 — `@Autowired`를 붙이면 값이 꽂히는 게 아니라, ③단계의 `AutowiredAnnotationBeanPostProcessor`가 표식을 보고 꽂아주는 것.
+
+컨테이너는 **빈 하나를 ③→⑤→⑥ 끝까지 만든 뒤 다음 빈**으로 넘어간다. 어노테이션을 한 번에 훑는 게 아니라 **빈 단위·단계 단위**로 돈다. 각 단계에서 등록된 processor들을 차례로 호출하고, 각 processor는 자기 어노테이션이 있으면 처리하고 없으면 그냥 넘긴다. 그래서 "어느 단계냐"가 중요해진다.
+
+| 어노테이션 | 읽는 processor | 단계 | 하는 일 |
+|---|---|---|---|
+| `@Component`, `@Bean`, `@ComponentScan` | `ConfigurationClassPostProcessor` (BeanFactoryPostProcessor) | ① | BeanDefinition 목록에 추가 |
+| `@Autowired`, `@Value`, `@Inject` | `AutowiredAnnotationBeanPostProcessor` | ③ | 필드·세터·생성자에 값 주입 |
+| `@PostConstruct`, `@PreDestroy`, `@Resource` | `CommonAnnotationBeanPostProcessor` (Before) | ⑤ | 초기화 메서드 호출 |
+| `@ConfigurationProperties` | `ConfigurationPropertiesBindingPostProcessor` (Before, Boot) | ⑤ | 프로퍼티 바인딩 |
+| `@Transactional`, `@Aspect` 대상 | `InfrastructureAdvisorAutoProxyCreator` / `AnnotationAwareAspectJAutoProxyCreator` (After) | ⑥ | 원본을 프록시로 바꿔치기 |
+| `@Async` | `AsyncAnnotationBeanPostProcessor` (After) | ⑥ | 원본을 프록시로 바꿔치기 |
+| `@Scheduled` | `ScheduledAnnotationBeanPostProcessor` (After) | ⑥ | 메서드 찾아 스케줄러에 등록 |
+| `@EventListener` | `EventListenerMethodProcessor` (SmartInitializingSingleton) | ⑦ 직전 | 리스너로 등록 |
+
+→ AOP(`@Transactional` 프록시)는 "이 메커니즘과 비슷한 것"이 아니라 **이 메커니즘의 사례 하나**다. ⑥단계에 등록된 processor 한 개가 하는 일. 프록시로 바꿔치기하는 원리 자체는 [빈 후처리기](../design/bean-post-processor.md).
+
+⚠️ **⑤가 ⑥보다 앞이라서 생기는 함정**: `@PostConstruct` 메서드가 실행되는 ⑤ 시점엔 **이 빈의 프록시가 아직 만들어지지 않았다.** 그래서 초기화 메서드 안에서 같은 빈의 `@Transactional` 메서드를 `this.xxx()`로 불러도 트랜잭션이 안 걸린다. 다른 빈을 부르는 건 그 빈이 이미 프록시라 정상 → 자세히는 [@Transactional §6(1)](./transactional.md).
+
+💡 **"이 어노테이션 왜 안 먹지?"는 항상 두 질문으로 쪼개진다.**
+1. **읽는 processor가 등록돼 있나?** — `@EnableScheduling` 없이 `@Scheduled`, `@EnableAsync` 없이 `@Async`는 표식만 있고 읽는 쪽이 없어 조용히 무시된다. (`@Transactional`은 Boot가 `@EnableTransactionManagement`를 자동으로 켜줘서 잊기 쉽다.)
+2. **내 코드가 그 processor의 단계보다 앞에서 도나?** — `@PostConstruct`(⑤) 안에서 `@Transactional`(⑥)이 그 예.
+
+커스텀 어노테이션을 만들어 붙여도 아무 일이 안 일어나는 이유도 같다 — **읽는 processor를 내가 써야 한다** ([빈 후처리기 §4](../design/bean-post-processor.md)의 직접 만든 후처리기가 그 예).
+
 ### 인터페이스 계층 — "BeanFactory + 부가 기능"
 
 ```java
@@ -329,6 +356,7 @@ static 유틸에서 `MessageSource`가 필요하다면, 답은 static 홀더가 
 - [Spring Framework Reference — Additional Capabilities of the ApplicationContext](https://docs.spring.io/spring-framework/reference/core/beans/context-introduction.html) (MessageSource·이벤트·리소스)
 - [Spring Framework Reference — Using @Autowired](https://docs.spring.io/spring-framework/reference/core/beans/annotation-config/autowired.html) (배열·컬렉션·`Map<String,T>` 주입, 키=빈 이름)
 - [Spring Framework Reference — Environment Abstraction](https://docs.spring.io/spring-framework/reference/core/beans/environment.html)
+- [Spring Framework Reference — Container Extension Points (BeanPostProcessor·BeanFactoryPostProcessor)](https://docs.spring.io/spring-framework/reference/core/beans/factory-extension.html) · [Lifecycle Callbacks](https://docs.spring.io/spring-framework/reference/core/beans/factory-nature.html#beans-factory-lifecycle) (어노테이션 = 표식, processor = 읽는 쪽)
 - [Spring Framework Reference — Method Injection (@Lookup)](https://docs.spring.io/spring-framework/reference/core/beans/dependencies/factory-method-injection.html)
 - [Javadoc — ApplicationContext](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/ApplicationContext.html) · [ObjectProvider](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/beans/factory/ObjectProvider.html) · [GenericApplicationContext.registerBean](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/support/GenericApplicationContext.html)
 - [Spring Boot Reference — Externalized Configuration (Relaxed Binding)](https://docs.spring.io/spring-boot/reference/features/external-config.html)

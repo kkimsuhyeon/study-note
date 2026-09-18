@@ -278,6 +278,27 @@ public class OrderService {
 ```
 → AOP 프록시는 **외부에서 빈을 호출할 때만** 개입. 내부 호출은 프록시를 우회한다. 해결: 다른 빈으로 분리하거나 self-주입/`AopContext` (보통 분리가 정석).
 
+**왜 그런가 — 객체가 두 개다.** `@Transactional`이 붙은 빈은 컨테이너 기동 시(빈 후처리 단계) 스프링이 **원본을 감싼 프록시 객체**를 하나 더 만들고, 컨테이너에는 **프록시를** 등록한다. 다른 빈이 `@Autowired OrderService`로 받는 것도 프록시다.
+
+```
+[프록시 OrderService$$SpringCGLIB]   ← 컨테이너에 등록된 것. 다른 빈이 주입받는 것.
+   b() { 트랜잭션 시작 → 원본.b() → 커밋/롤백 }
+        └─ 필드로 [원본 OrderService]를 들고 있음   ← 내 코드가 들어 있는 진짜 객체
+```
+
+바깥에서 `orderService.b()` → **프록시의** b() → 트랜잭션 코드 → 원본 b(). 하지만 원본 `a()` 안에서 `this.b()`의 `this`는 **원본 자신**이라 프록시를 거칠 기회가 없다. 프록시 바꿔치기 원리는 [빈 후처리기](../design/bean-post-processor.md).
+
+**같은 함정 — `@PostConstruct` 안에서 자기 `@Transactional` 메서드 호출.** 초기화 메서드는 프록시 바꿔치기보다 **먼저** 실행된다(빈 생명주기 ⑤ → ⑥, [ApplicationContext §1](./application-context.md) 표). 그 시점엔 이 빈의 프록시가 아직 만들어지지도 않았고, 어차피 `this`는 원본이라 트랜잭션이 안 걸린다. `@PostConstruct`에서 **다른 빈**의 `@Transactional` 메서드를 부르는 건 그 빈이 이미 프록시라 정상 동작.
+
+⚠️ **"트랜잭션은 기동 시 묶이나, 호출 시 묶이나?" — 둘 다 맞고 시점이 다르다.**
+
+| 시점 | 일어나는 일 | 누가 |
+|---|---|---|
+| 기동 시 (한 번) | 프록시를 **설치**만 한다. 어느 메서드에 `@Transactional`이 붙었고 옵션이 뭔지 읽어 프록시 안에 기억. 트랜잭션은 아직 하나도 안 시작됨 | AutoProxyCreator |
+| 호출 시 (매번) | 프록시 메서드가 불리면 **트랜잭션 시작 → 원본 호출 → 커밋/롤백**. 실제로 묶이는 건 이때 | 프록시 안의 `TransactionInterceptor` |
+
+톨게이트를 세우는 건 기동 시, 요금을 받는 건 차가 지날 때마다. 그래서 프록시를 안 거치는 내부 호출은 **톨게이트 없는 길**을 가는 것과 같다 — 기동 시 설치된 게 있어도 그 길 위에 없으면 아무 일도 안 일어난다.
+
 ### (2) public 메서드에만 적용
 Spring AOP 프록시 특성상 `private`/`protected`/package-private 메서드의 `@Transactional`은 **무시**된다(예외도 안 남). 반드시 `public`.
 
@@ -392,6 +413,7 @@ public void 본업무() {
 
 ## 8. 참고
 - [Spring - Declarative Transaction Management](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative.html)
+- [Spring - Understanding AOP Proxies](https://docs.spring.io/spring-framework/reference/core/aop/proxying.html#aop-understanding-aop-proxies) (self-invocation이 프록시를 우회하는 이유, 공식 그림)
 - [Baeldung - Transaction Propagation and Isolation in Spring @Transactional](https://www.baeldung.com/spring-transactional-propagation-isolation)
 - [Spring - TransactionalEventListener javadoc](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/transaction/event/TransactionalEventListener.html)
 - [spring-framework #26974 - AFTER_COMMIT 리스너의 DB 쓰기 시맨틱](https://github.com/spring-projects/spring-framework/issues/26974)
