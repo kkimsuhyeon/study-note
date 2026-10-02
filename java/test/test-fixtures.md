@@ -191,4 +191,4 @@ assertThat(user.getRole()).isEqualTo(UserRole.USER);
 ---
 
 **학습 날짜**: 2026-06-05
-**계기**: server-java User 테스트 리팩토링 중 `UserFixture`를 만들며 — Object Mother/Test Data Builder 두 형태, "변하는 축만 받기" 원칙, static 픽스처 vs em 필요한 인스턴스 헬퍼 구분을 정리.
+**계기**: User 테스트 리팩토링 중 `UserFixture`를 만들며 — Object Mother/Test Data Builder 두 형태, "변하는 축만 받기" 원칙, static 픽스처 vs em 필요한 인스턴스 헬퍼 구분을 정리.

@@ -63,8 +63,7 @@
 [웹 공격 지도](./infra/network/web-attacks-map.md) → [세션과 쿠키](./infra/network/sessions-and-cookies.md) → [Origin 헤더](./infra/network/origin-header.md) → [XSS와 CSP](./infra/network/xss-and-csp.md) → [Rate Limiting](./infra/rate-limiting.md) → [Spring Security 도입](./java/security/spring-security-filter-chain.md) → [메서드 보안](./java/security/method-security.md)
 > 한 문장씩: Origin은 브라우저가 붙이고 JS로 못 바꾼다 / CSRF는 쿠키 값을 모른 채 피해자 브라우저가 붙이게 하는 것, 탈취는 값을 알고 직접 붙이는 것 / SameSite·JSON 전용·Origin은 서로의 구멍을 메우는 세 겹 / CORS는 문 여는 목록이지 자물쇠가 아니다 / XSS가 뚫리면 CSRF 방어는 전부 무력 / HttpOnly는 읽기만 막고 쓰기는 못 막는다.
 
-**트랙 9 · 레퍼런스 (8개, 순서 무관 — 필요할 때 꺼내 읽기)**
-*도구*: [포트와 listen](./infra/network/ports-and-listen.md) → [SSH 포워딩](./infra/network/ssh-port-forwarding.md) → [SSH config](./infra/network/ssh-config.md) / [git worktree](./git/worktree.md)
+**트랙 9 · 레퍼런스 (4개, 순서 무관 — 필요할 때 꺼내 읽기)**
 *기본기 잔여*: [Stream API](./java/functional/stream-api.md) · [SortedSet](./java/collections/sorted-navigable-set.md) · [BigDecimal](./java/bigdecimal/bigdecimal.md) · [varargs](./java/generics/varargs-safevarargs.md) — 다른 노트의 선행이 아니라, 그 API를 실제로 쓸 때 펴는 쪽이 남는다
 
 > ⚠️ **트랙을 섞지 말 것.** 매일 다른 트랙을 뽑아 읽으면 전부 "반씩 아는" 상태가 된다 — 코테 로드맵에 적어둔 것과 같은 이유. 한 트랙을 끝내고 다음으로.
@@ -150,11 +149,11 @@
 
 ### 함수형 / 람다 (Functional)
 - [ ] [람다 ≠ 비동기 - 람다는 "코드 값"일 뿐, 실행 타이밍은 받는 메서드가 정함 / forEach=즉시·on~/then~=콜백·submit/Async=다른 스레드 / 스트림 lazy·콜백 스레드엔 ThreadLocal 없음](./java/functional/lambda-execution-timing.md)
-- [ ] [Stream API 종합 - 파이프라인(소스→중간lazy→최종) / 중간·최종·Collectors 연산 지도 / 1회용·peek=디버깅용·toMap 중복키 예외 / map vs flatMap(1:N은 Stream 반환 강제·Optional·thenCompose와 한 형제) / 필드 기준 중복제거는 distinct 아님→groupingBy+toSet / ⚠️lazy가 try-catch 무력화·CompletableFuture를 순차로 / 람다 중단점·Stream Trace 디버깅 / "for문의 목적을 말로 하면 연산 이름"](./java/functional/stream-api.md)
+- [ ] [Stream API 종합 - 파이프라인(소스→중간lazy→최종) / 중간·최종·Collectors 연산 지도 / 1회용·peek=디버깅용·toMap 중복키 예외 / map vs flatMap(1:N은 Stream 반환 강제·Optional·thenCompose와 한 형제) / 필드 기준 중복제거는 distinct 아님→groupingBy+toSet / ⚠️lazy가 try-catch 무력화·CompletableFuture를 순차로 / "for문의 목적을 말로 하면 연산 이름"](./java/functional/stream-api.md)
 
 ### Test (테스트 도구 사용법)
 - [ ] [AssertJ 사용법 - assertThat / isEqualByComparingTo / assertThatThrownBy](./java/test/assertj.md)
-- [ ] [테스트 방법론 핵심 요약 - 판단 공식 + 막힌 케이스 누적 (상세는 프로젝트 가이드)](./java/test/test-writing-guide.md)
+- [ ] [테스트 방법론 핵심 요약 - 판단 공식 + 막힌 케이스 누적](./java/test/test-writing-guide.md)
 - [ ] [테스트 픽스처(Object Mother) - 변하는 값만 받기 / static 픽스처 vs 인스턴스 헬퍼](./java/test/test-fixtures.md)
 - [ ] [JPA repository 테스트 - @DataJpaTest / persist≠INSERT / flush·clear 왕복 / H2·Testcontainers](./java/test/jpa-repository-test.md)
 - [ ] [JUnit 5 라이프사이클 - @BeforeEach·@BeforeAll·@Nested / 테스트 전 데이터 셋업](./java/test/junit-lifecycle.md)
@@ -219,16 +218,9 @@
 - [ ] [Origin 헤더 - 프론트가 아니라 브라우저가 붙임(JS로 못 바꿈) / 값=스킴://호스트:포트 / 같은 origin GET·HEAD엔 안 붙고 POST엔 붙음 / null 되는 경우 / CSRF 방어 4종(SameSite·Origin 검사·Sec-Fetch-Site·토큰) 비교 / ⚠️GET에 필수로 걸면 정상 요청 차단·startsWith 비교 금지·Host와 구분](./infra/network/origin-header.md)
 - [ ] [웹 공격 지도 - 쿠키=출입 카드 / 세션 탈취(훔침)·CSRF(속여서 대신 보내게)·XSS(안에 숨어듦)·클릭재킹(덮어서 누르게)·남용(계속 두드림) / 공격별 막는 장치 한 장 요약 / ⚠️CORS는 공격 아님·장치는 서로 대체 불가·로그인 토큰≠CSRF 토큰 / 새 기능에 던질 다섯 질문](./infra/network/web-attacks-map.md)
 - [ ] [XSS와 CSP - 저장형·반사형·DOM 기반 / 1차 방어=HTML 만드는 곳의 출력 이스케이프(React {} 안전·dangerouslySetInnerHTML 위험) / 백엔드는 입력 규칙·nosniff로 표면 축소 / CSP=실행 허용 목록 헤더(nonce·strict-dynamic·frame-ancestors) / Next.js nonce는 동적 렌더링 필요 / ⚠️unsafe-inline·CSP는 HTML 응답에·AI 출력도 신뢰하지 않는 입력](./infra/network/xss-and-csp.md)
-- [ ] [JetBrains 원격 개발 - Toolbox SSH로 집 맥 접속 / IDE 처리 엔진과 편집 UI 분리 / Code With Me·화면 공유와 차이](./infra/network/jetbrains-remote-development.md)
 - [ ] [실시간 통신 기법 비교 - Polling/Long Polling/SSE/WebSocket 진화 / relay(중계) 패턴 / "양방향 필요한가"가 갈림길](./infra/network/realtime-communication.md)
 - [ ] [SSE - text/event-stream 포맷 / EventSource(GET 전용·자동 재연결) vs POST fetch 스트리밍 / heartbeat·프록시 버퍼링·UTF-8 함정](./infra/network/sse.md)
 - [ ] [WebSocket - Upgrade 핸드셰이크(101) / STOMP / 재연결·스케일아웃 세션 공유가 내 숙제](./infra/network/websocket.md)
-- [ ] [포트와 listen - 연결 거부(refused) vs 응답 없음(timeout) / localhost vs 0.0.0.0 바인딩](./infra/network/ports-and-listen.md)
-- [ ] [SSH 포트 포워딩 - -L/-R/-D / 중간 호스트는 원격 기준 해석 / 막힌 포트 우회](./infra/network/ssh-port-forwarding.md)
-- [ ] [SSH config - Host 별칭 / LocalForward·IdentityFile / 작업·터널 별칭 분리](./infra/network/ssh-config.md)
-
-## Git
-- [ ] [git worktree - clone 없이 여러 폴더에 동시 체크아웃 / .git 공유·커밋 실시간 공유 / MR·PR ref 활용 / 동일 브랜치 금지](./git/worktree.md)
 
 ## Algorithm (코딩테스트)
 - [ ] [코테 로드맵 - 프로그래머스 STEP 1~7 문제 목록 · 체크박스로 진행 추적 · 복습 큐(3일 뒤 재풀이)](./algorithm/roadmap.md)
@@ -238,6 +230,7 @@
 ---
 
 ## 작성 규칙
+- **범위: 어디서든 다시 쓰는 개발 지식만.** 개발 환경·도구 설정 기록, 도구 명령어 사용법, 프로젝트 고유 사실, 실제 IP·계정 같은 개인 환경 값은 넣지 않는다 (판별 질문은 [CLAUDE.md](./CLAUDE.md)의 "범위")
 - 한 어노테이션/개념당 한 파일
 - 파일명은 kebab-case (`lock.md`, `json-property.md`)
 - 새 글 추가 시 이 README에 링크 등록 — **`- [ ]`(안 읽음) 체크박스로** 추가 (안 그러면 잊어버림). 읽으면 `- [x]`로 체크

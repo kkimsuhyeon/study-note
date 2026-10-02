@@ -1,10 +1,8 @@
 # 테스트 방법론 — 핵심 요약 + 막힌 케이스 누적
 
-> **한 줄 요약**: "무엇을 / 몇 개 테스트할지"의 핵심 공식만 모은 짧은 체크리스트. 이 레포는 **사용법(API) 레퍼런스**가 중심이라, 상세 방법론·구조는 [AssertJ 사용법](./assertj.md) 같은 도구 문서와 프로젝트 가이드에 맡기고, 여기선 **자주 까먹는 판단 공식 + 내가 막혔던 케이스**만 둔다.
+> **한 줄 요약**: "무엇을 / 몇 개 테스트할지"의 핵심 공식만 모은 짧은 체크리스트. 이 레포는 **사용법(API) 레퍼런스**가 중심이라, 상세 방법론·구조는 [AssertJ 사용법](./assertj.md) 같은 도구 문서에 맡기고, 여기선 **자주 까먹는 판단 공식 + 내가 막혔던 케이스**만 둔다.
 
 관련 노트: [AssertJ 사용법](./assertj.md) · [테스트 픽스처(Object Mother)](./test-fixtures.md) · [JPA repository 테스트](./jpa-repository-test.md) · [Mockito 서비스 테스트](./mockito-service-test.md) · [BigDecimal](../bigdecimal/bigdecimal.md) · [@Lock 실무 패턴(동시성 테스트)](../jpa/lock-practical.md)
-
-> 📎 상세 방법론(테스트 종류 선택, @DataJpaTest/Mockito/Testcontainers 구조, 프로젝트 컨벤션)은 **server-java `docs/TEST_GUIDE.md`** 에 잘 정리돼 있음 — 거길 본다. 이 문서는 그 핵심만 추린 요약.
 
 ---
 
@@ -53,9 +51,8 @@
 
 ## 4. 참고
 - 관련 노트: [AssertJ 사용법](./assertj.md) · [테스트 픽스처](./test-fixtures.md) · [JPA repository 테스트](./jpa-repository-test.md) · [BigDecimal](../bigdecimal/bigdecimal.md) · [@Lock 실무 패턴(동시성 테스트)](../jpa/lock-practical.md)
-- 상세 방법론: server-java `docs/TEST_GUIDE.md`
 
 ---
 
 **학습 날짜**: 2026-05-28 (2026-06-03 사용법 중심 레포 성격에 맞춰 방법론은 핵심 공식만 남기고 슬림화)
-**계기**: study-note는 "도구 사용법" 레퍼런스가 본질에 맞다고 판단 → 방법론 상세는 프로젝트 TEST_GUIDE에 맡기고, 자주 까먹는 판단 공식과 막힌 케이스 누적만 유지
+**계기**: study-note는 "도구 사용법" 레퍼런스가 본질에 맞다고 판단 → 방법론 상세는 덜어내고, 자주 까먹는 판단 공식과 막힌 케이스 누적만 유지

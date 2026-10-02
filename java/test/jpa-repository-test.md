@@ -227,9 +227,8 @@ static void props(DynamicPropertyRegistry registry) {
 - [Spring Boot - TestEntityManager](https://docs.spring.io/spring-boot/api/java/org/springframework/boot/test/autoconfigure/orm/jpa/TestEntityManager.html)
 - [Testcontainers for Java - MySQL](https://java.testcontainers.org/modules/databases/mysql/)
 - 관련 노트: [영속성 컨텍스트·flush](../jpa/persistence-context.md) · [테스트 픽스처](./test-fixtures.md) · [Criteria·Specification·Pageable·Page](../jpa/spring-data-query.md)
-- 상세 방법론: server-java `docs/TEST_GUIDE.md` (§4, §4.5)
 
 ---
 
 **학습 날짜**: 2026-06-05
-**계기**: server-java `UserRepositoryAdapterTest`를 만들며 "save하면 INSERT가 언제 나가나"에서 출발 → `@DataJpaTest` 동작·`TestEntityManager` API·`replace` 옵션·Testcontainers 어노테이션 사용법을 정리.
+**계기**: `UserRepositoryAdapterTest`를 만들며 "save하면 INSERT가 언제 나가나"에서 출발 → `@DataJpaTest` 동작·`TestEntityManager` API·`replace` 옵션·Testcontainers 어노테이션 사용법을 정리.

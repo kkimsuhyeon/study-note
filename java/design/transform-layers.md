@@ -136,7 +136,6 @@ return new CreateBookingCommand(
 ---
 
 ## 7. 참고
-- 프로젝트 규칙 원본: server-java `docs/CONVENTIONS.md §1` (변환 계층)
 - 관련 노트: [도메인 검증 위치](./domain-validation.md)
 
 - 보강: 2026-09-22. Request·Command·도메인 사이의 타입 일관성, enum 공유의 의존 방향, 달력 의미에 따른 LocalDate 선택. 기존 명칭 표는 한 가지 프로젝트 관례이며 모든 프로젝트가 따라야 하는 표준은 아니다. 예시는 설명용으로 별도 실행하지 않았다.

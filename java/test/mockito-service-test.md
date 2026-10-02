@@ -164,7 +164,6 @@ void addBalance_notFound() {
 ## 7. 참고
 - [Mockito 공식 - Getting Started](https://javadoc.io/doc/org.mockito/mockito-core/latest/org/mockito/Mockito.html)
 - 관련 노트: [JPA repository 테스트](./jpa-repository-test.md) · [테스트 작성 가이드](./test-writing-guide.md)
-- 상세 방법론: server-java `docs/TEST_GUIDE.md` (§5 서비스/유스케이스 테스트)
 
 ---
 
