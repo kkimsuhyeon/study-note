@@ -63,6 +63,73 @@ public static User toModel(CreateUserCommand command) {
 
 덤 (API 응답 설계 소품): **컬렉션을 JSON 최상위 배열 `[...]`로 반환하지 말 것** — count 등 필드 추가가 불가능해진다. 항상 `{ "data": [...] }` 래퍼로. / 부분 수정 API에 PUT은 부적절(PUT=전체 교체) — PATCH/POST가 맞다.
 
+## 5-2. Request를 enum으로 바꾸면 Command도 바꿔야 하나?
+
+**각 계층이 같은 의미의 값을 다룬다면 타입도 이어서 유지하는 편이 단순하다.** DTO를 분리한다는 이유만으로 필드까지 모두 문자열로 되돌릴 필요는 없다.
+
+```text
+HTTP JSON "online"
+  → Jackson이 BookingType.ONLINE으로 변환
+  → Request.bookingType: BookingType
+  → Command.bookingType: BookingType
+  → Domain.bookingType: BookingType
+```
+
+enum은 허용된 선택지를 표현하는 Java 타입이다. 중간에 `.name()`으로 문자열을 만들었다가 `valueOf()`로 복원하면 불필요한 변환과 실패 지점이 생긴다.
+
+파일은 각각 독립적으로 둔다.
+
+```java
+// domain/BookingType.java
+public enum BookingType {
+    ONLINE, OFFLINE
+}
+```
+
+```java
+// web/CreateBookingRequest.java
+public record CreateBookingRequest(
+        @NotNull BookingType bookingType,
+        @NotNull LocalDate bookingDate,
+        @NotNull LocalTime bookingTime
+) {
+}
+```
+
+```java
+// application/CreateBookingCommand.java
+public record CreateBookingCommand(
+        BookingType bookingType,
+        LocalDate bookingDate,
+        LocalTime bookingTime
+) {
+}
+```
+
+```java
+return new CreateBookingCommand(
+        request.bookingType(),
+        request.bookingDate(),
+        request.bookingTime()
+);
+```
+
+위 예시는 타입 전달 부분이며 `java.time`·`jakarta.validation`·해당 도메인 타입 import를 생략했다. HTTP의 enum 소문자 표현은 별도 Jackson 설정으로 정할 수 있다. [Jackson 노트](../jackson/annotations.md)
+
+### 도메인 타입을 Request가 참조해도 되나?
+
+이 구조에서 web이 domain 타입을 참조하는 것은 바깥에서 안쪽으로의 의존이다. **도메인이 Request·Controller를 참조하는 것과 방향이 다르다.** API와 업무의 선택지가 정확히 같고 함께 바뀌어도 괜찮다면 같은 enum을 사용할 수 있다.
+
+반대로 외부 API의 `"remote"`를 내부의 `ONLINE`으로 바꾸어야 하거나 API 버전별 선택지가 다르면 별도 웹 enum·변환이 의미 있다. 분리의 기준은 클래스 개수가 아니라 **각 계층에서 값의 의미와 변경 주기가 다른가**다.
+
+### 날짜처럼 보여도 LocalDate가 맞지 않을 때
+
+`LocalDate`는 시간대 없는 **ISO 달력 날짜**다. 임의의 달력 날짜를 담는 용기가 아니다. 예를 들어 음력 날짜의 월·일은 ISO 달력과 유효성 규칙이 달라서 유효한 음력 2월 30일을 `LocalDate`로 표현할 수 없다.
+
+이런 입력은 문자열과 달력 종류로 받거나 연·월·일을 가진 전용 값 객체로 표현한다. 반면 일반 예약일처럼 ISO 날짜가 맞는 경우에는 `LocalDate`를 쓰면 문자열 파싱을 줄일 수 있다. [Java 25 LocalDate](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/time/LocalDate.html)
+
+💡 **HTTP 표기만 다르면 경계에서 변환하고, 안쪽에서 같은 의미를 쓰는 enum·시간은 그대로 전달한다. Factory·Mapper·Assembler를 모두 별도 클래스로 만들어야 하는 것은 아니다.**
+
 ## 6. 💡 판단
 > **"옮기냐 만드냐"로 먼저 가른다.** 옮기기(변환)면 어느 경계냐 — web면 Mapper, app이면 Assembler. 만들기(생성·기본값·불변식)면 Factory. 1:1 단순 복사라 로직이 없으면 그 변환 계층은 테스트도 스킵(프레임워크/단순 위임).
 
@@ -71,6 +138,8 @@ public static User toModel(CreateUserCommand command) {
 ## 7. 참고
 - 프로젝트 규칙 원본: server-java `docs/CONVENTIONS.md §1` (변환 계층)
 - 관련 노트: [도메인 검증 위치](./domain-validation.md)
+
+- 보강: 2026-09-22. Request·Command·도메인 사이의 타입 일관성, enum 공유의 의존 방향, 달력 의미에 따른 LocalDate 선택. 기존 명칭 표는 한 가지 프로젝트 관례이며 모든 프로젝트가 따라야 하는 표준은 아니다. 예시는 설명용으로 별도 실행하지 않았다.
 
 ---
 

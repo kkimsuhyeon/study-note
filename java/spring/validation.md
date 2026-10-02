@@ -176,6 +176,17 @@ No validator could be found for constraint '...' validating type '...'
 3. **String에 `@Min`/`@Max`** → ❌. → `@Pattern`/`@Digits`.
 4. **숫자 "자릿수"를 `@Size`로** → ❌. → `@Digits(integer=n)` 또는 `@Min`/`@Max`.
 5. **Boolean에 `@NotBlank`** → ❌. → `@NotNull`/`@AssertTrue`.
+6. **요청 DTO의 필수 불리언을 원시 `boolean`으로** → ⚠️ 조용히 통과. JSON에서 필드를 빼먹으면 Jackson이 기본값 `false`를 넣고, 원시 타입엔 `@NotNull`이 의미가 없다 → "안 보냄"과 "false로 보냄"을 구분 못 한다. **래퍼 `Boolean` + `@NotNull`**로 받고, 검증이 끝난 뒤 내부 Command로 옮길 때 `boolean`으로 언박싱한다(이미 null이 아님이 보장돼 NPE 없음).
+
+**검증은 보통 세 층에 나뉜다 — "지금 알 수 있는 것"만 그 층에서.**
+
+| 층 | 무엇을 | 예 | 실패 |
+| --- | --- | --- | --- |
+| DTO (`@Valid` + Jackson 바인딩) | 형식·필수값 | enum 값, `HH:mm` 엄격 파싱, `@NotNull` | 400, 메서드 진입 전 |
+| 도메인 생성자(레코드 compact constructor) | 값 자체의 규칙(불변식) | 이름 1~20자, 날짜 문자열 형식, 음력 일 1~30 | 400, 유즈케이스 안 |
+| 외부 확인 | 바깥에 물어봐야 아는 것 | "그 해 음력 2월에 30일이 실제로 있나"는 달력 API만 안다 | 외부 호출 시점. 비동기 작업이면 **요청은 성공하고 나중에 실패 상태로** 나타난다 |
+
+⚠️ 셋째 층이 비동기 작업 안에 있으면 사용자는 접수 성공을 받은 뒤 한참 후에 실패를 본다. 자주 틀리는 입력이라면 요청 단계에서 동기로 한 번 확인할지, 늦게 알려도 되는지를 **UX 결정**으로 정한다.
 
 > 예: `"0900"` 같은 시간값을 **String + `@Size(min=4,max=4)`** 로 검증하는 건 맞다. `int`로 바꾸면 `@Size`가 깨지고 `@Min`/`@Max`로 가야 한다. enum 필드(예: `WorkDivCode`)에 `@NotBlank`를 붙이면 `UnexpectedTypeException` — 필수면 `@NotNull`.
 

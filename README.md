@@ -55,6 +55,14 @@
 **트랙 10 · Spring 프록시 → AOP (김영한 고급편, 작성 중)** — *챕터의 한계가 다음 챕터를 부르는 서사가 있는 트랙. 강의 순서대로 읽는다.*
 [ThreadLocal](./java/concurrency/thread-local.md) → [템플릿 메서드/전략/콜백](./java/design/template-method-strategy-callback.md) → [프록시/데코레이터](./java/design/proxy-decorator-pattern.md) → [동적 프록시](./java/design/dynamic-proxy.md) → [ProxyFactory](./java/design/proxy-factory.md) → [빈 후처리기](./java/design/bean-post-processor.md) → [@Aspect AOP](./java/design/aspect-aop.md) → [AOP 개념](./java/design/aop-concepts.md) → [AOP 구현](./java/design/aop-implementation.md) → [AOP 포인트컷](./java/design/aop-pointcut.md)
 
+**트랙 11 · 익명 소유권 · 멱등 · 락 (7개)** — *한 유즈케이스에 세 갈래(A "누구 것인가"=세션·쿠키·소유자 해시 / B "무엇인가"=HMAC·멱등 키·payload·fingerprint / C "동시에 오면"=커넥션·트랜잭션·락)가 모여 있어 섞이기 쉽다. 1~4(A·B)만으로 해시 코드가 전부 읽히고, 5~7(C)은 트랙 2·4 뒤에 붙이는 게 맞다.*
+[세션과 쿠키](./infra/network/sessions-and-cookies.md) → [HttpSession](./java/spring/http-session.md) → [Spring Session JDBC](./java/spring/spring-session-jdbc.md) → [HMAC과 해시](./java/security/hmac-and-hashing.md) → [@Transactional](./java/spring/transactional.md) → [SELECT FOR UPDATE](./database/select-for-update.md) → [PostgreSQL Advisory Lock](./database/postgres-advisory-lock.md)
+> 한 문장씩: 쿠키는 번호표·세션은 라커 / 해시는 지문·HMAC은 키 달린 지문·purpose는 용도 이름표 / 세션은 사람을·멱등 키는 요청을·fingerprint는 계산 조건을 가리킨다 / 커넥션은 창구·트랜잭션은 전표 묶음 / 있는 행은 FOR UPDATE·없는 개념은 advisory lock / 외부 호출은 창구에서 일어나서 한다(비동기 여부와 별개).
+
+**트랙 12 · 웹 요청 보안 (7개)** — *트랙 11의 갈래 A(세션·쿠키) 다음. "누구냐(인증) / 본인이 의도했냐(CSRF) / 남이 읽어도 되냐(CORS)" 세 질문을 섞지 않는 게 핵심.*
+[웹 공격 지도](./infra/network/web-attacks-map.md) → [세션과 쿠키](./infra/network/sessions-and-cookies.md) → [Origin 헤더](./infra/network/origin-header.md) → [XSS와 CSP](./infra/network/xss-and-csp.md) → [Rate Limiting](./infra/rate-limiting.md) → [Spring Security 도입](./java/security/spring-security-filter-chain.md) → [메서드 보안](./java/security/method-security.md)
+> 한 문장씩: Origin은 브라우저가 붙이고 JS로 못 바꾼다 / CSRF는 쿠키 값을 모른 채 피해자 브라우저가 붙이게 하는 것, 탈취는 값을 알고 직접 붙이는 것 / SameSite·JSON 전용·Origin은 서로의 구멍을 메우는 세 겹 / CORS는 문 여는 목록이지 자물쇠가 아니다 / XSS가 뚫리면 CSRF 방어는 전부 무력 / HttpOnly는 읽기만 막고 쓰기는 못 막는다.
+
 **트랙 9 · 레퍼런스 (8개, 순서 무관 — 필요할 때 꺼내 읽기)**
 *도구*: [포트와 listen](./infra/network/ports-and-listen.md) → [SSH 포워딩](./infra/network/ssh-port-forwarding.md) → [SSH config](./infra/network/ssh-config.md) / [git worktree](./git/worktree.md)
 *기본기 잔여*: [Stream API](./java/functional/stream-api.md) · [SortedSet](./java/collections/sorted-navigable-set.md) · [BigDecimal](./java/bigdecimal/bigdecimal.md) · [varargs](./java/generics/varargs-safevarargs.md) — 다른 노트의 선행이 아니라, 그 API를 실제로 쓸 때 펴는 쪽이 남는다
@@ -103,7 +111,11 @@
 - [ ] [resultMap 중첩 매핑 - association(단수)·collection(1:N) / `<id>`=정체성 판별(없으면 전컬럼 비교·그룹핑 오동작) / "이미 JOIN하면 컬럼+매핑 추가가 0비용" / 중첩 select는 N+1 / collection+LIMIT 함정](./java/mybatis/resultmap-association-collection.md)
 
 ### Spring
-- [ ] [@Transactional - 선언적 트랜잭션·전파(propagation)·롤백 규칙·프록시 함정 / 부수 작업 격리(REQUIRES_NEW+try-catch) → 스프링 이벤트(AFTER_COMMIT+@Async)와 ⚠️트랜잭션 없으면 조용히 안 도는 함정](./java/spring/transactional.md)
+- [ ] [HttpSession - getSession(false)·생성·속성 저장/조회·무효화 / 세션과 로그인 구분](./java/spring/http-session.md)
+- [ ] [Spring Session JDBC - HttpSession 저장소를 PostgreSQL로 교체 / SESSION 쿠키·자동 구성·Flyway·만료 / 프록시 뒤 Secure(X-Forwarded-Proto)](./java/spring/spring-session-jdbc.md)
+- [ ] [@Bean 등록과 타입 기반 주입 - 매개변수는 의존성·반환 객체는 Bean / RestClient·RequestFactory·HttpClient 역할과 자동 선택·명시 설정 / Qualifier는 타입 후보를 좁힘](./java/spring/bean-registration-and-injection.md)
+- [ ] [HTTP 클라이언트 구현체 비교 - RestClient 아래 통신 라이브러리 5종(JDK/Apache/Jetty/Reactor/Simple) / Boot 자동 감지 순서·spring.http.clients·ClientHttpRequestFactoryBuilder / ⚠️JDK는 멱등 요청을 알아서 1회 재시도→"최대 1회" 루프 얹으면 4회 / read timeout=요청 시작부터 총 시간 / 오류 본문은 close 때 drain](./java/spring/http-client-transports.md)
+- [ ] [@Transactional - 선언적 트랜잭션·전파(propagation)·롤백 규칙·프록시 함정 / 부수 작업 격리(REQUIRES_NEW+try-catch) → 스프링 이벤트(AFTER_COMMIT+@Async)와 ⚠️트랜잭션 없으면 조용히 안 도는 함정 / 커넥션(창구)≠트랜잭션(전표 묶음) / 트랜잭션 밖≠비동기(A~D 4조합)·외부 호출은 창구에서 일어나서 / 워커·reaper·정리 책임 3층·DB를 큐로](./java/spring/transactional.md)
 - [ ] [예제로 보는 트랜잭션 전파·롤백 - a→b→c 워크스루](./java/spring/transaction-rollback-example.md)
 - [ ] [@Valid · @Validated - Bean Validation 동작·위치, 중첩 cascade 함정](./java/spring/validation.md)
 - [ ] [@AssertTrue 필드 조합 검증 - boolean getter에 붙는 cross-field 규칙 / is·get 네이밍 아니면 조용히 무시 / null 가드 필수·Jackson 노출 / vs 클래스 레벨 제약](./java/spring/assert-true-cross-field.md)
@@ -117,6 +129,7 @@
 - [ ] [이벤트 유실 방지 - @Async 큐=메모리→흔적 없는 증발 / 이중 쓰기 문제 / Transactional Outbox / 하이브리드(BEFORE_COMMIT 적재+AFTER_COMMIT 실행+PENDING 재처리) / at-least-once→멱등 청구서 / Spring Modulith](./java/spring/event-outbox-pattern.md)
 
 ### 기본 / 박싱 (Basics)
+- [ ] [Java 시간 - Clock·Instant·LocalDateTime 구분 / 고정 시계로 테스트 / truncatedTo와 시간별 집계 / UTC 자정과 한국 자정](./java/basics/java-time-clock-instant-localdatetime.md)
 - [ ] [오토박싱 & 래퍼 캐시 - `Integer`·`Long`끼리 `==` 금지 / -128~127 캐시(JLS 5.1.7) → 작은 값엔 우연히 맞고 커지면 조용히 틀림 / JPA `Long id` 비교도 같은 메커니즘](./java/basics/autoboxing-wrapper-cache.md)
 - [ ] [switch 문 vs 식 - Java14 JEP361 / 식은 enum 전체 커버 강제(exhaustiveness) = 상수 추가 시 컴파일 에러로 매핑 누락 잡는 안전망 / default는 "모든 미래 값에 공통 처리가 옳을 때"만(아니면 버그 은닉처) / 암묵 default→ICCE / values() 순회 검증도 함께 오염](./java/basics/switch-expression-exhaustiveness.md)
 
@@ -152,7 +165,7 @@
 
 ### 설계 (DDD / 도메인 모델)
 - [ ] [도메인 검증 위치 - 엔티티(불변식) vs 도메인 서비스(유니크)·체커 주입 / 규칙=도메인·조회=인프라](./java/design/domain-validation.md)
-- [ ] [변환 계층 - Factory(생성)/Mapper(web→Command)/Assembler(Command→Model) + Command/Query](./java/design/transform-layers.md)
+- [ ] [변환 계층 - Factory(생성)/Mapper(web→Command)/Assembler(Command→Model) + Command/Query · Request→Command→Domain의 enum·시간 타입 유지](./java/design/transform-layers.md)
 - [ ] [애그리거트 소유권 & 참조 방향 - source of truth / 자기 사실만 판정 / 1:1 FK는 나중 생긴 쪽이 단방향](./java/design/aggregate-ownership.md)
 - [ ] [포트와 어댑터 - 콘센트(규격)/플러그(구현) 비유 / 인터페이스는 의존 역전 필요할 때만 / 포트 소유권](./java/design/ports-and-adapters.md)
 - [ ] [일급 컬렉션 - 컬렉션 하나만 감싼 클래스 / 응집·불변(방어적 복사) / vs 값 객체(Tell Don't Ask·널 객체)](./java/design/first-class-collection.md)
@@ -171,15 +184,18 @@
 
 ### 보안 (Security)
 - [ ] [비밀번호 - PasswordEncoder(단방향 해시) vs AttributeConverter(양방향 암호화) / 복호화 여부가 갈림길](./java/security/password-encoding.md)
+- [ ] [HMAC과 해시 - 암호화·난수 토큰과 차이 / 소유자 식별·payload·fingerprint의 목적 / 같은 입력 바이트·키·용도와 해시 안정성](./java/security/hmac-and-hashing.md)
 - [ ] [메서드 보안 - @PreAuthorize·@EnableMethodSecurity / SpEL(#param·hasRole 접두사 자동) / 활성화 안 하면 조용히 무시·프록시 자기호출 / URL=경로 관문·메서드=개별 규칙](./java/security/method-security.md)
+- [ ] [Spring Security 도입 - 로그인 없는 앱에 먼저 들일 때 / 직접 체인 정의 시 Boot 기본 체인은 빠지고 CSRF·헤더·요청 캐시는 남음 / 1단계=동작 안 바꾸는 체인, 2단계=CSRF 토큰 전환 / ⚠️기본 CSRF로 POST 전부 403·필터 이중 실행(FilterRegistrationBean)·요청 캐시가 익명 세션 생성·헤더 중복·CORS를 "Origin 기능"으로 켜지 말 것](./java/security/spring-security-filter-chain.md)
 
 ### Annotation (어노테이션)
 - [ ] [커스텀 어노테이션 - @interface·메타 어노테이션(@Retention 기본=CLASS⚠️) / 처리기 3방식(리플렉션·AOP·컴파일타임) / SpEL 동적 값·@Order 순서·프록시 함정](./java/annotation/custom-annotation.md)
 
 ### Jackson
-- [ ] [Jackson 어노테이션 종합 정리](./java/jackson/annotations.md)
+- [ ] [Jackson 어노테이션 종합 정리 · LocalTime과 JsonFormat · enum 소문자 바인딩 · DTO→도메인 저장 JSON 호환성](./java/jackson/annotations.md)
 
 ## Database
+- [ ] [Flyway - SQL 적용 이력·체크섬 / 실행 시점·새 파일 감지 / JPA 역할 분리 · 적용된 SQL 수정과 repair](./database/flyway-migrations.md)
 - [ ] [SQL 케이스 쿡북 - 상황별 해법 (날짜 범위 조회, 인덱스/sargable 등)](./database/sql-cookbook.md)
 - [ ] [PostgreSQL 날짜 함수 - to_date/make_date/EXTRACT/date_trunc](./database/postgresql-date-functions.md)
 - [ ] [인덱스와 실행 계획 - EXPLAIN, range scan, full scan, sargable 조건](./database/index-explain.md)
@@ -187,9 +203,11 @@
 - [ ] [NULL 비교와 IS DISTINCT FROM - `!=`는 NULL이면 unknown→행이 조용히 사라짐 / NULL 안전 비교 / NOT IN 서브쿼리 NULL 함정(결과 0건) / COUNT·GROUP BY·UNIQUE의 NULL 취급 / 이종 테이블 COALESCE 병합 패턴](./database/null-comparison-is-distinct-from.md)
 - [ ] [LEFT JOIN 자식 조건 ON vs WHERE - ON=매칭 규칙(부모 안전)·WHERE=생존 규칙(부모도 죽음) / NULL 비교로 조용히 INNER化 / soft delete 조건이 단골 사고](./database/left-join-on-vs-where.md)
 - [ ] [SELECT FOR UPDATE - row 락으로 read-then-act 직렬화 / OF=JOIN 락 범위 지정 / 락 해제 후 재평가는 "잠긴 row가 변경된 경우만" → 잠근 row≠바뀌는 row 함정 / NOWAIT·SKIP LOCKED](./database/select-for-update.md)
+- [ ] [PostgreSQL Advisory Lock - 행이 아니라 정수에 거는 락 → "아직 없는 행"의 check-then-act 직렬화(멱등 생성) / xact(자동 해제) vs 세션(풀 커넥션에 남음) / (owner,key)→SHA-256→bigint / ⚠️JDBC·JPA 같은 커넥션 전제 / ⚠️REPEATABLE READ면 락 기다리며 굳은 스냅샷이 커밋을 못 봄 / unique 제약·ON CONFLICT·행 락·Redis와 비교](./database/postgres-advisory-lock.md)
 
 ## Infra / 분산 환경
 - [ ] [스케일 아웃 & 배포 모델 - 1 JVM/인스턴스 복제/로드밸런서 vs 오토스케일러/무상태](./infra/scaling.md)
+- [ ] [Rate Limiting - 주체×시간 창 카운터 / 세마포어와 차이(자리가 안 돌아옴) / 세션·IP 두 축 × 시간·일 두 창 = 버킷 전부 통과 / 초과 시 묶음 롤백으로 카운트도 복원 / 멱등 재전송·검증 실패는 안 셈 / 고정 창 경계 버스트·슬라이딩·토큰 버킷 / ⚠️프록시 뒤 IP 공유·UTC 자정 리셋 / "식별자를 버리는 비용"으로 축 결정](./infra/rate-limiting.md)
 
 ### Redis
 - [ ] [Redis 기초 - "자료구조 공용 메모리 서버" / 명령어로 대화 / TTL / RedisTemplate opsFor* 매핑](./infra/redis/redis-basics.md)
@@ -197,6 +215,11 @@
 - [ ] [Redisson 분산 락 내부 동작 - 락="먼저 키 쓴 쪽이 주인" 관례(SETNX) / hash+Lua(재진입·주인식별) / pub/sub 대기(블로킹, true=즉시·false=waitTime 소진) / leaseTime 만료=보호 소멸⚠️ / DB 제약 이중 방어](./infra/redis/redisson-distributed-lock.md)
 
 ### 네트워크 (Network)
+- [ ] [세션과 쿠키 기초 - HTTP 무상태·Set-Cookie/Cookie 흐름·세션 ID와 서버 데이터·만료(쿠키 vs 서버, 비활성 vs 절대) / 쿠키 옵션(Domain·Path 기본값·SameSite 3값·삭제·__Host-)·범위는 origin이 아님(포트 무시) / remember-me 분리 / 세션 고정·HttpOnly vs CSRF / CORS 자격증명 3조건 / 서버 세션 vs 토큰 비교](./infra/network/sessions-and-cookies.md)
+- [ ] [Origin 헤더 - 프론트가 아니라 브라우저가 붙임(JS로 못 바꿈) / 값=스킴://호스트:포트 / 같은 origin GET·HEAD엔 안 붙고 POST엔 붙음 / null 되는 경우 / CSRF 방어 4종(SameSite·Origin 검사·Sec-Fetch-Site·토큰) 비교 / ⚠️GET에 필수로 걸면 정상 요청 차단·startsWith 비교 금지·Host와 구분](./infra/network/origin-header.md)
+- [ ] [웹 공격 지도 - 쿠키=출입 카드 / 세션 탈취(훔침)·CSRF(속여서 대신 보내게)·XSS(안에 숨어듦)·클릭재킹(덮어서 누르게)·남용(계속 두드림) / 공격별 막는 장치 한 장 요약 / ⚠️CORS는 공격 아님·장치는 서로 대체 불가·로그인 토큰≠CSRF 토큰 / 새 기능에 던질 다섯 질문](./infra/network/web-attacks-map.md)
+- [ ] [XSS와 CSP - 저장형·반사형·DOM 기반 / 1차 방어=HTML 만드는 곳의 출력 이스케이프(React {} 안전·dangerouslySetInnerHTML 위험) / 백엔드는 입력 규칙·nosniff로 표면 축소 / CSP=실행 허용 목록 헤더(nonce·strict-dynamic·frame-ancestors) / Next.js nonce는 동적 렌더링 필요 / ⚠️unsafe-inline·CSP는 HTML 응답에·AI 출력도 신뢰하지 않는 입력](./infra/network/xss-and-csp.md)
+- [ ] [JetBrains 원격 개발 - Toolbox SSH로 집 맥 접속 / IDE 처리 엔진과 편집 UI 분리 / Code With Me·화면 공유와 차이](./infra/network/jetbrains-remote-development.md)
 - [ ] [실시간 통신 기법 비교 - Polling/Long Polling/SSE/WebSocket 진화 / relay(중계) 패턴 / "양방향 필요한가"가 갈림길](./infra/network/realtime-communication.md)
 - [ ] [SSE - text/event-stream 포맷 / EventSource(GET 전용·자동 재연결) vs POST fetch 스트리밍 / heartbeat·프록시 버퍼링·UTF-8 함정](./infra/network/sse.md)
 - [ ] [WebSocket - Upgrade 핸드셰이크(101) / STOMP / 재연결·스케일아웃 세션 공유가 내 숙제](./infra/network/websocket.md)

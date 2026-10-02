@@ -122,6 +122,35 @@ public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidExce
 - 모든 예외를 `Exception.class` 하나로 잡으면 문제 원인을 잃는다.
 - validation 에러 응답 형식이 도메인 예외 응답 형식과 너무 다르면 프론트에서 다루기 어렵다.
 - `@ControllerAdvice` 테스트는 `@WebMvcTest`로도 충분한 경우가 많다.
+- **필터에서 난 예외는 `@ControllerAdvice`가 못 잡는다.** `@ControllerAdvice`는 `DispatcherServlet` **안에서** 컨트롤러가 던진 예외를 처리한다. 필터는 `DispatcherServlet`보다 **바깥**에서 돌기 때문에, JWT 검증 필터 같은 곳에서 던진 예외는 거기까지 가지 못하고 컨테이너 기본 에러 응답이 나간다. 해법은 두 가지: (1) 필터 체인 맨 앞에 **예외를 잡는 필터**를 두거나, (2) 필터 안에서 `HandlerExceptionResolver`를 직접 불러 `@ControllerAdvice`와 같은 형식으로 응답을 쓴다.
+
+### 앞의 필터가 뒤의 필터 예외를 잡는 원리 — 필터 체인은 중첩된 메서드 호출이다
+
+`filterChain.doFilter(request, response)`는 "다음 필터를 실행하라"는 **메서드 호출**이다. 앞 필터는 이 줄에서 **멈춰서** 뒤의 필터·컨트롤러가 전부 끝나기를 기다린다. 그래서 뒤에서 던진 예외는 호출 스택을 거슬러 올라오다가, 아직 실행 중인 앞 필터의 `try`에 걸린다.
+
+```text
+ExceptionFilter.doFilterInternal        try { ← 여기서 doFilter 반환을 기다리는 중
+  └ filterChain.doFilter()
+      └ SignatureFilter.doFilterInternal
+          └ filterChain.doFilter()
+              └ JwtFilter.doFilterInternal
+                  └ throw new AuthException()   ← 던짐
+예외 이동: JwtFilter(catch 없음) → SignatureFilter(catch 없음) → ExceptionFilter의 catch에서 잡힘
+```
+
+일반 자바 코드와 똑같다.
+
+```java
+void a() { try { b(); } catch (RuntimeException e) { /* c의 예외가 여기서 잡힘 */ } }
+void b() { c(); }
+void c() { throw new RuntimeException(); }
+```
+
+- `doFilter` **앞**의 코드는 요청이 들어가는 길, **뒤**의 코드는 응답이 나오는 길에서 실행된다. 요청 로그는 앞에, 처리 시간 측정은 앞뒤에 둔다.
+- 그래서 예외 처리 필터는 **반드시 맨 앞**이어야 한다. 자기보다 앞에 있는 필터의 예외는 이미 그 바깥에서 터져서 못 잡는다.
+- 컨트롤러 예외는 보통 `@ControllerAdvice`가 `DispatcherServlet` 안에서 응답으로 바꿔 버리므로 예외 상태로 필터까지 올라오지 않는다. 필터의 `catch (Exception e)`에 걸리는 건 처리되지 않은 예외뿐이다.
+- **필터가 요청을 막는 방법은 두 가지다.** `doFilter`를 부르기 **전에** 예외를 던지거나, 응답을 직접 쓰고 `doFilter`를 부르지 않은 채 `return`한다. 어느 쪽이든 뒤의 필터와 컨트롤러는 아예 실행되지 않는다.
+- **`doFilter`에 넘긴 객체가 뒤쪽 전체가 보는 요청이다.** 요청 바디는 스트림이라 한 번 읽으면 끝인데, 서명 검증처럼 필터가 바디를 먼저 읽어야 하면 바디를 저장해 두는 래퍼로 감싸서 `doFilter(wrapper, response)`로 넘긴다. 그래야 컨트롤러가 바디를 다시 읽을 수 있다. 필터가 검증한 결과(예: 확인된 클라이언트 ID)는 `request.setAttribute`로 실어 보내고, 컨트롤러 쪽 인자 리졸버가 꺼내 쓴다.
 
 ---
 

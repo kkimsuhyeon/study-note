@@ -205,6 +205,16 @@ finally { sem.release(); }
 
 > 락은 "1명만", 세마포어는 "N명까지" → 세마포어는 뮤텍스의 일반화.
 
+**같은 개념이 JVM 밖에서도 반복된다 — 이름만 바뀐다.**
+
+| | JVM 안 | DB | 분산(Redis) |
+| --- | --- | --- | --- |
+| 뮤텍스 (동시 1) | `synchronized`·`ReentrantLock` | `FOR UPDATE`(행), `pg_advisory_xact_lock(n)`(번호) | `SET key NX PX`, Redisson `RLock` |
+| 세마포어 (동시 N) | `Semaphore(N)` | claim 트랜잭션에서 `count(*) WHERE status='running' AND lease 미만료` < N일 때만 진입 | Redisson `RSemaphore`·`RPermitExpirableSemaphore`(permit에 lease) |
+| 암묵적 세마포어 | 스레드 풀 크기 N | 워커 스레드 수 N (인스턴스당) | — |
+
+⚠️ **rate limit과 헷갈리지 말 것.** 세마포어는 나오면 자리가 **돌아오고**, rate limit("시간당 5회")은 쓴 횟수가 **돌아오지 않고 시간 창이 바뀌면 리셋**된다. "동시에 몇 명"은 뮤텍스/세마포어, "시간당 몇 번"은 rate limit — 한 유즈케이스 안에 둘이 같이 있는 경우가 흔하다(예: 멱등 키 advisory lock = 뮤텍스, 세션당 시간 5회 카운터 = rate limit). 자세한 DB·분산 쪽은 [advisory lock](../../database/postgres-advisory-lock.md)·[Redisson 분산 락](../../infra/redis/redisson-distributed-lock.md).
+
 ---
 
 ## 6. CountDownLatch — 카운트가 0 될 때까지 대기 (일회성)

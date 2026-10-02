@@ -162,6 +162,70 @@ public class Event {
 // → "startAt": "2026-05-25 14:30:00"
 ```
 
+### LocalTime을 요청에서 직접 받기 — Jackson 3.1.5 기준
+
+```java
+import java.time.LocalTime;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.OptBoolean;
+
+public record AppointmentRequest(
+        @JsonFormat(shape = JsonFormat.Shape.STRING,
+                pattern = "HH:mm", lenient = OptBoolean.FALSE)
+        LocalTime appointmentTime
+) {
+}
+```
+
+```json
+{"appointmentTime":"07:30"}
+```
+
+`@RequestBody AppointmentRequest request`로 받으면 Jackson이 문자열을 `LocalTime`으로 변환한다. 서비스에서 다시 `LocalTime.parse()`할 필요가 없다. `HH`는 24시간제 시, `mm`는 분이다. `MM`은 월이므로 구분한다.
+
+**`@JsonFormat`은 `@Valid`를 대신하지 않는다.** 변환은 Jackson이, null 필수 여부 같은 검증은 `@NotNull`과 `@Valid`가 담당한다. “시간 미상이라면 시간은 null이어야 한다” 같은 필드 간 규칙은 별도로 검증한다. [Validation](../spring/validation.md)
+
+⚠️ **`shape = STRING`을 썼다고 모든 비문자열 입력이 거부된다고 단정하지 않는다.** Jackson 3.1.5의 표준 `LocalTimeDeserializer`는 `[7, 30]` 배열도 읽는다. `pattern`은 문자열 파싱 형식이고, `lenient = FALSE`는 문자열의 날짜·시간 해석을 엄격하게 하는 데 쓰인다. “JSON 토큰 종류까지 문자열만 허용”하는 규칙과는 다르다.
+
+클라이언트가 `"07:30"`을 보내도록 약속한 서비스라면 먼저 표준 변환을 사용하면 된다. 외부 계약이 배열 거부까지 요구할 때만 추가 처리를 검토한다. 이 노트의 판단은 Jackson 3.1.5 소스 확인 기준이며 다른 버전의 모든 역직렬화기에 일반화하지 않는다.
+
+### enum의 Java 이름과 JSON 표기를 구분하기
+
+Java에서는 `ONLINE`, JSON에서는 `"online"`처럼 표기를 다르게 할 수 있다. 방법은 목적에 따라 고른다.
+
+| 방법 | 적합한 경우 | 영향 범위 |
+| --- | --- | --- |
+| enum의 `@JsonValue` | 값별 외부 표기가 정해져 있음 | 해당 enum의 Jackson 표현 |
+| mapper의 enum naming strategy | 모두 소문자처럼 공통 규칙이 있음 | 그 mapper가 처리하는 enum 전반 |
+
+Jackson 의존성을 도메인 enum에 두지 않으려면 설정에서 공통 규칙을 적용하는 선택이 있다. Spring Boot 4.1 / Jackson 3.1.5 예시:
+
+```java
+import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
+import org.springframework.context.annotation.Bean;
+import tools.jackson.databind.EnumNamingStrategies;
+import tools.jackson.databind.cfg.EnumFeature;
+
+@Bean
+JsonMapperBuilderCustomizer enumFormat() {
+    return builder -> builder
+            .enumNamingStrategy(EnumNamingStrategies.LOWER_CASE)
+            .enable(EnumFeature.FAIL_ON_NUMBERS_FOR_ENUMS);
+}
+```
+
+설정 클래스 안에 두는 메서드다. **전체 mapper 설정이므로 다른 enum의 응답 형식도 확인**한다. 기존 문자열이 저장된 JSON을 enum 필드로 읽을 수 있는지, 다시 저장해도 소문자가 유지되는지 테스트한다. 숫자로 enum 순번을 받지 않으려는 설정은 Jackson 3에서 `EnumFeature.FAIL_ON_NUMBERS_FOR_ENUMS`다. Jackson 2의 설정 위치와 혼동하지 않는다.
+
+`Request`에만 시간 포맷을 달아도 `Command`나 도메인 객체의 저장 JSON에 그 어노테이션이 복사되지는 않는다. 별도 응답 DTO에 형식을 지정하거나, 공통 포맷이 필요할 때 해당 mapper의 `LocalTime` 형식을 설정한다. 타입 전달 자체는 [변환 계층 노트](../design/transform-layers.md)를 참고한다.
+
+확인 근거: 설치된 Jackson 3.1.5 소스의 `LocalTimeDeserializer`, `MapperBuilder`, `EnumNamingStrategies`, `EnumFeature`. 보강일: 2026-09-22. 표준 시간 바인딩·enum·저장 JSON 왕복은 프로젝트 테스트로 확인했으며 위 학습용 설정 코드는 별도 실행하지 않았다.
+
+- [Jackson 3.1.5 LocalTimeDeserializer](https://github.com/FasterXML/jackson-databind/blob/jackson-databind-3.1.5/src/main/java/tools/jackson/databind/ext/javatime/deser/LocalTimeDeserializer.java)
+- [Jackson 3.1.5 EnumNamingStrategies](https://github.com/FasterXML/jackson-databind/blob/jackson-databind-3.1.5/src/main/java/tools/jackson/databind/EnumNamingStrategies.java)
+- [Jackson 3.1.5 EnumFeature](https://github.com/FasterXML/jackson-databind/blob/jackson-databind-3.1.5/src/main/java/tools/jackson/databind/cfg/EnumFeature.java)
+
+💡 **약속한 시간 문자열을 Java 시간 타입으로 받는 일은 Jackson에 맡긴다. 별도 검증은 실제 업무 규칙과 외부 계약에서 요구하는 범위만 추가한다.**
+
 ### 숫자 포맷
 ```java
 @JsonFormat(shape = JsonFormat.Shape.STRING)

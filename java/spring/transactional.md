@@ -23,6 +23,31 @@ public void transfer(Long from, Long to, long amount) {
   ```
 - 메서드 단위. 클래스에 붙이면 그 클래스의 **모든 public 메서드**에 적용.
 
+비유: 커넥션 풀 = **은행 창구 10개**, **창구 = 커넥션**(앱–DB 사이의 긴 수명 통로), **트랜잭션 = 그 창구에서 처리하는 전표 한 묶음**(`BEGIN` → 일 → `COMMIT`/`ROLLBACK`). 창구는 아침에 열어 저녁까지 쓰고 손님마다 묶음 하나를 처리한다. 묶음 중간에 문제가 나면 그 묶음의 전표만 전부 찢고(롤백) 창구는 그대로 다음 손님을 받는다. 커넥션 1 : 트랜잭션 N(시간순), 트랜잭션 1 : 커넥션 1.
+
+| | 커넥션 | 트랜잭션 |
+| --- | --- | --- |
+| 수명 | 길다(풀이 수십 분 재사용) | 짧다(밀리초~초) |
+| 실패 시 | 끊어지면 풀이 교체 | 롤백. 커넥션은 멀쩡 |
+| 소유 상태 | `SET` 설정·임시 테이블·**세션 수준 advisory lock** | 행 락·미커밋 변경·**트랜잭션 수준 advisory lock** |
+
+```mermaid
+flowchart LR
+    subgraph Pool["커넥션 풀 = 창구 10개"]
+        C1["커넥션 C1<br/>수명 수십 분, 수천 번 재사용"]
+    end
+    C1 --> T1["전표 묶음 1<br/>BEGIN → 문장 3개 → COMMIT"]
+    T1 --> T2["전표 묶음 2<br/>BEGIN → 예외 → ROLLBACK<br/>(C1은 멀쩡, 다음 손님)"]
+    T2 --> T3["autocommit 단문<br/>SELECT 하나 (명시적 tx 없음)"]
+    T3 --> T4["전표 묶음 3 ..."]
+```
+
+⚠️ **"에러나면 다 롤백"의 "다"는 그 트랜잭션 안의 DB 변경만이다.** 범위 밖 세 가지: ① 다른 트랜잭션이 이미 커밋한 것 ② DB 밖에서 한 일(외부 API·메일·파일) ③ **커넥션에 속한 상태** — `SET`, 세션 수준 `pg_advisory_lock`은 롤백 뒤에도 남는다. `pg_advisory_xact_lock`을 쓰는 이유가 이것([advisory lock](../../database/postgres-advisory-lock.md)).
+
+Spring은 둘의 시간 경계를 **거의 일치**시킨다. `@Transactional` 진입 시 커넥션을 빌리고 종료 시 반납하므로 **트랜잭션이 열린 시간 = 커넥션 점유 시간**. `@Transactional` 없으면 문장마다 빌리고 바로 반납(autocommit). 한 방향만 성립: 트랜잭션이 열려 있으면 커넥션은 반드시 점유 중이지만, 커넥션 점유 중이라고 트랜잭션이 열린 것은 아니다. **"@Transactional 메서드 안에 있다" = "창구에 앉아 전표 묶음을 처리 중이다".**
+
+**Spring 트랜잭션과 DB 트랜잭션은 같은 것의 두 층이다.** DB 트랜잭션은 `BEGIN … COMMIT/ROLLBACK`, 한 커넥션 위에서 격리·락·원자성을 DB가 보장하는 단위. `@Transactional`은 그 BEGIN/COMMIT을 **누가 언제 부를지** 관리하는 층이다. 프록시가 메서드 진입 시 풀에서 커넥션을 꺼내 `setAutoCommit(false)`로 BEGIN 상태를 만들고 **현재 스레드에 바인딩** → 메서드 안의 JPA·`JdbcTemplate` 호출이 전부 그 커넥션을 탄다 → 정상 반환이면 `COMMIT`, `RuntimeException`이면 `ROLLBACK` → 커넥션 반납. 단일 DataSource면 **Spring 트랜잭션 1 = DB 트랜잭션 1 = 커넥션 1**이다. Spring이 얹는 것은 전파·롤백 규칙·커밋 후 콜백·읽기 전용 힌트 같은 관리 기능이고, 격리 수준·락·커밋 자체는 DB 것이다. 설계 문서의 "DB 트랜잭션 밖"은 코드로는 "`@Transactional` 범위 밖", 물리적으로는 "이 순간 스레드에 바인딩된 커넥션이 없음"과 같은 말이다. (JTA로 여러 리소스를 묶으면 1:N이 되지만 예외적.)
+
 > JPA와의 연결: 트랜잭션 = 영속성 컨텍스트의 수명. commit 직전 **flush**로 모아둔 SQL이 나간다. ([영속성 컨텍스트](../jpa/persistence-context.md))
 
 ---
@@ -307,6 +332,165 @@ outer가 커넥션을 쥔 채 suspend되고 inner가 **또 다른 커넥션**을
 
 ### (4) 트랜잭션 안에서 외부 호출(HTTP/메시지) 금지
 긴 외부 호출을 트랜잭션 안에 두면 그동안 커넥션·락을 잡고 있어 성능 저하. 외부 호출은 트랜잭션 밖으로.
+
+**"트랜잭션 밖" ≠ 비동기.** 서로 직교하는 두 축이다. 비동기는 "누가 언제(어느 스레드·시점)" 실행하느냐, 트랜잭션 밖은 "그 순간 커넥션·BEGIN이 열려 있느냐"다.
+
+| | 트랜잭션 **안**에서 외부 호출 | 트랜잭션 **밖**에서 외부 호출 |
+| --- | --- | --- |
+| 동기 (요청 스레드) | 흔한 사고. `@Transactional` 안에서 HTTP | 가능. `tx1 커밋 → HTTP → tx2`를 한 스레드에서 순차로 |
+| 비동기 (워커) | 워커 메서드 전체에 `@Transactional` — 역시 사고 | 정석. 선점(짧은 tx) → 실행(tx 없음) → 결과 저장(짧은 tx) |
+
+비동기로 보냈다고 트랜잭션 밖이 되는 게 아니다. 두 결정은 따로 내린다. 비동기의 이유는 **HTTP 요청 수명과 작업 수명 분리**(사용자를 40초 묶지 않기), 트랜잭션 밖의 이유는 **커넥션·락 점유 시간 최소화**다.
+
+#### 그림으로 보기
+
+시퀀스 다이어그램에서 참여자 아래 **세로로 긴 막대(활성 구간)** = 그 자원이 점유된 시간. DB 막대 길이가 "커넥션·락을 얼마나 들고 있었나"다.
+
+**① D — 비동기 + 트랜잭션 밖 (설계된 정석). DB 막대가 짧고 두 번, AI 막대가 길다.**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as 브라우저
+    participant H as HTTP 스레드
+    participant DB as PostgreSQL
+    participant W as 워커 스레드
+    participant AI as AI 서버
+    participant R as reaper
+
+    B->>+H: POST /api/reports
+    H->>+DB: tx - 세션·해시·멱등·한도 확인, INSERT pending
+    DB-->>-H: COMMIT, 커넥션 반납
+    H-->>-B: 200 reportId, status pending
+    Note over B: 이후 GET으로 상태 폴링
+
+    loop 1초마다
+        W->>+DB: tx1 - FOR UPDATE SKIP LOCKED, status=analyzing, run_token, lease_until=+150s
+        DB-->>-W: COMMIT, 커넥션 반납
+        W->>+AI: 해석 요청
+        Note over W,AI: 40초 대기. 커넥션·락 없음. 워커 스레드만 기다림
+        AI-->>-W: 응답
+        W->>+DB: tx2 - UPDATE completed WHERE run_token=? AND lease 미만료
+        DB-->>-W: 1건 COMMIT / 0건이면 결과 폐기
+    end
+
+    loop 10초마다
+        R->>DB: UPDATE failed WHERE status=analyzing AND lease 만료
+    end
+
+    B->>+H: GET /api/reports/id
+    H->>+DB: 조회
+    DB-->>-H: 행
+    H-->>-B: completed + 명식 + 해석
+```
+
+**② C — 비동기 + 트랜잭션 안 (워커에 `@Transactional` 한 줄). 같은 워커인데 DB 막대가 AI 막대만큼 길다.**
+
+```mermaid
+sequenceDiagram
+    participant W as 워커 스레드
+    participant DB as PostgreSQL
+    participant AI as AI 서버
+
+    W->>+DB: BEGIN, FOR UPDATE, status=analyzing
+    W->>+AI: 해석 요청
+    Note over DB: 40초 동안 커넥션 1개 + 행 락 점유<br/>같은 행 DELETE 하려는 사용자는 대기
+    Note over W,AI: 40초 대기
+    AI-->>-W: 응답
+    W->>DB: UPDATE completed
+    DB-->>-W: 이제야 COMMIT, 커넥션 반납
+```
+
+A(동기·안)는 ②에서 워커 스레드를 HTTP 스레드로 바꾼 그림이고, B(동기·밖)는 ①의 워커 자리에 HTTP 스레드가 들어가 사용자가 40초 서 있는 그림이다.
+
+**③ 상태 기계 — 누가 어느 화살표를 움직이나**
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: POST, HTTP 스레드 tx
+    [*] --> completed: POST, 같은 owner의 fingerprint 캐시 적중
+    pending --> calculating: 워커 claim, tx1, lease 시작
+    calculating --> analyzing: 워커, 명식 계산 후
+    analyzing --> completed: 워커 complete, tx2, 조건부 UPDATE
+    analyzing --> failed: 워커 catch → fail() 또는 reaper lease 만료
+    calculating --> failed: 워커 catch → fail() 또는 reaper lease 만료
+    pending --> failed: reaper, 5분 방치 queue_timeout
+    failed --> pending: 사용자 재시도, attempt+1
+    completed --> [*]: 30일 만료
+    failed --> [*]: 30일 만료
+```
+
+**④ 정리 책임 3층 — 실패가 나면 누가 치우나**
+
+```mermaid
+flowchart TD
+    F["실패가 났다"] --> Q1{"한 트랜잭션 안에서<br/>예외가 났나?"}
+    Q1 -->|"예"| L1["① 롤백, DB 자동<br/>그 묶음의 변경만 되돌림"]
+    Q1 -->|"아니오"| Q2{"워커가 살아 있고<br/>실패를 인지했나?"}
+    Q2 -->|"예"| L2["② catch → fail(id, token, 코드)<br/>0.1초, 구체적 error_code"]
+    Q2 -->|"아니오: 크래시·OOM·DB 장애"| L3["③ reaper, lease 만료 후<br/>failed / lease_expired"]
+    L2 -.->|"fail() 자체가 실패"| L3
+    L1 --> N["경계를 넘은 상태 analyzing은<br/>①이 못 되돌림 → ②③이 맡음"]
+    N --> Q2
+```
+
+왜 묶으면 안 되나 — 성능 말고도 한 가지가 더 있다. **롤백은 외부를 되돌리지 못한다.** "전부 아니면 전무"는 DB 안에서만 성립한다. 외부 API는 이미 실행됐고 비용도 나갔다. HTTP 성공·DB 실패든 그 반대든 트랜잭션은 그 불일치를 해결해 주지 않는다. 묶어서 얻는 게 없으니 묶지 않고, 대신 "늦은 결과는 버린다"를 설계에 넣는다.
+
+```java
+// 조율 메서드 — @Transactional 없음
+public void runOnce() {
+    Optional<Claim> claim = claimer.claimNext();         // ① tx: FOR UPDATE SKIP LOCKED → status·run_token·lease_until 갱신 → 커밋(커넥션 반납)
+    if (claim.isEmpty()) return;
+    Result result = externalClient.call(claim.input());  // ② tx 없음. 커넥션도 락도 없음
+    completer.complete(claim.id(), claim.runToken(), result);
+    // ③ tx: UPDATE ... WHERE id=? AND status='running' AND run_token=? AND lease_until > now()  → 0건이면 늦은 결과 폐기
+}
+```
+
+- ②동안 행이 잠겨 있지 않으므로 그 사이 reaper가 lease 만료 처리했거나 사용자가 삭제했을 수 있다. ③의 WHERE가 그 대가다([Read-Modify-Write](../jpa/read-modify-write.md)의 조건부 UPDATE). 잠금을 "쓰기 직전 확인"으로 바꾼 것.
+- **쪼개면 롤백은 각 조각 안에서만 된다.** ③이 예외를 던지면 ③의 UPDATE만 롤백되고 ①은 40초 전에 커밋돼 안 돌아간다 → 행은 `running`·`run_token`·`lease_until` 그대로 남는다. 트랜잭션 경계를 넘는 되돌리기는 없으므로 **롤백의 자리를 "만료 시각 + 청소부(reaper) + 조건부 쓰기"가 채운다**. 실패 지점별: ② 외부 실패 → 세 번째 짧은 tx `fail(id, token, code)`로 즉시 기록, 그것도 실패하면 reaper / ③ 예외 → reaper가 lease 만료 후 `failed` / ③ 0건 → 이미 정리됨, 결과만 버림 / ② 중 크래시 → reaper(재시작 후에도 동작해야). 이게 saga·[Outbox](./event-outbox-pattern.md)의 원리이고, 나쁜 버전보다 코드가 많은 이유다.
+- **reaper(청소부)** — 워커와 같은 `@Scheduled` 메서드지만 일을 하지 않고 **일하다 죽은 흔적을 치운다**(이름은 Unix의 zombie reaping). 주기 10초, `status IN ('running') AND lease_until < now()` → `failed`+`error_code`, 그리고 `pending`인데 N분 넘게 아무도 안 집은 행 → `queue_timeout`. 조건부 UPDATE라 여러 인스턴스가 돌아도 안전. 주방 비유: 요리사(워커)가 "150초 안에 끝낸다"고 적고(lease) 쓰러지면 매니저(reaper)가 주문표에 실패 도장. **lease가 reaper의 판단 근거이자 늦은 결과를 버리는 기준** — 죽은 게 아니라 느렸던 워커가 160초에 돌아와도 `WHERE run_token=? AND lease_until > now()`가 0건이라 `failed` 위에 `completed`를 덮어쓰지 못한다. 그래서 **작업 상한 < lease**(예: 120초 < 150초)로 잡는다. 재시작 시 만료 안 된 lease가 남아 있으면 reaper가 정리할 때까지 새 claim을 멈추는 보수적 규칙도 세트.
+- **정리 책임은 3층이고 각 층은 앞 층이 못 하는 것을 맡는다.** ① 트랜잭션 롤백(DB 자동) — 한 묶음 안의 변경만 ② **`catch` + 보상 쓰기**(워커 자신) — 살아 있고 실패를 인지했을 때, 0.1초 안에 `fail(id, token, "ai_timeout")`처럼 **구체적 코드**로 ③ **타임아웃 스케줄러**(reaper) — 죽었거나 ②의 쓰기 자체가 실패했을 때, lease 만료 후 `lease_expired`처럼 **포괄적 코드**로. 한 줄: **살아 있으면 catch가, 죽었으면 스케줄러가.** ②만 있으면 프로세스 사망·OOM·DB 장애 시 catch가 실행되지 않아 구멍, ③만 있으면 3초 타임아웃에도 사용자가 lease+주기(150+10초)를 더 기다리고 이유도 모른다. 둘 다 `WHERE run_token=? AND status='running'` 조건부라 먼저 온 쪽 1건·나중 0건으로 충돌 없음. ⚠️ **Spring 이벤트(`ApplicationEvent`·`@TransactionalEventListener`·`@Async`)는 ③이 될 수 없다** — 프로세스 메모리에 살아 프로세스와 함께 죽는다([Outbox](./event-outbox-pattern.md) "메모리 큐 = 흔적 없는 증발"). 알림·통계 같은 ②의 부가 동작에만 쓰고, 되돌리기의 근거는 항상 **DB에 남은 것**(상태·lease)에 둔다.
+- **"트랜잭션 밖" ≠ "기다리지 않음".** ②에서 워커 스레드는 40초 블로킹된다. 바뀐 건 그동안 **손에 든 것**: 나쁜 버전은 스레드 1 + 커넥션 1(풀 10개 중) + 행 락, 좋은 버전은 스레드 1만. 스레드는 수백~(가상 스레드) 수천 개라 싸고 커넥션은 10개라 귀하다. 스레드도 무한하지 않으니 워커 동시 실행 수는 별도로 제한한다.
+- 초 단위로 보면: 나쁜 버전(메서드 하나에 `@Transactional`)은 창구·행 락을 **40초** 점유하고, 그동안 같은 행을 지우려는 사용자는 대기, 워커 5개면 창구 5개 소멸. AI가 실패해 롤백돼도 **AI는 이미 40초 계산했다** — 롤백이 되돌린 건 DB 두 줄뿐. 좋은 버전은 창구 점유 **0.01초 + 0.01초**, 그 사이 사용자 삭제는 즉시 실행.
+- 4조합을 사용자 입장에서: A(동기+안) 사용자 40초 대기·창구 40초 / B(동기+밖) 사용자 40초 대기·창구 0.02초 / C(비동기+안) 사용자 즉시 응답·**창구는 여전히 40초** / D(비동기+밖) 둘 다 해결. A→B는 경계를 바꾼 것, A→C는 비동기로 바꾼 것. **워커 메서드에 `@Transactional` 하나 붙이면 D가 C로 떨어진다.**
+
+**워커란** — 같은 Spring 앱 안에서 HTTP 요청과 무관하게 타이머로 도는 메서드(`@EnableScheduling` + `@Scheduled(fixedDelay = 1000)`, 전용 스레드 기본 1개). 별도 서버가 아니다. 주방 비유: 카운터 직원(HTTP 요청 스레드)은 주문표(`pending` 행)를 꽂고 번호표(id)를 주고 **끝**, 요리사(워커 스레드)는 1초마다 꽂이(DB)를 보고 하나 집어 요리, 손님(브라우저)은 번호로 반복 조회. 카운터와 요리사는 **다른 사람**이고 직접 대화 없이 DB만 본다 — 그래서 요리 40초여도 손님을 즉시 돌려보낼 수 있다(= 비동기). 스케줄링 자체는 Spring Batch와 별개([배치의 세 층위](./batch-three-meanings.md)). 이 구조가 **"DB를 큐로 쓴다"(polling)** — HTTP 요청은 행 한 줄(`pending`)을 넣고 즉시 응답, 외부 호출은 워커만 한다. 테이블 하나가 작업 큐·상태 기계(`pending → running → completed/failed`)·기록을 겸한다. 장점: 재시작해도 할 일이 남음(메모리 큐와 달리), 상태와 데이터가 한 트랜잭션, 동시 실행 수를 워커 한 곳에서 조절, 재시도는 `failed → pending`으로 자연스러움, 인프라 0. 대가: 워커 주기만큼의 지연 + 주기적 조회 부하. 규모가 작으면 MQ보다 이쪽. 브라우저는 상태를 폴링(GET)한다. ⚠️ "스케줄러"는 **트리거(알람시계)**일 뿐 역할이 아니다 — 워커(①claim ②외부 호출 ③complete, 외부 호출이 본업)와 reaper(상태 변경만)는 같은 방식으로 깨어나 다른 일을 하는 두 메서드. 그리고 **C와 D는 같은 워커**다: `runOnce()`에 `@Transactional` 한 줄이 붙으면 C(워커 스레드가 40초 커넥션·락 보유), 셋으로 쪼개면 D. A↔C는 "누가 드느냐"(HTTP 스레드 vs 워커 스레드), C↔D는 "드느냐 놓느냐".
+
+**"동기인데 점유 안 함"(B)이 가능한 이유 — 동기와 점유는 다른 자원을 말한다.** 동기 = 손님이 카운터 앞에 서 있다(HTTP 스레드·사용자 시간). 점유 = 그동안 DB 창구에 앉아 있다(커넥션·행 락). 자원별로 펼치면:
+
+| | 사용자 대기 | HTTP 스레드 (Tomcat 기본 200) | DB 커넥션 (풀 10) | 행 락 |
+| --- | --- | --- | --- | --- |
+| A 동기·안 | 40초 | 40초 | **40초** | **40초** |
+| B 동기·밖 | 40초 | 40초 | 0.02초 | 0.02초 |
+| C 비동기·안 | 0 | 0.02초 | **40초**(워커) | **40초** |
+| D 비동기·밖 | 0 | 0.02초 | 0.02초 | 0.02초 |
+
+A→B는 커넥션 열을, A→C는 사용자·HTTP 스레드 열을 고친 것 — 다른 열이라 독립 결정. B를 안 쓰는 이유: 사용자 40초 대기 + HTTP 스레드 200개가 40초씩 묶이면 초당 5요청이 한계 + 브라우저·프록시 타임아웃. **누군가는 항상 40초를 기다린다**(A·B는 요청 스레드, C·D는 워커 스레드). 바뀌는 건 "누가 기다리고, 기다리며 무엇을 손에 들고 있느냐".
+
+**세 어노테이션은 서로 다른 것을 결정한다 — 조합 가능.**
+
+| | 결정하는 것 | 결정하지 않는 것 |
+| --- | --- | --- |
+| `@Transactional` | 커밋/롤백 **묶음의 경계** = 커넥션을 빌려 두는 구간 | 어느 스레드인지, 기다리는지 |
+| `@Async` | **다른 스레드**에서 실행, 호출자 즉시 반환 | 트랜잭션 |
+| `@Scheduled` | **타이머**로 시작 | 트랜잭션 |
+
+`@Transactional`은 기다림과 무관하다 — 외부 호출은 있든 없든 응답까지 그 줄에서 멈춘다. `@Scheduled` + `@Transactional`을 한 메서드에 붙이면 정확히 C.
+
+**A~D를 어노테이션 위치로:** A = 요청 메서드 하나에 `@Transactional`(insert·외부·update 전부 안) / B = 요청 메서드엔 없음, `prepare()`·`finish()`(다른 빈)에 각각 / C = 요청은 `insertPending()`만, 워커 `@Scheduled @Transactional runOnce(){claim; 외부; complete}` / D = 워커 `@Scheduled runOnce()`엔 없음, `claimNext()`·`complete()`(다른 빈)에 각각. **D에도 `@Transactional`은 있다** — C와의 차이는 "있냐 없냐"가 아니라 **외부 호출을 감싸는 위치에 있냐, 양옆에만 있냐**. B와 D의 메서드 모양은 같고 **누가 부르느냐**(HTTP 스레드 vs 타이머)만 다르다. B에 워커는 없지만 **타임아웃 청소부(reaper)는 B에도 필요하다** — 외부 호출 대기 중 서버가 재시작되면 요청 스레드가 사라지고 행이 `processing`으로 영원히 남는 건 D와 같다. B가 덜 가진 건 "일을 시작시키는 스케줄러"뿐이고 "죽은 흔적을 치우는 스케줄러"는 똑같이 있어야 한다. 1번·2번 사이에 행이 잠겨 있지 않으니 2번의 UPDATE도 조건부, 외부 실패 시 `catch → fail()` 세 번째 tx도 D와 동일.
+
+⚠️ **A→B에서 바깥 `@Transactional`만 떼면 두 가지가 조용히 깨진다.** ① 함께 커밋돼야 할 묶음(락·카운터·INSERT)이 문장별 autocommit으로 흩어진다 ② JPA는 트랜잭션 밖에서 **변경 감지가 동작하지 않아** 엔티티 필드만 바꾼 코드의 UPDATE가 **에러 없이 나가지 않고**, OSIV가 꺼져 있으면 지연 로딩에서 `LazyInitializationException`([영속성 컨텍스트](../jpa/persistence-context.md)). 떼는 게 아니라 **DB 구간 두 개를 각각 짧은 `@Transactional`로 다시 묶는 것**이 A→B다. 붙는 개수는 1 → 2로 는다.
+
+**`@Async` 메서드 안에서 외부 호출 + DB 업데이트를 같이 하는 것**은 정상적인 흔한 방식이다(결과는 그 안에서 처리된다). 문제는 **"할 일"이 executor의 메모리 큐에 산다**는 것 — 큐에 있든 실행 중이든 JVM이 죽으면(배포·OOM) 함께 사라지고, DB엔 `pending` 행만 남아 아무도 다시 안 본다. D는 할 일이 DB 행이라 재시작 후 워커가 다시 집는다. `@Async`가 끌고 오는 것 넷: ① 재시작 시 증발 → 결국 "오래된 pending을 다시 집는 스케줄러"가 필요 = 워커 ② 호출자가 `@Transactional`이면 **커밋 전에 실행**될 수 있어 다른 커넥션의 `SELECT WHERE id=?`가 없음 → `@TransactionalEventListener(AFTER_COMMIT)` ③ `void @Async`의 예외는 로그만 남고 삼켜짐 → 안에서 `catch → fail()` ④ 기본 executor 스레드 8·큐 무제한(가상 스레드면 무제한 동시) → 전용 executor 크기 제한, 단 인스턴스별. ①때문에 안전망 스케줄러는 어차피 필요하고, 그러면 `@Async`는 **주기 지연을 없애는 빠른 길**로만 남는다 = [Outbox](./event-outbox-pattern.md)의 "하이브리드(빠른 길 + 안전망)". 작업이 40초짜리면 1초 지연은 무의미하니 안전망만 두는 선택도 합리적이다.
+
+**현장에서는 "안"이 기본값처럼 흔하고, 조건이 맞을 때만 터진다.** 동시에 열린 트랜잭션 수 ≈ 초당 요청 × 트랜잭션 보유 시간(Little의 법칙). 풀 10개(HikariCP 기본)에서 외부 호출 50ms·5req/s면 0.25개로 무해, 2초·5req/s면 10개로 포화 → 나머지는 30초 대기 후 `Connection is not available`. 그래서 평소 멀쩡하다가 **외부 API가 느려지는 순간** 우리 서비스까지 같이 죽는 장애 전파 형태로 나타난다.
+
+진단은 PostgreSQL 한 줄: `SELECT pid, state, now()-xact_start, left(query,80) FROM pg_stat_activity WHERE state='idle in transaction' ORDER BY 3 DESC;` — **`idle in transaction`** = 트랜잭션은 열려 있는데 쿼리는 안 돌고 있다 = 창구에 앉아 딴 일(외부 호출·락 대기) 중. 나쁜 버전의 지문. 앱 쪽은 HikariCP `connections.pending`·`connections.acquire`.
+
+수정은 오래 걸리는 것부터, 덜 침습적인 순서로: ① 호출자에서 `@Transactional`을 떼고 `prepare()`(tx) → 외부 → `finish()`(tx)로 분리(둘은 **다른 빈**) ② 쪼개기 애매하면 `TransactionTemplate.execute()`로 짧은 구간만 ③ "저장 후 알림" 성격이면 `@TransactionalEventListener(AFTER_COMMIT)` — 실패 시 재시도 없음 ④ 반드시 전달돼야 하면 [Outbox](./event-outbox-pattern.md). 대가는 "외부 호출 중 행이 잠겨 있지 않음" → 저장을 조건부 UPDATE로. 💡 **외부 호출이 짧고 트래픽이 낮으면 안 고치는 것도 합리적이다.** 고칠 가치의 기준은 "보유 시간 × 요청률이 풀 크기에 얼마나 가까운가"와 "그 트랜잭션이 남이 원하는 행을 잠그고 있는가".
+- `runOnce`에 `@Transactional`을 붙이면 ①②③이 한 트랜잭션이 되어 원점. `claimNext`·`complete`가 `runOnce`와 **같은 클래스**면 (1)의 자기호출로 `@Transactional`이 무시된다 → 별도 빈으로 분리.
+- 이벤트 발행에서 같은 문제와 해법: [이벤트 유실 방지](./event-outbox-pattern.md) "선점은 트랜잭션 안, 실행은 밖". 락을 잡은 채 외부 호출이 불가피하면 DB 락 대신 [분산락](../../database/postgres-advisory-lock.md) 비교 절 참고.
 
 ### (5) 읽기 전용은 `readOnly = true`
 조회 전용 서비스는 `@Transactional(readOnly = true)` — flush를 막아 약간의 최적화 + 의도 명시. (쓰기-읽기 분리는 [Read-Modify-Write](../jpa/read-modify-write.md))

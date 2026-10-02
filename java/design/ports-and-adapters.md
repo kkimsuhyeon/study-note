@@ -107,6 +107,20 @@ public record PageResult<T>(List<T> content, long totalElements, int totalPages)
 
 > 💡 목표는 순수성 100%가 아니라 "도메인이 JPA·웹을 모르는 것". **멀티모듈로 도메인을 스프링 없이 컴파일할 게 아니면 페이징은 `Page` 허용으로 선 긋는 것도 합리적.**
 
+### 5-2. 폴더를 "도메인 먼저" 자르나 "계층 먼저" 자르나 — 같은 헥사고날, 다른 주소
+
+| | 도메인 먼저 (package by feature) | 계층 먼저 (package by layer) |
+| --- | --- | --- |
+| 모양 | `domain/user/{model, port, adapter/in/web, adapter/out/persistence}` | 최상위 `application / domain / infrastructure / config / shared`, 어댑터는 `infrastructure/{web, persistence, 외부API명, 라이브러리명}` |
+| 강점 | 한 기능을 고칠 때 한 폴더 안에서 끝남. 기능 삭제가 폴더 삭제 | 외부 기술별로 모여서 "HTTP 클라이언트 설정이 어디 있나"가 한눈에. 도메인 폴더가 순수해 보임 |
+| 약점 | 외부 기술 설정이 도메인마다 흩어짐 | 한 기능을 고치려면 최상위 폴더 3~4개를 오간다 |
+
+의존 방향 규칙(어댑터 → 포트 ← 도메인)은 둘이 **똑같다**. 주소만 다르다. 처음 배운 구조와 달라 보여 헷갈릴 때는 "포트 인터페이스가 어디 있고, 그걸 구현한 클래스가 어디 있나" 두 개만 찾으면 대응이 잡힌다.
+
+**규칙은 테스트로 강제할 수 있다 — ArchUnit.** "domain 패키지는 `java..`·domain·공통 예외·허용한 어노테이션에만 의존", "application은 infrastructure·config를 모른다", "최상위 패키지 간 순환 없음"을 JUnit 테스트로 쓰면, 규칙을 어기는 import가 생기는 순간 빌드가 깨진다. 코드 리뷰에서 매번 눈으로 잡을 필요가 없어진다.
+
+**어댑터를 `@Component` 대신 `@Configuration`에서 `new`로 조립하는 이유** — 어댑터가 설정값(API 키·타임아웃)과 무거운 준비물(RestClient·메시지 컨버터·리다이렉트 정책)을 필요로 할 때, 그 준비를 설정 클래스 한곳에 모으고 어댑터 자체는 평범한 클래스로 둔다. 테스트에서 `new`로 바로 만들기 쉽다. `@Component` + 생성자 `@Value`도 똑같이 동작하니 **취향과 일관성의 문제**다 — 섞어 쓰면 "이 빈은 어디서 생기지?"를 매번 찾게 되니 한 프로젝트 안에서는 규칙을 하나로.
+
 ---
 
 ## 6. 💡 판단 기준
