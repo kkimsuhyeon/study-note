@@ -55,10 +55,11 @@ const es = new EventSource("/api/notifications");   // GET 요청
 
 es.onmessage = (e) => console.log(e.data);          // event: 없는 기본 메시지
 es.addEventListener("complete", (e) => { ... });    // event: complete
-es.onerror = () => { /* 자동 재연결됨. 완전 중단은 es.close() */ };
+es.onerror = () => { /* 네트워크 오류면 자동 재연결. readyState가 CLOSED면 재연결 안 함. 중단은 es.close() */ };
 ```
 
-- **자동 재연결 내장**: 연결이 끊기면 브라우저가 `retry` 간격으로 알아서 재접속 + `Last-Event-ID` 전송. WebSocket엔 없는 공짜 기능.
+- **자동 재연결 내장**: 네트워크 오류로 연결이 끊기면 브라우저가 `retry` 간격으로 알아서 재접속 + `Last-Event-ID` 전송. WebSocket엔 없는 공짜 기능.
+- ⚠️ **재연결은 네트워크 오류일 때만이다.** 응답 상태가 200이 아니거나 `Content-Type`이 `text/event-stream`이 아니면 스펙상 "fail the connection" → `readyState = CLOSED`, 다시 붙지 않는다. 세션 만료로 401이 나면 알림이 **조용히 멈추는** 전형적 원인이므로, `onerror`에서 `readyState`를 보고 재로그인·재구독을 직접 처리한다.
 - 한계: **GET만 가능, 커스텀 헤더 불가**(Authorization 못 붙임 → 쿠키 인증이거나 URL 토큰 필요), body 없음.
 
 ## 클라이언트: POST 스트리밍 (LLM 채팅 패턴)
@@ -107,7 +108,7 @@ public SseEmitter streamChat(@RequestBody ChatRequest request) {
 - `SseEmitter`를 반환하면 Spring이 요청을 **비동기 모드로 전환** — 서블릿 스레드는 바로 반납되고, 이후 `send()`는 아무 스레드에서나 호출 가능.
 - WebFlux라면 `Flux<ServerSentEvent<T>>`를 반환하는 방식도 있음.
 
-⚠️ **`emitter.send()`는 스레드 세이프가 보장되지 않는다.** 데이터 전송 스레드와 heartbeat 스레드가 다르면 동시에 send가 겹칠 수 있음 → lock으로 직렬화 필요.
+⚠️ **여러 스레드의 `send()`** (데이터 스레드 + heartbeat 스레드): 현재 Spring의 `ResponseBodyEmitter`는 내부 `writeLock`으로 개별 send를 직렬화하므로 이벤트가 섞이지 않는다. 여러 send를 한 덩어리로 묶어야 할 때만 외부 동기화가 필요하다 → [SseEmitter 구현 §스레드 모델](../../java/spring/sse-emitter.md).
 
 ⚠️ 정리(cleanup) 3종 세트를 꼭 등록: `onCompletion` / `onTimeout` / `onError`. 안 하면 클라이언트가 창을 닫아도 서버측 구독·타이머가 살아서 누수.
 
@@ -141,9 +142,10 @@ Flux<String> stream = webClient.post()
 
 ## 참고
 - MDN Using server-sent events: https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events
-- WHATWG HTML spec (SSE): https://html.spec.whatwg.org/multipage/server-sent-events.html
+- WHATWG HTML spec (SSE): https://html.spec.whatwg.org/multipage/server-sent-events.html — 비-200·잘못된 Content-Type이면 "fail the connection"(재연결 없음)
+- Spring `ResponseBodyEmitter` 소스(`writeLock`): https://github.com/spring-projects/spring-framework/blob/main/spring-webmvc/src/main/java/org/springframework/web/servlet/mvc/method/annotation/ResponseBodyEmitter.java
 - Spring SseEmitter: https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-ann-async.html
 
 ---
-학습 날짜: 2026-07-07
+학습 날짜: 2026-07-07 (2026-10-02 재연결 조건·send 스레드 안전성 정정)
 계기: LLM 채팅 스트리밍 MR에서 `SseEmitter` + `text/event-stream` + heartbeat + UTF-8 컨버터 등록 코드를 보고 각각이 왜 필요한지 파면서.

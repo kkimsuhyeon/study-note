@@ -62,7 +62,7 @@ dates.descendingSet();                // 역순 "뷰"
 ### 만들기 — 정렬 기준
 ```java
 new TreeSet<>();                                  // 원소의 Comparable(자연 순서) 사용
-new TreeSet<>(Comparator.comparing(Emp::getNo));  // 별도 기준
+new TreeSet<>(Comparator.comparing(Product::getSku));  // 별도 기준
 stream.collect(Collectors.toCollection(TreeSet::new));  // 스트림에서 바로
 ```
 - Comparable도 아니고 Comparator도 안 줬으면 **add 시점에 `ClassCastException`** (컴파일 에러 아님).
@@ -92,13 +92,14 @@ hash.size();  // 2 — equals가 다르니 둘 다 들어감
 tree.size();  // 1 — compareTo==0 이라 "같은 원소"로 보고 하나 버림!
 ```
 
-- 더 흔한 사고: `new TreeSet<>(Comparator.comparing(Emp::getDeptId))` — **부서가 같으면 사원이 통째로 dedup**된다. 한 필드 기준 Comparator를 준 순간 그 필드가 유일키가 되는 것. 정렬만 원했는데 원소가 사라졌다면 이걸 의심.
-- 해법: 비교 기준에 tie-breaker를 붙인다 — `comparing(Emp::getDeptId).thenComparing(Emp::getEmpNo)`.
+- 더 흔한 사고: `new TreeSet<>(Comparator.comparing(Product::getCategoryId))` — **카테고리가 같으면 상품이 통째로 dedup**된다. 한 필드 기준 Comparator를 준 순간 그 필드가 유일키가 되는 것. 정렬만 원했는데 원소가 사라졌다면 이걸 의심.
+- 해법: 비교 기준에 tie-breaker를 붙인다 — `comparing(Product::getCategoryId).thenComparing(Product::getSku)`.
+- **넣은 뒤 비교 키를 바꾸면 트리가 깨진다.** TreeSet은 add 시점의 비교 결과로 자리를 정하므로, 원소의 정렬 필드를 나중에 바꾸면 `contains`/`remove`가 그 원소를 못 찾는다(HashSet에서 hashCode 필드를 바꾸는 것과 같은 함정 — Set Javadoc: "Great care must be exercised if mutable objects are used as set elements"). 정렬 키 필드는 불변으로 두거나, 바꿀 땐 빼고 → 바꾸고 → 다시 넣는다.
 
 ## 💡 판단 기준
 
 - **반환 타입 선언이 곧 계약이다**: 그냥 `Set` 으로 선언하면 호출자는 정렬을 믿을 수 없다. "정렬돼 있고 양 끝을 꺼낼 수 있다"가 API의 의미라면 `NavigableSet`(또는 SortedSet)으로 선언해서 드러낸다. 구현체 `TreeSet` 반환 타입은 지양 — 뒤에서 `ConcurrentSkipListSet`으로 바꿀 수 있어야 하니까.
-- 실제 케이스: 마감 계산 대상일 함수가 처음엔 `Set<LocalDate>` 반환 + 호출부 `Collections.min/max` 였다. "이 집합의 min~max로 DB 조회 범위를 잡는다"가 용도의 본질이었어서 `NavigableSet` 반환 + `first()/last()` 로 바꿈 — 타입이 "범위를 꺼내 쓰라고 만든 집합"임을 말해준다.
+- 실제 케이스: 정산 대상일을 돌려주는 함수가 처음엔 `Set<LocalDate>` 반환 + 호출부 `Collections.min/max` 였다. "이 집합의 min~max로 DB 조회 범위를 잡는다"가 용도의 본질이었어서 `NavigableSet` 반환 + `first()/last()` 로 바꿈 — 타입이 "범위를 꺼내 쓰라고 만든 집합"임을 말해준다.
 - **TreeSet에 커스텀 Comparator를 넣는 순간 "정렬 기준 = 중복 기준"이 된다**는 걸 자문할 것 — 정렬만 필요하고 원소는 다 보존해야 하면 List + sort가 안전하다.
 
 ## 참고
@@ -106,6 +107,8 @@ tree.size();  // 1 — compareTo==0 이라 "같은 원소"로 보고 하나 버�
 - [NavigableSet (Java SE 11 Javadoc)](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/util/NavigableSet.html)
 - [TreeSet (Java SE 11 Javadoc)](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/util/TreeSet.html) — "not consistent with equals" 명시
 - [SortedSet (Java SE 11 Javadoc)](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/util/SortedSet.html)
+- [Set (Java SE 17 Javadoc)](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/Set.html) — 가변 객체를 원소로 쓸 때의 주의
 
 ---
-학습: 2026-07-29 — client_api 마감 조회/계산 분리 중, 대상일 집합의 반환 타입을 `NavigableSet`으로 잡으면서 (`targetDates().first()/last()` 로 조회 범위 산출).
+학습: 2026-07-29 — 정산 로직의 조회/계산 분리 중, 대상일 집합의 반환 타입을 `NavigableSet`으로 잡으면서 (`targetDates().first()/last()` 로 조회 범위 산출).
+보강: 2026-10-02 — 넣은 뒤 정렬 키를 바꾸면 조회가 깨지는 함정 추가.

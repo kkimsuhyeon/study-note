@@ -91,7 +91,7 @@ Controller ──────── Service ──────── Repository
 
 ### ⚠️ 프록시 방식의 제약 — 왜 메서드 실행으로 제한되는가
 
-> **복습 세션에서 헷갈렸던 부분**: "빈 주입 이후에 사용 가능해서"라고 생각했지만, 근본 원인은 다르다.
+> ⚠️ **흔한 오해**: "빈 주입 이후에야 쓸 수 있어서"라고 생각하기 쉽지만, 근본 원인은 다르다.
 
 **핵심: 프록시는 메서드 오버라이딩 개념으로 동작한다.**
 
@@ -107,9 +107,9 @@ Controller ──────── Service ──────── Repository
 - 필드 값 접근 → ❌ 오버라이딩 불가
 - static 메서드 → ❌ 오버라이딩 불가
 
-따라서:
-- **스프링 AOP의 조인 포인트는 메서드 실행 지점으로 제한된다.**
-- **스프링 컨테이너가 관리하는 스프링 빈에만** AOP를 적용할 수 있다.
+따라서 **스프링 AOP의 조인 포인트는 메서드 실행 지점으로 제한된다.**
+
+별개로 **스프링 컨테이너가 관리하는 스프링 빈에만** AOP를 적용할 수 있다. 이건 오버라이딩 때문이 아니라, 자동 프록시 생성기([빈 후처리기](./bean-post-processor.md))가 **빈을 등록하는 시점에 원본을 프록시로 바꿔치기**하는 구조라서다. ([ProxyFactory](./proxy-factory.md)를 직접 쓰면 빈이 아닌 객체에도 프록시를 만들 수 있다.)
 
 AspectJ를 사용하면 바이트코드를 직접 조작하므로 생성자, 필드, static 메서드 등 모든 지점에 AOP를 적용할 수 있다.
 
@@ -132,6 +132,7 @@ AspectJ를 사용하면 바이트코드를 직접 조작하므로 생성자, 필
 
 - `@Aspect`, `@Around`, `execution(...)` 같은 **어노테이션과 포인트컷 표현식**은 AspectJ 것을 빌려 씀
 - AspectJ의 **컴파일러, 로드타임 위버 등은 사용하지 않음**
+- 단, 포인트컷 **파싱·매칭에는 AspectJ가 제공하는 라이브러리(`aspectjweaver`)를 실제로 쓴다** — 그래서 의존성에 aspectjweaver가 필요하다. 실행(런타임)은 순수 스프링 AOP다 (공식 문서)
 - 내부적으로는 지금까지 배운 **프록시 방식**으로 AOP를 구현
 
 ---
@@ -170,7 +171,7 @@ AspectJ를 사용하면 바이트코드를 직접 조작하므로 생성자, 필
 
 ### ⚠️ 헷갈리기 쉬운 용어 구분
 
-> **복습 세션에서 혼동한 부분들**
+> ⚠️ **흔한 오해들**
 
 **타겟 ≠ "포인트컷 조건에 만족하는 객체"** — 정의와 선별 수단을 구분할 것
 - 타겟의 **정체(정의)**는 프록시가 내부적으로 참조하고 있는 **원본 객체**
@@ -227,7 +228,7 @@ public class MyAspect {
     → 적용할 어드바이저가 하나라도 있으면
         → ProxyFactory로 프록시 생성 (Ch.6)
             → 인터페이스 있으면 JDK 동적 프록시, 없으면 CGLIB (Ch.5)
-            → Spring Boot는 proxyTargetClass=true 기본 → 항상 CGLIB
+            → Spring Boot는 자동 프록시 생성기에 proxyTargetClass=true를 기본 적용 → 이 경로에선 항상 CGLIB (ProxyFactory를 직접 쓰면 해당 없음)
         → 실제 빈 대신 프록시를 스프링 컨테이너에 등록
 
 [런타임 — 메서드 호출 시점]
@@ -257,5 +258,8 @@ public class MyAspect {
 ## 참고
 
 - 김영한, 스프링 핵심 원리 - 고급편, Ch.9 스프링 AOP 개념
+- [Spring Framework Reference — AOP Concepts](https://docs.spring.io/spring-framework/reference/core/aop/introduction-defn.html) (Join point·Pointcut·Advice·Target·Weaving 등 용어 정의)
+- [Spring Framework Reference — @AspectJ support](https://docs.spring.io/spring-framework/reference/core/aop/ataspectj.html) (AspectJ 5 애노테이션을 해석하되 포인트컷 파싱·매칭에 AspectJ 라이브러리 사용, 런타임은 순수 스프링 AOP·AspectJ 컴파일러/위버 의존 없음)
+- [Spring Framework Reference — Proxying Mechanisms](https://docs.spring.io/spring-framework/reference/core/aop/proxying.html) (JDK 동적 프록시 vs CGLIB, 프록시 기반의 한계)
 - 학습 날짜: 2026-08-14
 - 계기: 강의 Ch.9 수강 후 소크라테스식 복습 세션 — 타겟·위빙 정의, 클래스 로딩 시점 위빙, 프록시 제약의 근본 이유(메서드 오버라이딩) 등에서 갭 발견하여 보충

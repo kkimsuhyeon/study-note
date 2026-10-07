@@ -135,6 +135,9 @@ amount.signum() == 0                   // ✅ signum: 부호만 (-1/0/1) 반환,
 
 > 검증 코드에서 "0 이하 막기"는 `amount.compareTo(ZERO) <= 0`, "음수만 막고 0 허용"은 `< 0`. **두 메서드(충전/차감)의 0 정책을 일관되게** 가져갈 것.
 
+### ⚠️ `equals`를 내부에서 쓰는 곳은 전부 scale에 걸린다
+직접 `equals`를 안 불러도 **record·Lombok `@Value`/`@EqualsAndHashCode` VO의 equals, `HashMap`/`HashSet` 키, `assertEquals`**는 `BigDecimal.equals`를 쓴다 → `Money(500)`과 `Money(500.00)`이 다른 값이 된다(DB `NUMERIC(19,2)`에서 읽어오면 scale 2로 돌아오는 경우가 흔하다). 반대로 `TreeSet`/`TreeMap`은 `compareTo`라 둘을 같은 원소로 본다 → [정렬 집합의 "같음"](../collections/sorted-navigable-set.md). VO라면 생성 시 `setScale(2, RoundingMode.HALF_UP)` 등으로 **scale을 정규화**해 두면 equals가 값 비교처럼 동작한다.
+
 ---
 
 ## 6. scale / stripTrailingZeros
@@ -172,3 +175,4 @@ new BigDecimal("1.50").stripTrailingZeros().toPlainString(); // "1.5"
 
 **학습 날짜**: 2026-05-28
 **계기**: 테스트에서 `isEqualByComparingTo`와 `compareTo(ZERO)`를 쓰다가 BigDecimal의 equals/compareTo/scale 차이와 돈 계산 주의점을 정리
+**보강(2026-10-02)**: record·VO·해시 컬렉션처럼 equals를 내부에서 쓰는 곳의 scale 함정과 scale 정규화 추가.

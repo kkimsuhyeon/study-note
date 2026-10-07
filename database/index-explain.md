@@ -105,7 +105,7 @@ where user_id = ?
 |---|---|
 | 자주 조회하는 equality 조건 | 인덱스 후보 |
 | equality + range 조건 | 복합 인덱스 후보 |
-| 낮은 선택도 컬럼 | 단독 인덱스 효과가 약할 수 있음 |
+| 고유값이 적은(카디널리티가 낮은) 컬럼 — 성별·상태값 | 단독 인덱스 효과가 약할 수 있음 (조건 하나가 행의 큰 비율을 돌려줌) |
 | 정렬 + limit | 정렬 컬럼 인덱스 검토 |
 | 쓰기가 많은 테이블 | 인덱스 수를 더 보수적으로 |
 
@@ -114,14 +114,25 @@ where user_id = ?
 ## 7. 함정
 
 - `like '%keyword'`는 일반 B-tree 인덱스를 잘 못 탄다.
-- `where date(created_at) = ?`처럼 컬럼에 함수를 씌우면 인덱스를 못 탈 수 있다. (탈출구: 조건을 범위로 바꾸거나, PostgreSQL이면 **함수 기반 인덱스** `create index on t (date(created_at))`로 계산 결과 자체를 인덱싱.)
-- 실행 계획의 row 추정이 틀리면 통계 갱신이 필요할 수 있다.
+- `where date(created_at) = ?`처럼 컬럼에 함수를 씌우면 인덱스를 못 탈 수 있다. (탈출구: 조건을 범위로 바꾸거나, PostgreSQL이면 **식 인덱스(expression index)** `create index on t (date(created_at))`로 계산 결과 자체를 인덱싱.)
+  - ⚠️ 식 인덱스의 함수는 IMMUTABLE이어야 한다. `created_at`이 `timestamptz`면 `date()` 결과가 세션 TimeZone에 따라 달라져 `functions in index expression must be marked IMMUTABLE`로 생성이 실패한다(PG17 확인). `timestamp`면 된다. timestamptz는 `((created_at AT TIME ZONE 'Asia/Seoul')::date)`처럼 시간대를 고정한 식으로 만들고, 조회도 같은 식으로 써야 인덱스를 탄다.
+- ⚠️ **`EXPLAIN ANALYZE`는 쿼리를 실제로 실행한다.** `UPDATE`·`DELETE`에 붙이면 데이터가 바뀐다 → `BEGIN; EXPLAIN ANALYZE ...; ROLLBACK;`으로 감싼다. 그냥 `EXPLAIN`은 실행하지 않고 계획만 보여준다.
+- 실행 계획의 row 추정이 틀리면 통계 갱신이 필요할 수 있다. `EXPLAIN ANALYZE`의 예상 `rows`와 실제 `rows`가 자릿수 단위로 다르면 `ANALYZE 테이블`부터 의심한다.
 - 개발 DB의 작은 데이터로는 인덱스 효과가 안 보일 수 있다.
 
 ---
 
+## 💡 판단 기준
+
+연도 필터를 `extract(year from created_at) = 2024`로 썼다가 범위 조건으로 바꾼 케이스([SQL 쿡북 §1](./sql-cookbook.md))처럼, **"인덱스를 타는가"는 감이 아니라 `EXPLAIN`의 `Index Cond` 줄로 확인한다.** 조건이 `Index Cond`에 있으면 인덱스가 그 조건으로 범위를 좁힌 것이고, `Filter` 줄에만 있으면 읽은 뒤에 거른 것이다. 인덱스를 새로 만들지 말지는 "자주 쓰는 조회 패턴 + 쓰기 비용"으로 정하고, 만든 뒤에는 실제 크기의 데이터로 `EXPLAIN ANALYZE`를 다시 본다.
+
 ## 8. 참고
 
-- PostgreSQL EXPLAIN
-- MySQL EXPLAIN
-- SQL 케이스 쿡북의 날짜 범위 조회
+- [PostgreSQL — Using EXPLAIN (EXPLAIN ANALYZE는 실제 실행)](https://www.postgresql.org/docs/current/using-explain.html)
+- [PostgreSQL — Indexes on Expressions](https://www.postgresql.org/docs/current/indexes-expressional.html)
+- [MySQL 8.0 — EXPLAIN Output Format](https://dev.mysql.com/doc/refman/8.0/en/explain-output.html)
+- [Use The Index, Luke! — WHERE 절과 인덱스](https://use-the-index-luke.com/sql/where-clause)
+- 관련 노트: [SQL 케이스 쿡북](./sql-cookbook.md)의 날짜 범위 조회 · [LATERAL 조인](./lateral-join-top-n-per-group.md) 3번(`loops`·`actual time` 읽기)
+
+**학습 날짜**: 2026-06-08 (2026-10-02 식 인덱스·EXPLAIN ANALYZE 함정 보강)
+**계기**: SQL 쿡북의 날짜 범위 조회에서 나온 "컬럼을 함수로 감싸면 인덱스를 못 탄다"를 인덱스·실행 계획 기본과 함께 따로 정리

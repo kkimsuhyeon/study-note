@@ -1,10 +1,10 @@
-# @Lock - JPA 락 어노테이션
+# @Lock - Spring Data JPA 락 어노테이션
 
-> **한 줄 요약**: JPA Repository 메서드에 락 모드를 지정해, 쿼리 실행 시 DB 레벨의 락을 걸 수 있게 해주는 어노테이션.
+> **한 줄 요약**: Spring Data JPA Repository 메서드에 락 모드를 지정해, 쿼리 실행 시 DB 레벨의 락을 걸 수 있게 해주는 어노테이션. (`@Lock`은 Spring Data JPA 것이고, 락 모드 `LockModeType`만 JPA 표준이다)
 
 ```java
-import jakarta.persistence.Lock;
-import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;  // Spring Data JPA (jakarta.persistence.Lock은 없다)
+import jakarta.persistence.LockModeType;              // JPA 표준 enum
 
 @Lock(LockModeType.PESSIMISTIC_WRITE)
 Optional<UserPoint> findByUserId(@Param("userId") Long userId);
@@ -66,22 +66,9 @@ T2: UPDATE balance = 1000 - 500  → 500  ← T1의 차감이 사라짐
 | 적합한 경우 | 충돌 빈도 높음, 정확성 최우선 | 충돌 빈도 낮음, 처리량 중요 |
 | 예시 | 포인트 차감, 재고 | 게시글 수정, 프로필 변경 |
 
-> **version이 틀리면 대기? 에러?** → 낙관적 락은 락을 실제로 걸지 않고 커밋 시점에 version만 비교한다. 안 맞으면 **기다리지 않고 즉시 `OptimisticLockException`** → 롤백 → 애플리케이션에서 재시도해야 함. 반면 비관적 락은 DB가 row를 잠그므로 다른 트랜잭션이 **대기**하고, 락 해제 시 순서대로 진행된다 (무한 대기 방지용 타임아웃 초과 시에만 `LockTimeoutException`).
+> **version이 틀리면 대기? 에러?** → 낙관적 락은 락을 실제로 걸지 않고 커밋 시점에 version만 비교한다. 안 맞으면 **기다리지 않고 즉시 예외** → 롤백 → 애플리케이션에서 재시도하거나 사용자에게 알려야 함. 반면 비관적 락은 DB가 row를 잠그므로 다른 트랜잭션이 **대기**하고, 락이 풀리면 이어서 진행된다 (대기 한도 초과·데드락일 때만 예외 → §4).
 
-```java
-// 낙관적 락 재시도 예시
-int retry = 0;
-while (true) {
-    try {
-        return pointService.charge(userId, amount);
-    } catch (OptimisticLockException e) {
-        if (++retry >= 3) throw e;
-        // 다시 읽어서 최신 version으로 재시도 (스프링은 @Retryable로도 처리)
-    }
-}
-```
-
-> ⚠️ 재시도는 **트랜잭션 바깥**(위처럼 서비스 호출을 통째로 다시)이라야 한다 — `@Transactional` *안*에서 `catch`하면 예외는 commit 시점에 터져 안 잡히고, 트랜잭션은 이미 rollback-only다. (왜·`@Retryable` 패턴 → [@Lock 실무 패턴 §6](./lock-practical.md))
+> ⚠️ 재시도는 **트랜잭션 바깥에서 새 트랜잭션으로** 해야 하고, Spring 환경에서 잡을 예외는 JPA `OptimisticLockException`이 아니라 Spring이 감싼 `ObjectOptimisticLockingFailureException`(상위 `OptimisticLockingFailureException`)이다 — JPA 예외로 catch하면 안 잡힌다. (왜·`@Retryable` 패턴 → [@Lock 실무 패턴 §6](./lock-practical.md))
 
 > 위 모드/전략에서 헷갈리는 부분(@Version만 vs @Lock(OPTIMISTIC), 공유락 vs 배타락, OPTIMISTIC vs FORCE_INCREMENT)은 [@Lock 심화 개념](./lock-concepts.md)에서 따로 정리.
 
@@ -124,7 +111,7 @@ SELECT * FROM user_point WHERE user_id = ? FOR UPDATE;
 
 → 이 row를 잡은 트랜잭션이 커밋/롤백할 때까지 다른 트랜잭션은 같은 row에 대해 SELECT FOR UPDATE / UPDATE가 **block**된다.
 
-### 낙관적 락 (OPTIMISTIC)
+### 낙관적 락 (`@Version`)
 
 ```java
 @Entity
@@ -132,18 +119,18 @@ public class UserPoint {
     @Id private Long userId;
     private Long point;
 
-    @Version  // 낙관적 락에 필요
+    @Version  // 이것만으로 낙관적 락 동작 — 별도 @Lock 불필요
     private Long version;
 }
 ```
 
 ```java
-@Lock(LockModeType.OPTIMISTIC)
-@Query("SELECT u FROM UserPoint u WHERE u.userId = :userId")
-Optional<UserPoint> findByUserId(@Param("userId") Long userId);
+// 평범한 조회 + 더티 체킹이 곧 낙관적 락
+UserPoint point = userPointRepository.findById(userId).orElseThrow();
+point.charge(amount);   // flush 시 UPDATE ... WHERE user_id = ? AND version = ?
 ```
 
-커밋 시점에 version이 안 맞으면 `OptimisticLockException` 발생 → 재시도 로직 필요.
+커밋(flush) 시점에 version이 안 맞으면(0건 갱신) 예외 → 재시도 또는 사용자 통지. `@Lock(LockModeType.OPTIMISTIC)`은 **수정하지 않고 읽기만 한 엔티티**까지 검증하고 싶을 때만 덧붙이는 보조 옵션이다 → [@Lock 심화 §1](./lock-concepts.md).
 
 > 실무 적용 패턴(`@Lock` 동작 위치·메서드 네이밍·조회/수정 분리·동시성 테스트·재시도·벌크/조건부 UPDATE·인덱스)은 [@Lock 실무 패턴](./lock-practical.md) 참고.
 
@@ -171,10 +158,11 @@ T2: lock(B) → lock(A) 시도 (대기)
 @QueryHints({@QueryHint(name = "jakarta.persistence.lock.timeout", value = "3000")})
 Optional<UserPoint> findByUserIdForUpdate(@Param("userId") Long userId);
 ```
-타임아웃 없으면 무한 대기 → 장애 전파.
+- ⚠️ **이 힌트는 DB·Hibernate 버전에 따라 무시된다.** Hibernate 6.x의 MySQL·PostgreSQL 방언은 `0`(→ `NOWAIT`)·`-2`(→ `SKIP LOCKED`)만 SQL에 반영하고 그 밖의 ms 값은 버린다(`FOR UPDATE WAIT n`을 지원하는 Oracle 등만 반영). Hibernate 최신 소스(7.x)에는 커넥션 수준 설정(`set local lock_timeout` / `SET @@SESSION.innodb_lock_wait_timeout`)으로 적용하는 경로가 생겼다(도입 버전 확인 필요). → 실제 나가는 SQL·설정을 로그로 확인할 것.
+- 힌트가 안 먹으면 **DB 기본값**을 따른다: MySQL `innodb_lock_wait_timeout` 기본 **50초**, PostgreSQL `lock_timeout` 기본 **0(무제한 대기)**. PostgreSQL에서 무한 대기 → 커넥션 고갈 → 장애 전파를 막으려면 별도로 설정해야 한다.
 
 ### (4) DB 종류별 지원 차이
-- MySQL: `FOR UPDATE`, `FOR SHARE` 지원 (8.0+)
+- MySQL: `FOR UPDATE` 지원, `FOR SHARE`는 8.0+ (이전엔 `LOCK IN SHARE MODE`)
 - PostgreSQL: `FOR UPDATE`, `FOR SHARE` 지원
 - H2: 지원하지만 동작이 미묘하게 다름 → 테스트 시 주의
 
@@ -185,52 +173,32 @@ Optional<UserPoint> findByUserIdForUpdate(@Param("userId") Long userId);
 
 ## 5. 다른 동시성 제어와의 비교
 
-현재 진행 중인 hhplus-tdd-java 프로젝트는 **JPA 없이** `ConcurrentHashMap<Long, ReentrantLock>`으로 동시성을 제어 중. 같은 문제를 푸는 방식들 비교:
+JVM 락(`synchronized`, `ReentrantLock`, 사용자별 락을 담은 `ConcurrentHashMap<Long, ReentrantLock>`)은 **그 JVM 안에서만** 유효하다. 포인트 충전을 사용자별 `ReentrantLock`으로 직렬화하던 서버를 2대로 늘리면, 각 서버의 락이 따로 놀아 lost update가 다시 생긴다. 같은 로직을 §3의 `findByUserIdForUpdate` + `@Transactional`로 바꾸면 **DB가 행 단위로 줄을 세우므로** 서버 대수와 무관하게 막힌다. 대신 대기가 DB 커넥션을 쥔 채 일어나므로 성능 특성과 장애 양상(커넥션 고갈·데드락)이 달라진다.
 
-| 방식 | 범위 | 장점 | 단점 |
-|------|------|------|------|
-| `synchronized` / `ReentrantLock` | **JVM 단일 인스턴스** | 간단함, 빠름 | 서버 여러 대면 무용지물 |
-| `ConcurrentHashMap` + `ReentrantLock` (userId별) | JVM 단일 인스턴스 | 유저별 락 → 다른 유저는 병렬 처리 가능 | 위와 동일 |
-| **JPA `@Lock`** (DB 락) | **DB를 공유하는 모든 인스턴스** | 멀티 서버에서도 안전 | DB 부하, 데드락 가능 |
-| Redis 분산 락 (Redisson 등) | 분산 환경 | DB 부하 낮음, 유연 | 인프라 의존성 추가 |
-
-→ **단일 서버 학습 단계**에서는 ReentrantLock으로 충분. 실제 서비스(서버 N대)에서는 DB 락이나 분산 락이 필요. (락 전체 그림은 [락 개념 종합](../concurrency/locks.md), JVM 도구는 [JVM 동시성 도구](../concurrency/jvm-concurrency-tools.md))
-
-### hhplus 프로젝트 현재 코드와의 연결
-
-```java
-// PointServiceImpl.java
-private final Map<Long, ReentrantLock> userLocks = new ConcurrentHashMap<>();
-
-ReentrantLock lock = userLocks.computeIfAbsent(userId, k -> new ReentrantLock());
-lock.lock();
-try {
-    // 포인트 충전/사용 로직
-} finally {
-    lock.unlock();
-}
-```
-
-이 코드를 JPA + `@Lock(PESSIMISTIC_WRITE)`로 바꾸면:
-```java
-@Transactional
-public UserPoint charge(Long userId, long amount) {
-    UserPoint point = userPointRepository.findByUserIdForUpdate(userId).orElseThrow();
-    point.charge(amount);
-    return point;
-}
-```
-→ 코드는 깔끔해지지만, DB가 락을 관리하므로 성능 특성과 장애 시나리오가 달라진다.
+→ 범위별 비교(JVM 락 / DB 락 / 분산 락)는 [락 개념 종합 §2](../concurrency/locks.md), JVM 도구는 [JVM 동시성 도구](../concurrency/jvm-concurrency-tools.md).
 
 ---
 
-## 6. 참고
+## 6. 💡 판단 기준
+
+- **기본은 `@Version`(낙관).** 충돌이 드물고, 충돌 시 재시도나 "다시 시도하세요" 통지로 충분한 수정(프로필·게시글)이면 이것만 붙인다. `@Lock(OPTIMISTIC)`은 "안 고치는 엔티티 값에 내 판단이 걸릴 때"만 → [@Lock 심화 §1](./lock-concepts.md).
+- **같은 행에 충돌이 잦고 실패 비용이 큰 경로(잔액·재고·좌석)만 `PESSIMISTIC_WRITE`.** 붙이는 순간 타임아웃이 실제로 먹는지(§4-(3))와 락 순서(데드락)를 같이 확인한다.
+- **읽고 판단할 게 없는 단순 차감이면 락 대신 조건부 UPDATE** (`... WHERE stock >= ?` + 영향 행 수) → [@Lock 실무 패턴 §8](./lock-practical.md).
+- **사람이 끼는 편집(GET 폼 → POST 저장)은 비관락 불가** — version을 화면에 실어 보냈다가 저장 때 비교하는 오프라인 낙관락 → [락 개념 종합](../concurrency/locks.md).
+- **서버가 2대 이상이면 JVM 락은 답이 아니다** (§5).
+
+---
+
+## 7. 참고
 
 - [Spring Data JPA - Locking 공식 문서](https://docs.spring.io/spring-data/jpa/reference/jpa/locking.html)
+- [Hibernate ORM 6.6 User Guide - Locking (lock timeout 힌트·미지원 시 무시)](https://docs.hibernate.org/orm/6.6/userguide/html_single/#locking)
+- [MySQL 8.0 - innodb_lock_wait_timeout (기본 50초)](https://dev.mysql.com/doc/refman/8.0/en/innodb-parameters.html#sysvar_innodb_lock_wait_timeout)
+- [PostgreSQL - lock_timeout (기본 0 = 무제한)](https://www.postgresql.org/docs/current/runtime-config-client.html)
 - [Baeldung - Pessimistic Locking in JPA](https://www.baeldung.com/jpa-pessimistic-locking)
 - 관련 노트: [@Lock 심화 개념](./lock-concepts.md) · [@Lock 실무 패턴](./lock-practical.md) · [영속성 컨텍스트](./persistence-context.md) · [락 개념 종합](../concurrency/locks.md)
 
 ---
 
 **학습 날짜**: 2026-05-25
-**계기**: hhplus-tdd-java 프로젝트에서 ReentrantLock으로 동시성 제어 중, JPA에서는 어떻게 처리하는지 궁금해서 조사 (2026-05-26 심화/실무를 별도 문서로 분리)
+**계기**: 포인트 충전 동시성을 `ReentrantLock`으로 제어하다가, 서버가 여러 대일 때 JPA에서는 어떻게 처리하는지 궁금해서 조사 (2026-05-26 심화/실무를 별도 문서로 분리, 2026-10-02 사실 보정·💡 추가)

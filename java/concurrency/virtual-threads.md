@@ -18,7 +18,7 @@
 
 - 가상 스레드는 **JDK(JVM)가 스케줄**하는 경량 스레드. 스택이 **힙에** 저장돼 (고정 1MB 아님) 매우 쌈 → **수백만 개** 생성 가능.
 - 실행되려면 진짜 OS 스레드가 필요한데, 그게 **캐리어 스레드**(소수의 플랫폼 스레드 풀, 보통 CPU 코어 수).
-  - ⚠️ 용어 함정: 캐리어는 **새로운 종류의 스레드가 아니다** — 스레드 종류는 플랫폼/가상 2개뿐이고, "캐리어"는 가상 스레드를 태워 실행하는 **플랫폼 스레드의 역할 이름**(carrier=태워 나르는 것). 비유: 가상 스레드=승객 수만 명, 캐리어=버스 N대(코어 수) — 블로킹 대기 중인 승객은 버스에서 내려(unmount) 있으므로 버스 몇 대로 수만 명을 감당한다. 단 버스는 이동 수단이 아니라 **"엔진 달린 좌석"** — 어딘가로 데려다주는 게 아니라 앉아 있는 동안만 코드가 진행된다. Semaphore·커넥션 풀 같은 검문소를 "지나가는" 코드 자체가 캐리어 위에서 실행되는 것이지, 캐리어가 파이프라인의 한 단계(검문소)인 게 아니다. 그리고 **모든 대기가 하차 지점**이다 — DB 응답만이 아니라 Semaphore 대기, 커넥션 풀 대기도 블로킹이므로 전부 unmount된다(그래서 가상 스레드에선 기다림이 싸다).
+  - ⚠️ 용어 함정: 캐리어는 **새로운 종류의 스레드가 아니다** — 스레드 종류는 플랫폼/가상 2개뿐이고, "캐리어"는 가상 스레드를 태워 실행하는 **플랫폼 스레드의 역할 이름**(carrier=태워 나르는 것). 비유: 가상 스레드=승객 수만 명, 캐리어=버스 N대(코어 수) — 블로킹 대기 중인 승객은 버스에서 내려(unmount) 있으므로 버스 몇 대로 수만 명을 감당한다. 단 버스는 이동 수단이 아니라 **"엔진 달린 좌석"** — 어딘가로 데려다주는 게 아니라 앉아 있는 동안만 코드가 진행된다. Semaphore·커넥션 풀 같은 검문소를 "지나가는" 코드 자체가 캐리어 위에서 실행되는 것이지, 캐리어가 파이프라인의 한 단계(검문소)인 게 아니다. 그리고 **대부분의 대기가 하차 지점**이다 — DB 응답(소켓 I/O)만이 아니라 Semaphore 대기, 커넥션 풀 대기도 j.u.c 기반 블로킹이므로 unmount된다(그래서 가상 스레드에선 기다림이 싸다). 예외는 하차를 못 하는 **pinning**(§5) — JDK 21~23의 `synchronized` 안 블로킹, 네이티브 코드·클래스 초기화 중 블로킹 등.
 - **M개 가상 스레드를 N개 캐리어에 멀티플렉싱**(M:N) — Go의 goroutine, Erlang 프로세스와 같은 발상.
 - 💡 **이해 프레임: "이미 아는 패턴의 반복(2단 스케줄링)"** — OS 스케줄러가 "OS 스레드 수백 개 → 코어 N개"에 번갈아 태우듯([threads.md §3-1](./threads.md)), JVM 스케줄러가 "가상 스레드 수만 개 → 캐리어 N개"에 번갈아 태운다. 같은 다중화 아이디어를 한 층 위에서 한 번 더 한 것.
 - 가상 스레드는 "스레드 대기표"가 아니라 **완전한 실행 흐름**(힙에 자기 스택+진행 상태 보유) — 없는 건 전용 OS 스레드뿐. 블로킹으로 unmount된 가상 스레드는 runnable 큐에도 없다(자원 0) — I/O 완료 신호가 오면 그때 큐에 들어가 캐리어를 기다린다.
@@ -74,6 +74,7 @@ spring:
     virtual:
       enabled: true   # Tomcat이 요청마다 가상 스레드로 처리, @Async 등도 적용
 ```
+> ⚠️ 이 모드에선 자동 구성 `applicationTaskExecutor`가 풀이 아니라 **가상 스레드용 `SimpleAsyncTaskExecutor`**가 된다(풀링 금지 원칙대로) — 대신 **개수 상한이 기본으로 없다**(`spring.task.execution.simple.concurrency-limit` 기본 -1). `@Async`로 하류 자원을 치는 작업이면 이 값이나 Semaphore로 상한을 세운다(§7). 플랫폼 스레드 풀 시절의 "SimpleAsync = 사고"([스레드 풀 §8](./thread-pool.md))가 여기선 의도된 설정이라는 차이.
 
 ---
 
@@ -83,11 +84,13 @@ spring:
 
 - **Java 21**: `synchronized` 블록 안에서 블로킹하면 **pinning 발생**. → 당시 권고: 블로킹 구간엔 `synchronized` 대신 **`ReentrantLock`** 사용.
 - **Java 24 (JEP 491)**: JVM이 모니터 소유를 **가상 스레드 단위로 추적**하도록 바뀌어 **`synchronized` pinning 해소**. → 이제 `synchronized`를 굳이 `ReentrantLock`으로 바꿀 필요 **없음**(JEP 491 저자도 더는 권장 안 함).
-- 단 JEP 491 후에도 **다른 pinning 원인은 남음**: JNI 호출, 클래스 초기화, 일부 `Object.wait` 경로 등. `jdk.VirtualThreadPinned` JFR 이벤트로 감지.
+- JEP 491은 `Object.wait()`도 unmount되게 바꿨다. 그 후에도 **남는 pinning**: ① 네이티브 메서드·FFM 호출 안에서 다시 Java로 돌아와 블로킹 ② 클래스 로딩(심볼 참조 해석) 중 블로킹 ③ 클래스 초기화(`<clinit>`) 안 블로킹, 또는 다른 스레드의 클래스 초기화를 기다릴 때. 감지는 `jdk.VirtualThreadPinned` JFR 이벤트(JDK 24부터 고정 이유·캐리어까지 표시). JDK 21의 `-Djdk.tracePinnedThreads`는 JDK 24에서 제거됐다.
 - pinning 자체는 **예외도 에러도 아니다** — 조용한 확장성 저하일 뿐이고, 블로킹이 끝나면(DB 응답 등) **저절로 풀린다**. 피해 크기 = 핀 시간 × 빈도 × 동시 수 (짧고 드물면 티도 안 남). 데드락(원형 대기·영원히 안 풀림)과 구분할 것 — pinning은 일방적 점유·시한부.
 - ⚠️ 단, 최악의 조합에선 **진짜 데드락으로 승격**된다(JEP 491의 동기 사례). Java 21에선 **monitor 진입 대기도 pinning**이라: 락 보유 VT가 unmount된 사이(락 쥔 채 I/O 대기) 캐리어 전원이 "그 락을 기다리는 VT"로 pinned되면 → 보유자가 다시 탈 캐리어가 없어 락을 영원히 못 놓는다. "보유자가 돌아올 자리를 대기자들이 점거"하는 원형 구조.
 
-> ⚠️ **이 프로젝트는 Java 21**이라 `synchronized`+블로킹 pinning이 *아직 실재*하는 버전. 가상 스레드를 적극 쓸 거면 블로킹 임계구역은 `ReentrantLock` 고려, 또는 JDK 24+로 올리면 신경 덜 써도 됨.
+> ⚠️ **JDK 21~23 환경**이면 `synchronized`+블로킹 pinning이 *아직 실재*한다. 가상 스레드를 적극 쓸 거면 블로킹 임계구역은 `ReentrantLock` 고려, 또는 JDK 24+로 올리면 신경 덜 써도 됨. (JDK 24+에서 새 코드는 JCiP 권고대로 "되도록 `synchronized`, 유연성이 필요할 때 `ReentrantLock`" — JEP 491)
+
+> ⚠️ **선점(time-slicing)이 없다.** 가상 스레드 스케줄러는 CPU를 오래 쓴 스레드를 강제로 내리지 않는다(JEP 444: "does not currently implement time sharing"). 블로킹 없이 계산만 오래 하는 가상 스레드는 캐리어를 붙잡고 안 내려와, 캐리어 수(=코어 수)만큼만 그런 작업이 있어도 **다른 가상 스레드 전부가 굶는다**. CPU 바운드는 "이득 0"이 아니라 "남까지 막는" 쪽 — 플랫폼 스레드 풀로 분리한다.
 
 ---
 
@@ -109,7 +112,7 @@ spring:
 | 동시 수 제한·자원 풀 | 여전히 Semaphore 등 (가상 스레드여도) |
 | 정합성(race) | 가상이든 아니든 **락 필요** |
 
-> ⭐ (2026-08-18 퀴즈 중 통찰) **스레드를 늘려서 좋을 건 항상 없다 — 동시 처리량의 상한은 스레드 수가 아니라 가장 좁은 병목이 정한다.** 플랫폼 스레드 시절엔 스레드 자체가 병목(스택 ~1MB·컨텍스트 스위칭), 가상 스레드는 스레드는 싸졌지만 **하류의 한정 자원(DB 커넥션 풀·외부 API)에 수만 개가 동시에 몰리는** 새 문제가 생긴다. 예: 톰캣 200 스레드는 사실 커넥션 풀 앞의 "의도치 않은 자연 상한"이었는데, 가상 스레드 전환으로 그 상한이 사라짐 → Semaphore로 명시적 상한을 다시 세워야 한다([JVM 동시성 도구 §5](./jvm-concurrency-tools.md)). 커넥션 풀 자체도 구조상 "허가증 N장짜리 Semaphore"(빌리기=acquire, 반납=release)이며 **DB의 방패** — 풀을 무작정 키우면 방패가 사라져 DB가 직접 짓눌린다.
+> ⭐ **스레드를 무작정 늘린다고 처리량이 늘지 않는다 — 동시 처리량의 상한은 스레드 수가 아니라 가장 좁은 병목이 정한다.** 플랫폼 스레드 시절엔 스레드 자체가 병목(스택 ~1MB·컨텍스트 스위칭), 가상 스레드는 스레드는 싸졌지만 **하류의 한정 자원(DB 커넥션 풀·외부 API)에 수만 개가 동시에 몰리는** 새 문제가 생긴다. 예: 톰캣 200 스레드는 사실 커넥션 풀 앞의 "의도치 않은 자연 상한"이었는데, 가상 스레드 전환으로 그 상한이 사라짐 → Semaphore로 명시적 상한을 다시 세워야 한다([JVM 동시성 도구 §5](./jvm-concurrency-tools.md)). 커넥션 풀 자체도 구조상 "허가증 N장짜리 Semaphore"(빌리기=acquire, 반납=release)이며 **DB의 방패** — 풀을 무작정 키우면 방패가 사라져 DB가 직접 짓눌린다.
 >
 > 한 줄: **가상 스레드 = 블로킹 I/O를 값싸게 많이 굴리는 도구(M:N, unmount). Java 21 정식이라 플래그 불필요, 직접은 `startVirtualThread`/`newVirtualThreadPerTaskExecutor`(풀링 금지), Spring은 프로퍼티 한 줄.** 단 ① I/O 바운드에만 이득 ② Java 21은 `synchronized` pinning 주의(JDK24서 해결) ③ 락은 그대로 필요(확장성↑ ≠ 정합성).
 
@@ -117,9 +120,10 @@ spring:
 
 ## 8. 참고
 - [JEP 444: Virtual Threads](https://openjdk.org/jeps/444)
-- [JEP 491: Synchronize Virtual Threads without Pinning (JDK 24)](https://openjdk.org/jeps/491)
+- [JEP 491: Synchronize Virtual Threads without Pinning (JDK 24)](https://openjdk.org/jeps/491) — 남는 pinning 목록·`jdk.tracePinnedThreads` 폐지·새 코드 권고
+- [Spring Boot - Application Properties (`spring.task.execution.simple.concurrency-limit`)](https://docs.spring.io/spring-boot/appendix/application-properties/index.html)
 - [Oracle - Virtual Threads (Java 21)](https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html)
-- 관련 노트: [스레드 기초](./threads.md) · [JVM 동시성 도구](./jvm-concurrency-tools.md) · [락 개념](./locks.md)
+- 관련 노트: [스레드 기초](./threads.md) · [JVM 동시성 도구](./jvm-concurrency-tools.md) · [락 개념](./locks.md) · [ThreadLocal](./thread-local.md)(가상 스레드 × ThreadLocal 주의)
 
 ---
 

@@ -31,7 +31,7 @@ spring.jpa.open-in-view to disable this warning
 
 - **최초 DB 커넥션을 얻는 시점부터 API 응답이 끝날 때까지** 영속성 컨텍스트와 커넥션 리소스를 유지한다.
 - 그래서 **트랜잭션이 끝난 컨트롤러/View Template에서도 지연 로딩이 동작**한다. 지연 로딩은 영속성 컨텍스트가 살아 있어야 가능하고, 영속성 컨텍스트는 기본적으로 커넥션을 필요로 하기 때문. 이것 자체가 큰 장점.
-- 단, 트랜잭션 밖에서는 **영속 상태여도 "조회만" 가능** — 값을 바꿔도 flush할 트랜잭션이 없으므로 변경 감지는 트랜잭션 범위 안에서만 의미가 있다. (flush 메커니즘 → [persistence-context.md](./persistence-context.md))
+- 단, 트랜잭션 밖에서는 **영속 상태여도 "조회만" 가능** — 값을 바꿔도 flush할 트랜잭션이 없으므로 변경 감지는 트랜잭션 범위 안에서만 의미가 있다. 단 그 변경이 뒤에 오는 트랜잭션에 실려 커밋되는 함정이 있다(§4). (flush 메커니즘 → [persistence-context.md](./persistence-context.md))
 
 ### 대가: 커넥션 점유 시간 = 요청 처리 시간 전체
 
@@ -39,7 +39,7 @@ spring.jpa.open-in-view to disable this warning
 - 실시간 트래픽이 중요한 애플리케이션에서는 **커넥션이 모자라게 되고, 이는 결국 장애로 이어진다.**
 - 커넥션 풀 고갈이 "무관한 기능까지 마비"시키는 메커니즘은 기존 노트에 정리돼 있음 → [transactional.md의 커넥션 고갈](../spring/transactional.md) · [locks.md의 커넥션 풀 고갈](../concurrency/locks.md)
 
-> 참고(세부): Hibernate 5.2+ 기본 커넥션 해제 모드(`DELAYED_ACQUISITION_AND_RELEASE_AFTER_TRANSACTION`)에서는 트랜잭션이 끝나면 커넥션을 일단 반환하고, 뷰에서 지연 로딩이 일어나면 다시 획득하는 동작도 있다(설정 따라 다름 — 세부는 확인 필요). 어느 쪽이든 **"응답이 끝날 때까지 요청이 커넥션 리소스를 계속 소비할 수 있는 구조"** 라는 본질과 고갈 위험은 같다.
+> 참고(세부): Hibernate 자체의 기본 커넥션 처리 모드는 트랜잭션이 끝나면 커넥션을 반환하는 `DELAYED_ACQUISITION_AND_RELEASE_AFTER_TRANSACTION`이지만, **Spring의 `HibernateJpaVendorAdapter`는 `hibernate.connection.handling_mode`를 `DELAYED_ACQUISITION_AND_HOLD`로 강제**한다(`prepareConnection=true` 기본, 사용자가 이 속성을 직접 지정하면 그 값이 우선). 그래서 스프링 부트 기본 구성에서는 처음 커넥션을 얻은 뒤 **EntityManager가 닫힐 때까지(OSIV면 응답 완료까지) 커넥션을 쥐고 있다** — 위 설명 그대로다. (JTA 트랜잭션 타입이면 강제하지 않는다)
 
 ---
 
@@ -97,6 +97,7 @@ public class OrderQueryService {
 - **"기본값이니 안전하겠지"가 함정.** 기본 ON은 편의를 위한 것이고, 스프링 스스로 warn을 찍을 만큼 대가가 있다. 켜둔 채 컨트롤러에서 외부 API·파일 IO 같은 느린 작업을 하면 그 시간만큼 커넥션을 못 돌려준다.
 - **OSIV OFF로 바꾸는 순간 기존 코드가 터진다.** 컨트롤러/뷰 여기저기서 잘 돌던 지연 로딩이 전부 `LazyInitializationException` 후보가 된다. 끄는 건 설정 한 줄이지만, 지연 로딩을 트랜잭션 안으로 옮기는 리팩토링이 본체다.
 - **OSIV ON이어도 트랜잭션 밖에선 수정 불가.** "영속 상태 = 변경 감지"로 착각하기 쉬운데, flush를 일으킬 트랜잭션이 없으면 setter는 그냥 자바 객체 변경일 뿐이다.
+- **⚠️ 그런데 그 변경이 "나중에" 커밋될 수는 있다.** 컨트롤러에서 엔티티를 수정한 뒤 같은 요청 안에서 다른 `@Transactional` 서비스를 호출하면, 그 트랜잭션이 **같은 영속성 컨텍스트에 합류**해 commit 때 더티 체킹이 컨트롤러에서 바꾼 값까지 flush한다(자바 ORM 표준 JPA 13장). 의도치 않은 UPDATE의 흔한 원인 → **컨트롤러(프레젠테이션 계층)에서 엔티티를 수정하지 말 것.** 수정은 서비스 트랜잭션 안에서 ([Read-Modify-Write](./read-modify-write.md)).
 
 ---
 
@@ -115,8 +116,9 @@ public class OrderQueryService {
 - 자바 ORM 표준 JPA 프로그래밍 13장 "웹 애플리케이션과 영속성 관리" (OSIV 심화)
 - [Baeldung - A Guide to Spring's Open Session in View](https://www.baeldung.com/spring-open-session-in-view)
 - [Spring Boot - JPA properties (`spring.jpa.open-in-view`)](https://docs.spring.io/spring-boot/appendix/application-properties/index.html)
+- [Spring Framework - `HibernateJpaVendorAdapter` javadoc (`setPrepareConnection`: `DELAYED_ACQUISITION_AND_HOLD` 강제)](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/orm/jpa/vendor/HibernateJpaVendorAdapter.html)
 
 ---
 
 **학습 날짜**: 2026-08-12
-**계기**: 김영한 JPA 활용2 5장 수강 — 앱 시작 때마다 보던 open-in-view warn 로그의 정체와, 지연 로딩 편의 뒤에 커넥션 고갈 트레이드오프가 있음을 정리
+**계기**: 김영한 JPA 활용2 5장 수강 — 앱 시작 때마다 보던 open-in-view warn 로그의 정체와, 지연 로딩 편의 뒤에 커넥션 고갈 트레이드오프가 있음을 정리 (2026-10-02 커넥션 처리 모드 확인·컨트롤러 수정 함정 추가)

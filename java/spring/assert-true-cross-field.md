@@ -1,6 +1,6 @@
 # @AssertTrue — boolean getter로 하는 필드 조합(cross-field) 검증
 
-> **한 줄 요약**: `@AssertTrue`는 "boolean이 true인지" 검사하는 단순 제약이지만, 진짜 쓰임새는 **boolean getter 메서드에 붙여 여러 필드를 조합한 규칙("A가 X면 B 필수")을 DTO 안에 선언**하는 것. 핵심 함정 = **메서드 이름이 `is`/`get`으로 시작하지 않으면 조용히 무시**되고, **다른 필드가 null이어도 실행되므로 getter 안에 null 가드가 필수**.
+> **한 줄 요약**: `@AssertTrue`는 "boolean이 true인지" 검사하는 단순 제약이지만, 진짜 쓰임새는 **boolean getter 메서드에 붙여 여러 필드를 조합한 규칙("A가 X면 B 필수")을 DTO 안에 선언**하는 것. 핵심 함정 = **getter 규약(`get…` / 원시 `boolean`을 반환하는 `is…`·`has…`)을 벗어나면 조용히 무시**되고, **다른 필드가 null이어도 실행되므로 getter 안에 null 가드가 필수**.
 
 관련 노트: [@Valid · @Validated](./validation.md) — 검증 트리거/cascade/제약 카탈로그(@NotBlank 비교, 타입별 제약 표)는 그쪽 · [도메인 검증 위치](../design/domain-validation.md)
 
@@ -70,7 +70,7 @@ public boolean isPeriodValid() {
 
 ## 4. ⚠️ 함정 / 메커니즘
 
-1. **메서드 이름이 `is`/`get`으로 시작해야 한다.** JavaBean getter 규약(파라미터 없음 + `is`는 boolean 반환)을 따라야 프로퍼티로 인식된다. `checkValid()` 같은 이름이면 **컴파일 에러도, 런타임 에러도 없이 그냥 검증이 안 돈다** — 제일 위험한 함정.
+1. **getter로 인식되는 이름·반환형이어야 한다.** Hibernate Validator 기본 규칙: 파라미터가 없고 ① `get`으로 시작해 값을 반환 ② `is`로 시작해 **원시 `boolean`** 반환 ③ `has`로 시작해 원시 `boolean` 반환(③은 HV 고유, 스펙에는 없음). `checkValid()` 같은 이름이면 **컴파일 에러도, 런타임 에러도 없이 그냥 검증이 안 돈다** — 제일 위험한 함정. ⚠️ **`public Boolean isValid()`처럼 래퍼 `Boolean`을 반환하는 `is` 메서드도 getter가 아니라 같은 식으로 무시된다** — `@AssertTrue` 메서드는 반환형을 `boolean`으로 둔다.
 2. **null은 통과.** `Boolean` 필드에 붙였는데 값이 null이면 유효로 간주(대부분의 제약과 동일한 "null은 각자 @NotNull로" 원칙). 필수면 `@NotNull` 병행.
 3. **다른 제약과 실행 순서 보장이 없고, 다른 필드가 위반이어도 실행된다.** `@NotNull` 실패한 필드를 getter에서 그대로 참조하면 NPE → 검증 전체가 `ValidationException`으로 터진다(400이 아니라 500). **getter 안 null 가드는 선택이 아니라 필수.** 순서를 강제하고 싶으면 `@GroupSequence`가 있지만 대부분 null 가드로 충분.
 4. **에러 응답의 필드명 = 프로퍼티명.** `isValid()`면 `valid`라는 필드로 위반이 보고된다. 프론트가 "무슨 필드가 틀렸다는 거야?"가 되지 않게 **메서드명을 규칙이 드러나게** 짓는다 (`isFeedbackPresentWhenDislike` → `feedbackPresentWhenDislike`).
@@ -91,9 +91,10 @@ public boolean isPeriodValid() {
 
 - [Jakarta Bean Validation 스펙 — built-in constraints](https://beanvalidation.org/2.0/spec/#builtinconstraints) (`@AssertTrue`: "null elements are considered valid")
 - [Hibernate Validator Reference — declaring constraints (property-level)](https://docs.jboss.org/hibernate/stable/validator/reference/en-US/html_single/#validator-usingvalidator-annotate)
+- 소스 — Hibernate Validator `DefaultGetterPropertySelectionStrategy` (`get`/`is`/`has` 접두사, `is`·`has`는 `boolean.class` 반환만 인정)
 - 관련 노트: [@Valid · @Validated](./validation.md) · [도메인 검증 위치](../design/domain-validation.md) · [커스텀 어노테이션](../annotation/custom-annotation.md)
 
 ---
 
 **학습 날짜**: 2026-07-29
-**계기**: 회사 프로젝트 요청 DTO에서 `@AssertTrue(message = "나쁨일 경우 feedback은 필수")`가 붙은 `isValid()` 메서드를 보고 "필드도 아닌 메서드에 붙는 게 어떻게 동작하지?"가 궁금해서 정리. 같은 프로젝트의 엑셀 업로드 행 검증 DTO는 이 패턴을 수십 개 나열해 행 단위 검증기를 만들고 있었다.
+**계기**: 요청 DTO에서 `@AssertTrue(message = "나쁨일 경우 feedback은 필수")`가 붙은 `isValid()` 메서드를 보고 "필드도 아닌 메서드에 붙는 게 어떻게 동작하지?"가 궁금해서 정리. 엑셀 업로드 행 검증 DTO는 이 패턴을 수십 개 나열해 행 단위 검증기를 만들고 있었다.

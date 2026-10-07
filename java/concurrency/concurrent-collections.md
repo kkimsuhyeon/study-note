@@ -29,7 +29,7 @@ private final Map<Long, ReentrantLock> userLocks = new ConcurrentHashMap<>();
 // ✅ 원자적 복합 연산 — "없으면 만들어 넣고, 있으면 그걸 반환"을 한 방에
 ReentrantLock lock = userLocks.computeIfAbsent(userId, k -> new ReentrantLock());
 ```
-([locks.md](./locks.md)의 userId별 락 예제가 정확히 이 패턴)
+([locks.md](./locks.md)의 userId별 락 예제가 정확히 이 패턴 — 단 이 맵은 키가 지워지지 않아 계속 커진다는 함정이 있다 → locks.md §2(1)의 ⚠️)
 
 ### 동작 원리 (Java 8+)
 - 버킷(bin) 단위로 **CAS + 부분 synchronized** — 맵 전체를 잠그지 않아서 서로 다른 키를 만지는 스레드끼리는 거의 안 부딪친다. (읽기 `get()`은 락 없음)
@@ -59,6 +59,7 @@ map.merge(key, 1, Integer::sum);              // 카운팅 관용구 (있으면 
 ### ⚠️ 그 외 함정
 - **null 키/값 불허** (`HashMap`은 허용) — 동시성 환경에선 `get()==null`이 "키 없음"인지 "null 저장"인지 구분 불가라 설계에서 막았다.
 - `computeIfAbsent`의 **fn 안에서 같은 맵을 또 수정하지 말 것** — 같은 버킷을 다시 잡으려다 교착/`IllegalStateException`.
+- `computeIfAbsent`/`compute`의 **fn은 짧게** — fn은 그 버킷의 락을 쥔 채 실행돼서, 안에서 DB·HTTP 호출 같은 느린 생성을 하면 같은 버킷을 만지는 다른 스레드의 갱신이 그동안 막힌다(Javadoc: "the computation should be short and simple"). 생성이 느리면 값 대신 `CompletableFuture`를 넣어 두고 밖에서 완료시키는 식으로 락 밖으로 뺀다.
 - `size()`는 순간 스냅샷이 아니라 근사치에 가깝다 — 동시 수정 중엔 참고값으로만.
 
 ---
@@ -114,7 +115,7 @@ Task t = queue.take();  // 비어 있으면 들어올 때까지 대기
 | 스레드 간 작업 전달, 속도 차 조절 | `BlockingQueue` (경계 있는 `ArrayBlockingQueue` 우선) |
 | 컬렉션이 지역변수/단일 스레드 | 일반 `HashMap`/`ArrayList` — 동시성 컬렉션은 공짜가 아니다 |
 
-> 한 줄: **공유되면 동시성 컬렉션, 공유 Map은 `ConcurrentHashMap`이 기본값.** 단 동시성 컬렉션도 **개별 연산만** 지켜준다 — "확인하고 행동"은 [check-then-act](./jvm-concurrency-tools.md)라 여기서도 깨지니, 반드시 전용 원자 메서드(`putIfAbsent`/`computeIfAbsent`/`merge`)로. (재고 -30 사고와 같은 구조가 Map에서도 반복된다)
+> 한 줄: **공유되면 동시성 컬렉션, 공유 Map은 `ConcurrentHashMap`이 기본값.** 단 동시성 컬렉션도 **개별 연산만** 지켜준다 — "확인하고 행동"은 [check-then-act](./jvm-concurrency-tools.md)라 여기서도 깨지니, 반드시 전용 원자 메서드(`putIfAbsent`/`computeIfAbsent`/`merge`)로. (재고를 "확인 후 차감"하다 음수가 되는 사고와 같은 구조가 Map에서도 반복된다)
 
 ---
 
@@ -127,4 +128,4 @@ Task t = queue.take();  // 비어 있으면 들어올 때까지 대기
 ---
 
 **학습 날짜**: 2026-08-12
-**계기**: 동시성 7개 노트 1회독 완주 후 공백 점검 — locks.md 예제에서 `computeIfAbsent`를 이미 쓰고 있는데 동시성 컬렉션 정리가 없었다. check-then-act(재고 -30)가 Map에서도 같은 구조로 반복된다는 연결이 핵심.
+**계기**: 동시성 7개 노트 1회독 완주 후 공백 점검 — locks.md 예제에서 `computeIfAbsent`를 이미 쓰고 있는데 동시성 컬렉션 정리가 없었다. check-then-act(재고 확인 후 차감 → 음수)가 Map에서도 같은 구조로 반복된다는 연결이 핵심.

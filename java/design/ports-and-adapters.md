@@ -42,7 +42,7 @@ adapter/out (persistence·security) ──────────────�
 
 ---
 
-## 2. 실제 코드 (이 프로젝트)
+## 2. 실제 코드 (예시)
 
 ```java
 // 포트 — 도메인이 "이 능력이 필요해"를 규격으로 선언 (Security 모름)
@@ -72,6 +72,7 @@ public class PasswordHasherAdapter implements PasswordHasher {
 | Controller → Service | 밖→안 (이미 올바름) | ❌ | 구체 클래스 직접 호출 OK |
 
 - 교과서 헥사고날엔 service 앞에도 포트(**in port**, `CreateUserUseCase` 인터페이스)가 있지만, 의존 방향이 이미 맞아 이득이 적어 **실무에선 대부분 생략**. "service는 비즈니스 그 자체(안쪽)라 포트감이 아니다"는 직감과 같은 결론.
+- 📖 여기서 UseCase = in port **인터페이스**. 이와 달리 "교차 도메인을 조율하는 별도 application 클래스"를 UseCase라 부르는 관례도 있다 → [도메인 검증 §5-3](./domain-validation.md).
 - 그래서 포트는 사실상 **out**(영속화·외부 시스템)에 집중된다.
 
 ## 4. 실무에서 뭘 포트로 빼나 (빈도순)
@@ -86,7 +87,7 @@ public class PasswordHasherAdapter implements PasswordHasher {
 
 - **포트는 "필요를 선언한 쪽"이 소유** — `PasswordHasher`는 `UserRegistration`(user 도메인)이 필요로 하니 `domain/user/application/port`. 한 도메인만 쓰는데 미리 공용 자리에 두는 건 반(反)YAGNI.
 - **쓰는 도메인이 둘 이상 되면 그때 공용 위치로 승격.**
-- 포트를 application에 두냐 domain(model 옆)에 두냐는 **학파 차이** — 헥사고날/클린=application 경계, DDD=도메인 계층. 둘 다 정당. (이 프로젝트는 전자)
+- 포트를 application에 두냐 domain(model 옆)에 두냐는 **학파 차이** — 헥사고날/클린=application 경계, DDD=도메인 계층. 둘 다 정당.
 
 ### 5-0. 포트 패키지 구성 — "계약 + 계약의 어휘", 나눌 땐 in/out
 
@@ -121,6 +122,36 @@ public record PageResult<T>(List<T> content, long totalElements, int totalPages)
 
 **어댑터를 `@Component` 대신 `@Configuration`에서 `new`로 조립하는 이유** — 어댑터가 설정값(API 키·타임아웃)과 무거운 준비물(RestClient·메시지 컨버터·리다이렉트 정책)을 필요로 할 때, 그 준비를 설정 클래스 한곳에 모으고 어댑터 자체는 평범한 클래스로 둔다. 테스트에서 `new`로 바로 만들기 쉽다. `@Component` + 생성자 `@Value`도 똑같이 동작하니 **취향과 일관성의 문제**다 — 섞어 쓰면 "이 빈은 어디서 생기지?"를 매번 찾게 되니 한 프로젝트 안에서는 규칙을 하나로.
 
+### 5-3. 저장소 포트 하나에 관심사가 모일 때 — "이름과 메서드가 맞나", "에러를 누가 만드나"
+
+한 유즈케이스가 테이블 여러 개를 쓰면, 편해서 포트 하나(`XxxRepository`)에 메서드를 다 몰아넣기 쉽다. 신호 세 가지:
+
+1. **포트 이름과 메서드가 안 맞는다.** "보고서 저장소"에 보고서와 무관한 요청 한도 카운터 메서드가 있다. 나중에 다른 기능(재시도 API 등)이 한도만 쓰려 해도 보고서 저장소에 의존해야 한다.
+2. **비즈니스 규칙과 에러가 영속성 엔티티 안에 있다.** JPA 엔티티가 "한도 초과면 429 + Retry-After 예외"를 직접 던진다. 저장 계층이 응답 정책을 결정하는 셈이다.
+3. **에러를 만들기 위한 값이 저장소까지 내려간다.** `retryAfterSeconds`처럼 저장과 무관하고 예외 메시지에만 쓰이는 인자가 포트 시그니처에 있으면, 에러를 만드는 위치가 틀렸다는 신호다.
+
+나누는 방법: 관심사별로 포트를 분리하고(`RateLimitRepository`), 포트는 **의도만**(`boolean tryConsume(key, limit)`), 어댑터는 **DB에서 원자적으로 해내는 방법만**(`INSERT ... ON CONFLICT` → `FOR UPDATE` → 증가) 맡는다. 결과가 `false`면 **안쪽(유즈케이스·도메인)이 에러를 만든다.** "어떻게 저장하나"는 바깥, "넘으면 무엇이 되나"는 안쪽이다.
+
+### 5-4. application 폴더가 어색해 보일 때 — 폴더를 늘리기 전에 "섞인 관심사"부터
+
+"파일이 많아서 폴더로 묶고 싶다"는 느낌의 원인이 개수가 아닐 때가 많다. 먼저 볼 신호:
+
+- **계층 간 비대칭.** 같은 관심사(요청 한도)가 domain·infrastructure에선 자기 패키지(`ratelimit/`)로 나뉘었는데 application에서만 다른 기능(`report/`) 안에 섞여 있다.
+- **다른 관심사의 타입이 끼어 있다.** 보고서 폴더에 한도 버킷 record가 있다.
+- **유즈케이스 하나가 두 가지 일을 한다.** 생성 흐름 메서드 아래에 한도 계산·해시·정렬 헬퍼가 30줄 붙어 있다.
+
+이때 해법은 종류별 하위 폴더(`command/ response/ usecase/`)가 아니라 **섞인 관심사를 협력 객체로 빼서 제 패키지에 두는 것**이다(`application/ratelimit/RateLimiter`). 유즈케이스에는 `rateLimiter.consume(...)` 한 줄과 생성 흐름만 남는다.
+
+종류별 폴더를 미루는 이유:
+- **Java에는 "하위 패키지 접근"이 없다.** `report/`와 `report/command/`는 서로 남남인 패키지라, 같은 폴더라서 package-private으로 숨겨 두던 타입을 쪼개는 순간 `public`으로 열어야 한다.
+- 파일 6개를 폴더 4개로 나누면 폴더당 1~2개 — 찾는 비용만 는다.
+- 나중에 유즈케이스가 3개 이상으로 늘어 각자 command·response를 가지면, 그때 **유즈케이스별**(`report/create/`, `report/get/`)로 나눈다. 한 기능을 고칠 때 보는 파일이 한 폴더에 모인다.
+
+트랜잭션 안의 로직을 협력 객체로 뺄 때 주의:
+- 협력 객체에 **`REQUIRES_NEW`를 붙이지 않는다.** 호출자 트랜잭션에 합류해야 생성이 실패할 때 늘어난 카운트도 같이 롤백된다. 별 트랜잭션이면 실패한 요청도 한도를 깎는다.
+- **호출 위치를 그대로 둔다.** 예: 멱등 재전송 확인 **뒤**, 비싼 작업 **앞**. 옮기다 순서가 바뀌면 재전송도 한도를 소비한다.
+- 동작이 같으니 기존 테스트를 고치지 않고 통과하는 것이 성공 기준이다.
+
 ---
 
 ## 6. 💡 판단 기준
@@ -130,9 +161,12 @@ public record PageResult<T>(List<T> content, long totalElements, int totalPages)
 ---
 
 ## 7. 참고
-- 관련 노트: [도메인 검증 위치](./domain-validation.md) · [변환 계층](./transform-layers.md)
+- 관련 노트: [도메인 검증 위치](./domain-validation.md) · [변환 계층](./transform-layers.md) · [책임 경계 §3-1](./responsibility-boundaries.md)(Request를 안쪽에 넘겨도 되는 구조)
+- [Alistair Cockburn - Hexagonal Architecture](https://alistair.cockburn.us/hexagonal-architecture/) — 포트&어댑터 원문
+- [ArchUnit User Guide](https://www.archunit.org/userguide/html/000_Index.html) — 패키지 의존 규칙을 테스트로 강제
 
 ---
 
 **학습 날짜**: 2026-06-10
 **계기**: `PasswordHasher` 포트+어댑터를 직접 만들며 — "adapter가 진짜 (돼지코) 어댑터구나" + "내 `UserRepository`도 포트랑 다를 게 없네" 깨달음에서. 콘센트/플러그 비유, in/out 포트와 "역전 필요할 때만 인터페이스" 기준, 포트 소유권(필요 선언한 쪽→둘째 사용자 때 승격) 정리.
+**보강(2026-10-02)**: UseCase 용어가 도메인 검증 노트와 다르게 쓰이는 점 표시, 프로젝트 한정 문장 정리, 참고 URL 추가.

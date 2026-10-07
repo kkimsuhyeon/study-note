@@ -14,7 +14,7 @@
 
 **`@Version`만 있을 때 (자동 동작)**
 
-`@Version`을 붙이면 엔티티를 **수정(UPDATE)할 때만** 자동으로 version 체크가 일어난다.
+`@Version`을 붙이면 엔티티를 **수정·삭제(UPDATE/DELETE)할 때만** 자동으로 version 체크가 일어난다 (DELETE도 `WHERE id=? AND version=?`).
 ```sql
 UPDATE product SET stock = 9, version = 2
 WHERE id = 1 AND version = 1;
@@ -43,6 +43,8 @@ SELECT version FROM product WHERE id = 1;
 | **읽기만 할 때** | **체크 안 됨** | **커밋 시점에 체크 됨** |
 
 > 요약: `@Version`은 락의 전제 조건(필수). `@Lock(OPTIMISTIC)`은 "읽기만 하는 데이터도 트랜잭션 끝까지 안 변했는지 보장"하고 싶을 때 추가로 명시.
+
+> ⚠️ **`OPTIMISTIC`의 읽기 검증에는 틈이 있다.** 검증은 커밋 직전 `SELECT version` 한 번이고 커밋과 원자적이지 않아서, "version 확인 → (그 사이 남이 커밋) → 내 커밋"이 가능하다. 예: 주문 트랜잭션이 상품 version을 확인한 직후 가격 변경이 커밋되면, 주문은 옛 가격으로 통과한다. 엄격히 막으려면 비관적 락으로 커밋까지 그 행의 변경 자체를 막아야 한다 (예: 공유 락 `PESSIMISTIC_READ` — 구체 패턴은 참고의 Vlad Mihalcea 글, 모드 선택은 확인 필요).
 
 **그럼 `@Version` 없이 `@Lock(OPTIMISTIC)`만 쓰면? → 예외 발생 (동작 자체 불가)**
 
@@ -116,14 +118,7 @@ public void decreaseStock(Long id, int qty) {
 - 다른 트랜잭션의 **락 시도(`FOR SHARE`/`FOR UPDATE`)와 쓰기**를 차단 (단, 잠금 없는 일반 SELECT는 MVCC 스냅샷으로 읽힘 → [@Lock 실무 패턴](./lock-practical.md)의 "PESSIMISTIC_WRITE가 모든 SELECT를 막는 것은 아니다" 참고)
 - 용도: "내가 이거 수정할 거니까 아무도 건드리지 마" (재고 차감 등 경쟁 상황)
 
-**락 요청끼리의 호환성 표**
-
-| | 상대가 공유 락 | 상대가 배타 락 |
-|---|---|---|
-| **공유 락 요청** (`FOR SHARE`) | ✅ 가능 (같이 잡음) | ⛔ 대기 |
-| **배타 락 요청** (`FOR UPDATE`) | ⛔ 대기 | ⛔ 대기 |
-
-**일반 SELECT까지 포함한 전체 표** (← 공유락/배타락 차이가 헷갈릴 때)
+**호환성 표 — 일반 SELECT까지 포함** (← 공유락/배타락 차이가 헷갈릴 때. 락 호환성 표의 정본)
 
 | 내가 하려는 것 | 상대가 **공유 락** 잡음 | 상대가 **배타 락** 잡음 |
 |---|---|---|
@@ -225,9 +220,21 @@ UPDATE product SET stock = 9, version = 2 WHERE id = 1 AND version = 1;  -- ② 
 
 ---
 
+## 5. 💡 판단 기준
+
+- **`@Version`은 기본 장착, `@Lock(OPTIMISTIC)`은 "수정 안 하는 엔티티 값에 내 판단이 걸릴 때"만.** 예: 주문 검증에서 상품 재고·가격을 읽기만 하고 주문을 만든다 → 그 상품에만 `OPTIMISTIC`. 그것도 틈(§1 ⚠️)이 문제면 비관 락으로.
+- **공유 락은 "안 바꾸지만 바뀌면 안 됨 + 남의 읽기는 허용"일 때만** (FK 부모 보호 등). 읽고 곧 수정할 거면 처음부터 `FOR UPDATE` — 공유→배타 업그레이드는 데드락(§2).
+- **`*_FORCE_INCREMENT`는 자식 변경을 부모 버전에 반영해야 할 때만** (게시글-댓글, 애그리거트 루트). 그 외엔 꺼낼 일이 거의 없다.
+- **`@Version`이 있는 엔티티에 비관 락을 얹는 건 정상.** 대부분 낙관으로 다루고 고충돌 경로만 비관으로 잠그는 혼합 구성이면 `@Version`을 떼지 않는다(§4).
+
+---
+
 ## 참고
+- [Jakarta Persistence 3.2 - LockModeType](https://jakarta.ee/specifications/persistence/3.2/apidocs/jakarta.persistence/jakarta/persistence/lockmodetype)
+- [Hibernate ORM 6.6 User Guide - Locking](https://docs.hibernate.org/orm/6.6/userguide/html_single/#locking)
+- [Vlad Mihalcea - How to fix optimistic locking race conditions with pessimistic locking](https://vladmihalcea.com/how-to-fix-optimistic-locking-race-conditions-with-pessimistic-locking/) — `OPTIMISTIC` 검증과 커밋 사이의 틈
 - 관련 노트: [@Lock 기본](./lock.md) · [@Lock 실무 패턴](./lock-practical.md) · [영속성 컨텍스트](./persistence-context.md) · [데드락](../concurrency/deadlock.md)
 
 ---
 
-**학습 날짜**: 2026-05-25 (2026-05-26 lock.md에서 심화 개념만 분리)
+**학습 날짜**: 2026-05-25 (2026-05-26 lock.md에서 심화 개념만 분리, 2026-10-02 OPTIMISTIC 틈·💡 추가)

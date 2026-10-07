@@ -4,7 +4,7 @@
 
 ## 언제 쓰나
 
-- **나중에 로그인을 넣을 계획이 있고, 보안 경계를 한곳에 모아 두고 싶을 때.** 인증·인가·세션 고정 방지·CSRF가 같은 필터 체인 위에서 동작하게 된다.
+- **로그인 도입이 정해졌고, 그 전에 보안 경계를 한곳에 모아 두고 싶을 때.** 인증·인가·세션 고정 방지·CSRF가 같은 필터 체인 위에서 동작하게 된다. CSRF만을 위해서라면 들일 이유가 약하다([Origin 헤더](../../infra/network/origin-header.md) 💡).
 - **직접 만든 보안 필터(Origin·Content-Type 검사 등)를 표준 위치로 옮기고 싶을 때.**
 - 반대로 로그인 계획이 없고 직접 만든 필터가 잘 동작한다면 들일 이유가 약하다. 핵심 가치가 인증·인가다.
 
@@ -43,25 +43,42 @@ public class SecurityConfig {
 
 Spring Security가 기본으로 깔아 주는 장치는 대부분 **"브라우저 화면 + 로그인"**을 전제로 한다. 로그인이 없는 JSON API에서는 쓸 일이 없거나 오히려 방해가 된다.
 
+체인을 직접 정의하면 `HttpSecurity`에 기본으로 걸리는 것은 csrf·exceptionHandling·headers·sessionManagement·securityContext·requestCache·anonymous·servletApi·logout(+CORS 설정 빈이 있으면 cors)이다. **formLogin·httpBasic은 Boot의 기본 체인에만 있고 직접 정의한 체인에선 꺼져 있다** — 아래 표의 두 줄은 끄는 게 아니라 "쓰지 않는다"는 의도를 적어 두는 명시다(`HttpSecurityConfiguration` 소스).
+
 | 설정 | 그 장치가 원래 하는 일 | 로그인 없는 API에서 끄는 이유 | 로그인을 넣으면 |
 | --- | --- | --- | --- |
 | `csrf.disable()` | POST·PUT·DELETE마다 CSRF 토큰을 요구, 없으면 403 | 토큰을 주고받지 않으므로 전부 403. 다른 방어(Origin 검사 등)가 있을 때만 끈다 | 토큰 방식으로 바꿀지 결정 |
-| `cors.disable()` | 다른 origin에 응답 읽기를 허용하는 헤더 부착, preflight 응답 | 같은 origin 서비스. 나중에 CORS 빈이 생겨도 자동으로 열리지 않게 잠금 | 앱·웹뷰 등 다른 origin이 생길 때만 그 origin을 명시 |
+| `cors.disable()` | 다른 origin에 응답 읽기를 허용하는 헤더 부착, preflight 응답. CORS 설정 빈이 있으면 자동으로 켜진다(⚠️7) | 같은 origin 서비스. 나중에 CORS 빈이 생겨도 자동으로 열리지 않게 잠금 | 앱·웹뷰 등 다른 origin이 생길 때만 그 origin을 명시 |
 | `requestCache.disable()` | 로그인 안 한 사람이 보호 페이지에 오면 원래 요청을 **세션에 저장** → 로그인 후 그 페이지로 되돌려 보냄 | 로그인 페이지도 리다이렉트도 없다. 켜 두면 익명 방문자에게 세션이 생긴다 | 화면 기반 로그인이면 다시 켤 수 있음. JSON API면 보통 끈 채로 |
 | `sessionCreationPolicy(NEVER)` | Security가 세션을 언제 만들지 정함. 기본 `IF_REQUIRED`(필요하면 만듦) | Security는 세션을 **절대 만들지 않고, 있으면 쓰기만** 한다. 세션을 만드는 시점은 앱 코드가 정한다 | 세션 로그인이면 `IF_REQUIRED`로. JWT 같은 헤더 토큰이면 `STATELESS`(만들지도 쓰지도 않음) |
-| `formLogin.disable()` | `/login` HTML 로그인 폼과 아이디·비밀번호 POST 처리(`UsernamePasswordAuthenticationFilter`) | HTML 화면이 없는 JSON API | 폼 대신 JSON 로그인 API를 직접 만드는 경우가 많다 |
-| `httpBasic.disable()` | 브라우저 팝업으로 아이디·비밀번호를 받아 매 요청 `Authorization: Basic base64(id:pw)` 전송 | 쓰지 않는 인증 방식 | 내부 관리 도구 정도에서만 |
-| `logout.disable()` | `/logout` 요청 시 세션 무효화·쿠키 삭제·리다이렉트 | 익명 세션이 곧 보고서 소유권이라, 세션이 의도치 않게 무효화되면 결과를 잃는다 | 로그아웃 API로 다시 켬 |
+| `formLogin.disable()` | `/login` HTML 로그인 폼과 아이디·비밀번호 POST 처리(`UsernamePasswordAuthenticationFilter`) | 직접 정의한 체인에선 **원래 꺼져 있음** — 명시는 의도 표시. HTML 화면이 없는 JSON API | 폼 대신 JSON 로그인 API를 직접 만드는 경우가 많다 |
+| `httpBasic.disable()` | 브라우저 팝업으로 아이디·비밀번호를 받아 매 요청 `Authorization: Basic base64(id:pw)` 전송 | 직접 정의한 체인에선 **원래 꺼져 있음** — 명시는 의도 표시 | 내부 관리 도구 정도에서만 |
+| `logout.disable()` | `/logout` 요청 시 세션 무효화·쿠키 삭제·리다이렉트 | 로그인 없이 세션으로 자원 소유자를 구분하는 앱이라면, 세션이 의도치 않게 무효화되는 순간 결과를 잃는다 | 로그아웃 API로 다시 켬 |
 | `headers.disable()` | 보안 헤더 자동 부착(`Cache-Control: no-store` 계열, `X-Content-Type-Options`, `X-Frame-Options`, HTTPS면 HSTS) | 기존 필터가 같은 헤더를 직접 붙이므로 중복 방지 | HSTS·`X-Frame-Options`를 다시 켤지 결정 |
 
 `SessionCreationPolicy`의 `NEVER`는 **Security 자신**의 행동만 정한다. 앱 코드의 `request.getSession()`은 그대로 세션을 만든다.
+
+### 요청 방화벽(HttpFirewall) — 필터보다 먼저 URL 모양을 검사한다
+
+네트워크 방화벽이 아니라, Spring Security가 **모든 보안 필터보다 먼저** URL과 메서드의 모양을 검사하는 관문이다. 기본 구현 `StrictHttpFirewall`은 "서버의 여러 부품이 서로 다르게 해석할 수 있는 URL"을 거절한다(`RequestRejectedException` → 기본 400).
+
+| 기본으로 거절하는 것 | 이유 (공식 문서) |
+| --- | --- |
+| 세미콜론 `;` (`%3B` 포함) | 반사 파일 다운로드(RFD) 공격 방지 |
+| 인코딩된 마침표 `%2E`, 역슬래시 `\` `%5C` | 경로 정규화 차이를 이용한 디렉터리 이동(`../`) 방지 |
+| 인코딩된 슬래시 `%2F`, 이중 슬래시 | 서블릿 컨테이너와 경로 해석이 달라져 보안 규칙을 우회하는 것 방지 |
+| 표준이 아닌 HTTP 메서드 | 허용 목록(GET·POST·PUT·DELETE·PATCH·HEAD·OPTIONS) 밖은 거절 |
+
+- **세미콜론이 위험한 이유.** URL의 `;이름=값`은 경로 매개변수(행렬 매개변수, matrix variable)라서 서버는 무시하고 원래 경로로 보낸다. 그래서 같은 요청을 부품마다 다르게 본다. ① **RFD**: `https://a.com/api/search;setup.bat?q=...`처럼 붙이면 서버는 같은 API로 응답하지만, 브라우저는 응답을 `setup.bat`이라는 파일로 받을 수 있다 — 믿을 만한 a.com에서 받은 실행 파일처럼 보인다. ② **경로 규칙 우회**: 보안 규칙은 `/admin;x/users`를 `/admin/**`로 보지 못하는데 MVC는 `/admin/users`로 보내는 식의 해석 차이. 다른 프레임워크에서 이런 우회 사례가 반복됐다(일반 지식).
+- **`setAllowSemicolon(true)`는 세미콜론 하나만 다시 허용**하고 나머지 거절은 그대로 둔다. 행렬 매개변수(`@MatrixVariable`)를 실제로 쓰지 않는다면 허용할 이유가 없다 — 기존 동작을 유지하려는 이행 단계에서 임시로 두는 경우가 많고, **경로별 인가 규칙을 넣기 전에** 기본값으로 되돌린다.
+- 거절 응답 형식을 프로젝트 JSON 에러로 맞추려면 `RequestRejectedHandler` 빈을 둔다(방화벽은 필터보다 앞이라 `@ControllerAdvice`도 필터의 에러 처리도 닿지 않는다).
 
 ## 옵션 비교 — 2단계: CSRF를 어떻게 할까
 
 | 선택 | 프론트 변화 | 맞는 상황 |
 | --- | --- | --- |
 | 1단계 그대로(Origin 필터가 CSRF 담당) | 없음 | 같은 origin 웹만 있을 때. 계약 유지 |
-| `csrf(c -> c.spa())` 토큰 방식 | `XSRF-TOKEN` 쿠키를 먼저 받고 POST마다 `X-XSRF-TOKEN` 헤더 | 회사 표준과 맞추고 싶을 때, 로그인 폼까지 같은 방식으로 지킬 때 |
+| `csrf(c -> c.spa())` 토큰 방식 | `XSRF-TOKEN` 쿠키를 먼저 받고 POST마다 `X-XSRF-TOKEN` 헤더 | 같은 조직의 다른 서비스와 방식을 맞추고 싶을 때, 로그인 폼까지 같은 방식으로 지킬 때 |
 | 토큰 + Origin 필터 둘 다 | 위와 같음 | 피해가 큰 동작(결제·계정 변경)이 생겼을 때 |
 
 ## ⚠️ 함정
@@ -71,12 +88,13 @@ Spring Security가 기본으로 깔아 주는 장치는 대부분 **"브라우�
    - **`OncePerRequestFilter`를 상속했다면 본문은 한 번만 돈다.** 처음 실행될 때 요청 속성에 "이미 실행됨" 표시(`필터이름.FILTERED`)를 남기고, 같은 요청에서 다시 들어오면 `doFilterInternal`을 건너뛴다. 그래도 끄는 이유는 **주인을 하나로** 하기 위해서다 — 컨테이너 쪽 복사본이 살아 있으면, 나중에 Security 체인 설정(`securityMatcher` 등)을 실수로 바꿔도 컨테이너 쪽이 대신 검사해 줘서 **실수가 테스트에 드러나지 않는다.** 일반 `Filter`를 구현한 필터는 이런 표시가 없어 정말로 두 번 돈다.
    - `setEnabled(false)`는 "등록하지 않는다는 등록"이다. `FilterRegistrationBean`은 필터를 어떤 URL·순서로 컨테이너에 넣을지 적는 설명서인데, 이 필터에 대한 설명서가 있으면 Boot는 자동 등록을 하지 않고, `enabled=false`라 결국 아무것도 등록되지 않는다. 필터 빈 자체는 그대로 있어서 Security 체인에 주입할 수 있다.
    - 대안: 필터를 **빈으로 만들지 않고** 체인 메서드 안에서 `new`로 만들면 Boot가 볼 일이 없어 이 설정이 필요 없다(공식 문서도 "그래서 필터는 흔히 빈이 아니다"라고 쓴다). 대신 테스트에서 `@MockitoSpyBean`으로 바꿔 끼우거나 다른 빈에 주입할 수 없다.
+   - `@Component` vs 설정 클래스의 `@Bean`: 동작은 같다(둘 다 빈이라 자동 등록 끄기도 똑같이 필요). 고르는 기준은 **정책 값이 어디 있어야 읽기 쉬운가**다. 적용 경로·허용 Origin 같은 보안 정책을 보안 설정 한곳에 모으고, 같은 경로 패턴을 여러 빈(필터와 방화벽 거절 처리기 등)이 공유하면 설정의 `@Bean`이 낫다 — 필터 클래스는 "어떻게 검사하나"만 알고 "어디에·무엇을"은 설정이 정한다. 필터가 스스로 설정 객체를 주입받아 대상 경로를 정하는 구조라면 `@Component`도 자연스럽다. Lombok 생성자를 쓰면 `@Value`·`@Qualifier`를 매개변수에 붙이기 번거로운 점도 `@Bean` 쪽으로 기우는 이유가 된다.
    - 테스트로 못 박는 법: `verify(filter, times(1)).doFilter(...)` — 건너뛴 호출도 `doFilter` 호출로 세어지므로, 자동 등록이 살아 있으면 2가 되어 실패한다.
 3. **요청 캐시가 익명 세션을 만든다.** 기본 `HttpSessionRequestCache`는 인증이 필요한 요청을 막을 때 원래 요청을 **세션에 저장**하고, 세션 생성을 허용하는 게 기본값이다. "성공한 요청에서만 세션을 만든다" 같은 원칙이 있으면 `requestCache.disable()`.
 4. **보안 헤더가 겹친다.** Spring Security는 기본으로 `Cache-Control: no-store` 계열, `X-Content-Type-Options: nosniff`, `X-Frame-Options` 등을 붙인다. 직접 붙이던 헤더와 겹치면 한쪽으로 정리하고, 기본에 없는 것(`Referrer-Policy`, `X-Robots-Tag` 등)만 남긴다.
 5. **거절 응답 형식이 달라진다.** Security가 직접 내는 401·403은 프로젝트의 JSON 에러 형식이 아니다. 로그인을 넣는 시점에 `AuthenticationEntryPoint`·`AccessDeniedHandler`를 맞춘다.
 6. **필터에서 `getRequestURI()`로 경로를 비교하면 인코딩으로 우회될 수 있다.** `getRequestURI()`는 퍼센트 인코딩이 **풀리지 않은 원본**이다. 반면 Spring MVC는 경로를 **디코딩해서** 컨트롤러를 찾는다. 그래서 `/api/v1/%65xternal/...`(`%65`=`e`)처럼 글자 하나만 인코딩하면, `AntPathMatcher`로 원본 URI를 비교하던 필터는 "내 대상이 아니다"라고 건너뛰는데 컨트롤러에는 그대로 도착한다. Spring Security 방화벽은 `%2F`·`%2E` 같은 위험 문자만 거절하고 일반 글자의 인코딩은 통과시킨다. 막는 법: Spring이 디코딩한 경로 기준으로 비교한다(`PathPattern` + `PathContainer`, 또는 Security의 `RequestMatcher`/`securityMatcher`로 대상 지정), 그리고 `/api/%72eports` 같은 인코딩 경로로 막히는지 **테스트를 하나 둔다.**
-7. **CORS는 설정 빈이 생기는 순간 자동으로 켜진다.** Spring Security는 `UrlBasedCorsConfigurationSource` 빈이 **하나** 있으면 체인에 CORS를 자동 적용한다(둘 이상이면 어느 걸 쓸지 몰라 적용하지 않는다). 같은 origin 서비스라면 `cors(cors -> cors.disable())`를 명시해 두는 게 잠금 역할을 한다 — 나중에 누가 예제를 복사해 CORS 빈을 추가해도 이 체인에는 열리지 않고, 열려면 이 줄을 고쳐야 한다.
+7. **CORS는 설정 빈이 생기는 순간 자동으로 켜진다.** Spring Security는 `UrlBasedCorsConfigurationSource` 빈이 **하나라도** 있으면 체인에 `cors(withDefaults())`를 자동 적용한다(6.5.x·main의 `HttpSecurityConfiguration.applyCorsIfAvailable`: `getBeanNamesForType(...).length > 0`). 같은 origin 서비스라면 `cors(cors -> cors.disable())`를 명시해 두는 게 잠금 역할을 한다 — 나중에 누가 예제를 복사해 CORS 빈을 추가해도 이 체인에는 열리지 않고, 열려면 이 줄을 고쳐야 한다.
 8. **"Origin 기능"으로 CORS를 켜지 말 것.** 같은 origin 서비스라면 CORS 설정은 필요 없고, 켜면 허용한 origin에 응답 읽기 권한까지 열린다. CORS는 정말 다른 origin(앱 웹뷰 등)을 받아야 할 때 그 origin만 명시해서 켠다.
 
 ## 💡 판단 기준
@@ -88,5 +106,6 @@ Spring Security가 기본으로 깔아 주는 장치는 대부분 **"브라우�
 - [Spring Security 7.0 — Servlet Architecture (필터를 빈으로 선언할 때)](https://docs.spring.io/spring-security/reference/7.0/servlet/architecture.html)
 - [Spring Security 7.0 — HttpSecurity (requestCache 비활성화)](https://docs.spring.io/spring-security/reference/7.0/api/java/org/springframework/security/config/annotation/web/builders/HttpSecurity.html)
 - [Spring Security 7.0 — HttpSessionRequestCache](https://docs.spring.io/spring-security/reference/7.0/api/java/org/springframework/security/web/savedrequest/HttpSessionRequestCache.html)
-- [Spring Security 7.0 — CsrfConfigurer (`spa()`)](https://docs.spring.io/spring-security/reference/7.0/api/java/org/springframework/security/config/annotation/web/configurers/CsrfConfigurer.html)
-- 학습일: 2026-10-01. 계기: 로그인 없는 익명 쿠키 세션 API에서 직접 만든 Origin 필터를 Spring Security로 옮겨도 되는지 검토. 필터 이중 등록·요청 캐시의 세션 생성은 공식 문서로 확인했고, 예시 코드는 컴파일·실행하지 않았다.
+- [Spring Security 7.0 — CsrfConfigurer (`spa()`, @since 7.0)](https://docs.spring.io/spring-security/reference/7.0/api/java/org/springframework/security/config/annotation/web/configurers/CsrfConfigurer.html)
+- [Spring Security 소스 — HttpSecurityConfiguration (직접 정의한 체인의 기본 적용 목록·CORS 자동 적용)](https://github.com/spring-projects/spring-security/blob/main/config/src/main/java/org/springframework/security/config/annotation/web/configuration/HttpSecurityConfiguration.java)
+- 학습일: 2026-10-01 (2026-10-02 기본 적용 목록·CORS 자동 적용 조건 정정, 소스 확인). 계기: 로그인 없이 쿠키 세션으로 방문자를 구분하는 API에서 직접 만든 Origin 필터를 Spring Security로 옮겨도 되는지 검토. 필터 이중 등록·요청 캐시의 세션 생성은 공식 문서로 확인했고, 예시 코드는 컴파일·실행하지 않았다.

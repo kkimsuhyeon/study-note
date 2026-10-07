@@ -114,12 +114,13 @@ public Executor externalApiTaskExecutor() {
     taskExecutor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
     taskExecutor.setWaitForTasksToCompleteOnShutdown(true);
     taskExecutor.setAwaitTerminationSeconds(30);
-    taskExecutor.initialize();                           // ← 빠뜨리면 미초기화 상태
-    return taskExecutor;
+    return taskExecutor;   // initialize()는 불필요 — 빈이면 컨테이너가 afterPropertiesSet()에서 호출
 }
 ```
 
 > ⚠️ **Spring 기본값이 곧 §3 함정이다**: `corePoolSize=1`, `maxPoolSize=Integer.MAX_VALUE`, `queueCapacity=Integer.MAX_VALUE`. 큐가 무한이므로 **스레드 1개로 전부 큐에 쌓는다.** 반드시 명시할 것.
+
+> `ThreadPoolTaskExecutor`는 `InitializingBean`이라 `@Bean`으로 등록하면 컨테이너가 `initialize()`를 대신 부른다. 직접 `initialize()`가 필요한 건 컨테이너 밖에서 `new`로 만들어 쓸 때(단위 테스트 등)뿐.
 
 > 💡 `setThreadNamePrefix`는 사치가 아니다. 장애 시 스레드 덤프에서 **어느 풀이 막혔는지**를 이름으로 판별한다.
 
@@ -137,7 +138,7 @@ protected BlockingQueue<Runnable> createQueue(int queueCapacity) {
 }
 ```
 
-**`SynchronousQueue` = 저장 공간이 0인 큐.** 지금 받아갈 스레드가 대기 중일 때만 전달이 성공하고, 아니면 즉시 실패한다. 즉 §3의 **(2)단계가 항상 실패**하므로 곧바로 (3)으로 넘어가 스레드를 늘린다.
+**`SynchronousQueue` = 저장 공간이 0인 큐.** 지금 받아갈 스레드가 대기 중일 때만 전달이 성공하고, 아니면 즉시 실패한다. 즉 **놀고 있는 스레드가 없으면 §3의 (2)단계가 실패**하므로 곧바로 (3)으로 넘어가 스레드를 늘린다(놀고 있는 스레드가 있으면 그 스레드에 바로 넘겨준다).
 
 ```
 core=10, max=20, queue=0
@@ -195,7 +196,7 @@ taskExecutor.setAwaitTerminationSeconds(30);             // 단, 최대 30초
 ```
 
 - 둘은 **세트**다. 앞엣것만 켜면 작업이 안 끝날 때 **무한정 기다릴** 수 있다.
-- ⚠️ **데몬 스레드로 만들면 위 설정이 무의미해진다.** 데몬은 유저 스레드가 끝나면 JVM과 함께 소멸하므로 종료 훅을 기다리지 않는다. (→ [스레드 기초 §6](./threads.md))
+- ⚠️ **이 설정이 먹으려면 컨텍스트가 "닫혀야" 한다.** 대기는 Spring이 컨텍스트를 close할 때(보통 JVM 종료 훅에서) 수행되고, 종료 훅이 도는 동안엔 데몬 스레드도 계속 실행되므로 데몬 여부와는 무관하다. 무의미해지는 건 close 자체가 안 될 때 — `kill -9`·`Runtime.halt()`(훅이 아예 안 돎)면 남은 작업은 그대로 버려지고, 종료 훅 없이 main만 끝나는 경우엔 데몬 작업은 사라지고 유저 스레드 작업은 JVM을 붙잡는다(→ [스레드 기초 §6](./threads.md)).
 - Spring 래퍼(`ThreadPoolTaskExecutor`)는 `DisposableBean`이라 컨텍스트 종료 시 자동으로 정리된다. **다른 구현으로 감싸 반환하면 이 훅을 잃는다** — 빈 반환 타입만 `Executor`로 두고 객체는 그대로 넘길 것.
 
 ---
@@ -224,11 +225,15 @@ System.out.println("끝!");      // 3초 안 기다리고 바로 출력
 3. 타입이 `TaskExecutor`인 **유일한** 빈, 또는 이름이 정확히 **`taskExecutor`**인 빈
 4. 못 찾으면 → **`SimpleAsyncTaskExecutor`**
 
+> ⚠️ Boot 3.5부터 자동 구성 executor의 이름은 **`applicationTaskExecutor`만** 남았다(예전엔 `taskExecutor` 별칭도 등록). 이름 `taskExecutor`로 꺼내던 코드는 바꿔야 한다.
+
 ### ⚠️ 함정 3: 폴백인 `SimpleAsyncTaskExecutor`는 풀이 아니다
 
 이름과 달리 **스레드를 재사용하지 않고 호출마다 새로 만든다.** 풀의 개수 제한이 전혀 없어서, 트래픽이 몰리면 스레드가 무한정 늘어난다. "`@Async` 달았으니 풀에서 돌겠지"라고 믿는 순간 사고가 난다.
 
-> 💡 Spring Boot는 `TaskExecutionAutoConfiguration`이 `applicationTaskExecutor`를 만들어주지만, **`@ConditionalOnMissingBean(Executor.class)`** 조건이라 **내가 `Executor` 빈을 하나라도 등록하면 자동 구성이 꺼진다.** 커스텀 풀을 만들면서 `@Async`도 쓴다면 3번 조건(유일 빈 or 이름 `taskExecutor`)을 만족하는지 확인하거나, `@Async("이름")`으로 못 박는 게 안전하다.
+> 💡 Spring Boot는 `TaskExecutionAutoConfiguration`이 `applicationTaskExecutor`를 만들어주지만, **`@ConditionalOnMissingBean(Executor.class)`** 조건이라 **내가 `Executor` 빈을 하나라도 등록하면 자동 구성이 꺼진다.** 커스텀 풀을 만들면서 `@Async`도 쓴다면 3번 조건(유일 빈 or 이름 `taskExecutor`)을 만족하는지 확인하거나, `@Async("이름")`으로 못 박는 게 안전하다. Boot 3.5+는 `spring.task.execution.mode=force`로 커스텀 `Executor`가 있어도 자동 구성을 유지하고 일반 `@Async`도 그걸 쓰게 할 수 있다(`AsyncConfigurer`가 있으면 그쪽 우선).
+
+> ⚠️ **가상 스레드 모드는 예외**: `spring.threads.virtual.enabled=true`면 자동 구성 executor가 의도적으로 가상 스레드용 `SimpleAsyncTaskExecutor`다(풀링 금지). 여기서의 위험은 "스레드 비용"이 아니라 **상한 없음** → `spring.task.execution.simple.concurrency-limit`로 막는다(→ [가상 스레드 §4](./virtual-threads.md)).
 
 ### ⚠️ 함정 4: 같은 클래스 내부 호출이면 안 먹힌다
 
@@ -252,9 +257,11 @@ Spring이 **프록시(대리인)**로 가로채는 방식이라 **밖에서 들�
 | 방식 | 메서드에 붙이는 **선언** | 코드 안에서 **직접 지정** |
 | 적합 | 던지고 잊기 (메일·알림·로그) | **결과를 받아 변환·합성** |
 | 단위 | 메서드 전체 | 메서드 **안의 일부 구간** |
-| 실패 처리 | 호출자가 모름(void면 예외 유실) | `exceptionally`/`handle`로 처리 |
+| 실패 처리 | 호출자에게 전파 안 됨 — void면 `AsyncUncaughtExceptionHandler`로 가서 기본은 **로그만** 남김 | `exceptionally`/`handle`로 처리 |
 
-> ⚠️ `supplyAsync(task)`처럼 **executor를 생략하면 `ForkJoinPool.commonPool`**에서 돈다. 크기가 `CPU 코어 수 - 1`로 아주 작고 앱 전체가 공유하므로, 블로킹 I/O를 넣으면 무관한 작업까지 굶는다. (→ [동시성 도구 가이드 §2](./concurrency-tool-guide.md)) **전용 풀을 반드시 넘길 것.**
+> ⚠️ `supplyAsync(task)`처럼 **executor를 생략하면 `ForkJoinPool.commonPool`**에서 돈다. 크기가 `CPU 코어 수 - 1`로 아주 작고 앱 전체가 공유하므로, 블로킹 I/O를 넣으면 무관한 작업까지 굶는다. 게다가 **병렬도가 2 미만이면**(2코어 이하 컨테이너 등) commonPool 대신 **작업마다 새 스레드**를 만든다(CompletableFuture Javadoc) — 개수 제한도 사라진다. (→ [동시성 도구 가이드 §2](./concurrency-tool-guide.md)) **전용 풀을 반드시 넘길 것.**
+
+> ⚠️ **`submit()`은 예외를 Future 안에 가둔다.** `submit`한 작업이 던진 예외는 `FutureTask`가 잡아 보관할 뿐 어디에도 출력되지 않는다 → `get()`/`join()`을 안 부르면 **흔적 없이 사라진다**. `execute()`는 예외가 스레드의 `UncaughtExceptionHandler`로 가서(기본: stderr 출력) 최소한 보인다. 결과가 필요 없는 fire-and-forget이면 `execute()`를 쓰거나 작업 안에서 try-catch로 로그를 남긴다. (ThreadPoolExecutor Javadoc `afterExecute`)
 
 ### ⚠️ `join()`은 예외를 한 겹 감싼다 — 벗기지 않으면 예외 처리가 통째로 바뀐다
 
@@ -268,14 +275,13 @@ try {
 }
 ```
 
-`CompletionException`은 `RuntimeException`의 하위라 컴파일도 되고 동작도 하지만, Spring `@RestControllerAdvice` 기준으로 이만큼 달라진다.
+`CompletionException`은 `RuntimeException`의 하위라 컴파일도 되고 동작도 하지만, 예외 타입별로 처리하는 `@RestControllerAdvice`가 있다면 이만큼 달라진다(전형적인 구성 예).
 
 | | 벗김 | 안 벗김 |
 |---|---|---|
 | 타는 핸들러 | `@ExceptionHandler(BizException.class)` | `@ExceptionHandler(RuntimeException.class)` 폴백 |
-| 응답 | 도메인 에러코드 + 다국어 메시지 | 일반 실패 코드 |
-| 로그 레벨 | 원인 유무로 WARN/ERROR 구분 | 무조건 ERROR |
-| 운영 알림 | 지정한 코드만 발송 | **전부 발송** (의도된 거부까지 알림) |
+| 응답 | 도메인별 에러 코드·메시지 | 일반 "서버 오류" 응답 |
+| 로그·알림 | 업무 예외는 낮은 레벨, 알림 제외 | 전부 시스템 오류로 기록·알림 (의도된 거부까지) |
 
 > 💡 **병렬화는 "예외가 지나가는 길"까지 바꾼다.** 순차 코드를 `CompletableFuture`로 옮길 때 성능만 보고 예외 경로를 안 보면, 배포 후 운영 알림이 갑자기 시끄러워지는 식으로 드러난다. (스트림 lazy 때문에 `try` 블록 안에서 `toList()`로 소비해야 catch가 유효한 것도 함께 → [Stream API 함정](../functional/stream-api.md))
 
@@ -353,7 +359,10 @@ I/O 바운드 (대기):    스레드 수 ≒ 코어 수 × (1 + 대기시간 / �
 - [ThreadPoolExecutor (Java SE Javadoc)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ThreadPoolExecutor.html) — 처리 순서·거부 정책 원문
 - [SynchronousQueue (Javadoc)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/SynchronousQueue.html)
 - [Spring ThreadPoolTaskExecutor (Javadoc)](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/scheduling/concurrent/ThreadPoolTaskExecutor.html)
-- [Spring - Task Execution and Scheduling](https://docs.spring.io/spring-framework/reference/integration/scheduling.html)
+- [Spring - Task Execution and Scheduling](https://docs.spring.io/spring-framework/reference/integration/scheduling.html) — void `@Async` 예외는 `AsyncUncaughtExceptionHandler`(기본 로그)
+- [Spring Boot 3.5 Release Notes](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.5-Release-Notes) — `taskExecutor` 별칭 제거, `spring.task.execution.mode=force`
+- [CompletableFuture (Javadoc)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletableFuture.html) — 병렬도 2 미만이면 작업마다 새 스레드
+- [Runtime.addShutdownHook (Javadoc)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Runtime.html#addShutdownHook(java.lang.Thread)) — 종료 훅은 데몬 스레드와 동시에 실행됨
 - Brian Goetz, *Java Concurrency in Practice* §8.2 — 풀 크기 산정
 - 관련 노트: [스레드 기초](./threads.md) · [동시성 도구 선택 가이드](./concurrency-tool-guide.md) · [가상 스레드](./virtual-threads.md) · [@Transactional 프록시 함정](../spring/transactional.md)
 

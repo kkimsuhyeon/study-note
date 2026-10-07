@@ -11,7 +11,7 @@
 ## 핵심 객체: `SseEmitter` (`ResponseBodyEmitter`의 SSE 특화)
 
 ```java
-@PostMapping(value = "/chats/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE) // ★ produces 필수
+@PostMapping(value = "/chats/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE) // produces는 선택(아래)
 public SseEmitter stream() {
     SseEmitter emitter = new SseEmitter(10 * 60 * 1000L);   // 타임아웃 ms
 
@@ -27,7 +27,7 @@ public SseEmitter stream() {
 }
 ```
 
-- **`produces = MediaType.TEXT_EVENT_STREAM_VALUE`** 없으면 SSE로 협상 안 됨.
+- **`produces`는 SseEmitter에겐 선택이다.** `SseEmitter`가 응답에 Content-Type이 없으면 스스로 `text/event-stream`을 넣는다. `produces`를 적으면 요청의 `Accept`와 맞지 않을 때 406으로 걸러지고 API 문서에 드러나는 정도의 차이 — 명시해 두는 편이 의도가 분명하다. (MVC에서 `Flux<String>`을 SSE로 내보낼 때는 스트리밍 미디어 타입이 필요하다 — 아래 "대안")
 - **타임아웃 기본값**: `new SseEmitter()`(인자 없음)면 미설정 → `spring.mvc.async.request-timeout`(MVC 설정)을 따르고, 그것도 없으면 **WAS(서버) 기본값**. 무한이 아니다. LLM처럼 오래 걸리면 명시적으로 크게 준다.
 - **반환 즉시 async 전환**: emitter를 리턴해도 응답이 끝나지 않는다. Spring이 커넥션을 열어둔 채 서블릿 스레드만 반납하고, 이후 `send()`가 그 열린 응답에 쓴다. `complete()`를 불러야 닫힌다.
 
@@ -124,6 +124,7 @@ public abstract class AbstractSseStreamHandler<C extends SseStreamContext> {
 - **`handle()`=`final`(구독+heartbeat+타임아웃+정리 공통), `handleLine()`=`abstract`** — 새 스트리밍 연동은 `handleLine`만 새로 구현. (다른 AI 붙일 때 재사용)
 - **싱글톤 핸들러 + 요청별 상태는 `Context` 객체로 전달** — 핸들러는 `@Component`(싱글톤)라 요청별 값(어느 질문에 대한 응답인지)을 **필드로 두면 동시 요청끼리 덮어쓴다.** 반드시 파라미터로.
 - relay를 왜 하나(인증 보호·중간 저장), 커넥션 부담, **retry 금지**(비멱등 POST 중복) → [realtime-communication.md](../../infra/network/realtime-communication.md).
+- **대안 — `Flux`를 그대로 반환.** Spring MVC 컨트롤러도 리액티브 타입을 반환할 수 있고, 스트리밍 미디어 타입(`text/event-stream`)이면 SseEmitter처럼 SSE로 변환된다. `Flux<ServerSentEvent<String>>`를 반환하면 구독·완료·에러·정리를 MVC가 맡아 위의 수동 배관이 줄어든다. 라인마다 저장·heartbeat 같은 부수 작업이 많아 emitter를 직접 쥐어야 할 때가 패턴 B의 자리다.
 
 ### A vs B 비교
 | | 패턴 A (세션 푸시) | 패턴 B (릴레이) |
@@ -178,7 +179,8 @@ Mono.fromRunnable(() -> persistAnswer(question, answer))  // 블로킹 DB 쓰기
 
 6. **타임아웃은 이중으로.** emitter 타임아웃(클라 쪽)만으로는 부족 — 외부 스트림이 `complete` 없이 무한 지속될 수 있으니 **upstream에도 총 지속시간 상한**(예: `takeUntilOther(Mono.delay(10분))`)을 둬 좀비 커넥션 방지.
 
-7. (프로토콜 레벨 함정 — **프록시 버퍼링 / UTF-8 인코딩 깨짐 / heartbeat 필요 / 브라우저 커넥션 제한**은 [sse.md](../../infra/network/sse.md) ⚠️ 섹션 참고. 중복 생략)
+7. **OSIV가 켜져 있으면 스트림 내내 DB 커넥션을 쥘 수 있다.** 서블릿 스레드는 반납되지만, `OpenEntityManagerInViewInterceptor`는 async 요청에 인터셉터를 등록해 EntityManager를 **async가 끝날 때까지** 열어 둔다. Spring이 Hibernate 커넥션을 EntityManager가 닫힐 때까지 쥐는 모드로 두므로, 컨트롤러가 emitter를 반환하기 전에 조회·저장을 했다면 그 커넥션이 스트림 전체(최대 10분) 동안 반납되지 않는다 — 동시 스트림 10개면 풀(Hikari 기본 10)이 끝난다. SSE 엔드포인트가 있으면 `spring.jpa.open-in-view=false`가 전제([OSIV](../jpa/osiv.md), [@Transactional §1](./transactional.md)).
+8. (프로토콜 레벨 함정 — **프록시 버퍼링 / UTF-8 인코딩 깨짐 / heartbeat 필요 / 브라우저 커넥션 제한**은 [sse.md](../../infra/network/sse.md) ⚠️ 섹션 참고. 중복 생략)
 
 ---
 
@@ -194,6 +196,8 @@ Mono.fromRunnable(() -> persistAnswer(question, answer))  // 블로킹 DB 쓰기
 - `SseEmitter.SseEventBuilder` javadoc (빌더 메서드↔와이어 필드): https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/web/servlet/mvc/method/annotation/SseEmitter.SseEventBuilder.html
 - send 스레드 안전성 이슈(SPR-13224): https://github.com/spring-projects/spring-framework/issues/17815
 - SSE 에러 처리 중 ABBA 데드락(#33421): https://github.com/spring-projects/spring-framework/issues/33421
+- Spring MVC — Reactive Types(`Flux`·`Flux<ServerSentEvent>` 반환): https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-ann-async.html#mvc-ann-async-reactive-types
+- 소스 — `SseEmitter.extendResponse`(Content-Type 미설정 시 `text/event-stream`) · `ResponseBodyEmitterReturnValueHandler`(emitter를 `DeferredResult`로 처리) · `OpenEntityManagerInViewInterceptor`(async 요청에 `AsyncRequestInterceptor` 등록)
 - 관련 노트: [SSE 프로토콜/포맷](../../infra/network/sse.md) · [실시간 통신 비교·relay](../../infra/network/realtime-communication.md) · [JVM 동시성 도구(Lock)](../concurrency/jvm-concurrency-tools.md)
 
 ---

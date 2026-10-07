@@ -20,7 +20,7 @@
 | `AtomicInteger` 등 | Java 5 | **락 없이 단일 변수** 세기·플래그·CAS | 여러 변수 묶기 |
 | 락(`synchronized`/`ReentrantLock`/`@Version`/비관) | — | **공유 상태 정합성**(여러 변수·check-then-act) | |
 | 가상 스레드 | Java 21 | **블로킹 I/O를 싸게 대량 동시** | CPU 바운드엔 무의미 |
-| 구조적 동시성(`StructuredTaskScope`) | Java 21+ **preview** | 서브태스크 묶음을 **한 단위로** 실행/대기/에러전파/취소 | (아직 정식 아님) |
+| 구조적 동시성(`StructuredTaskScope`) | Java 21+ **preview** | 서브태스크 묶음을 **한 단위로** 실행/대기/에러전파/취소 | (JDK 27 기준 7차 preview — 아직 정식 아님, JDK 25에서 API 재설계) |
 
 > ⭐ **"만들기 / 조합 / 기다리기 / 세기 / 정합성 / 제한"은 서로 다른 임무다.** 한 도구로 다 하려 하지 말고 임무에 맞는 걸 조합한다. (동시성 테스트가 그 예 — `ExecutorService`(만들기)+`CountDownLatch`(기다리기)+`AtomicInteger`(세기)를 같이 씀)
 
@@ -58,7 +58,7 @@ CompletableFuture.allOf(f1, f2, f3).join();
 
 > 💡 **서비스 코드에서 "여러 비동기 호출을 실행·합쳐서 반환"하면 보통 `CompletableFuture`.** scatter-gather(병렬 호출→집계)도 `allOf`가 `CountDownLatch`보다 흔하다. 단순 fire-and-forget이면 Spring `@Async`.
 
-> ⚠️ 기본은 공용 `ForkJoinPool.commonPool`에서 돈다 — 블로킹 작업엔 **전용 Executor를 넘겨라**(`supplyAsync(task, executor)`). 안 그러면 공용 풀이 막힌다. 그 전용 풀을 어떻게 설정하나(core/max/queue·거부 정책), `@Async`와의 갈림길은 → [스레드 풀 내부](./thread-pool.md)
+> ⚠️ 기본은 공용 `ForkJoinPool.commonPool`에서 돈다(병렬도가 2 미만인 작은 환경에선 작업마다 새 스레드) — 블로킹 작업엔 **전용 Executor를 넘겨라**(`supplyAsync(task, executor)`). 안 그러면 공용 풀이 막힌다. 그 전용 풀을 어떻게 설정하나(core/max/queue·거부 정책), `@Async`와의 갈림길은 → [스레드 풀 내부](./thread-pool.md)
 
 ### 2-1. 층 관계 — Thread / ExecutorService / CompletableFuture (혼동 주의)
 
@@ -71,7 +71,7 @@ CompletableFuture = 작업 지시서·결과 핸들 — 스레드를 안 만들�
 - `supplyAsync(task, executor)`에 넘기는 건 **스레드가 아니라 풀(Executor)** — "어느 풀에서 실행할지" 지정. 특정 스레드를 찍어 주는 게 아니라 회사에 맡기면 노는 일꾼이 배정된다.
 - Spring `ThreadPoolTaskExecutor` 빈(@Configuration의 corePoolSize 등)이 바로 이 "회사" — 주입받아 `supplyAsync`에 넘기는 게 실무 패턴.
 - `corePoolSize`·큐 용량·keepAlive는 **집단 관리(풀) 옵션**이라 단일 `new Thread()`엔 개념 자체가 없다. 단일 스레드 옵션은 이름·데몬·우선순위 정도.
-- 풀 안의 일꾼도 결국 내부에서 `new Thread()`로 만든 **진짜 플랫폼 스레드** — 풀은 "다르게 만드는" 게 아니라 "미리 만들어 재사용·관리"하는 방식 차이.
+- 풀 안의 일꾼도 (기본 `ThreadFactory`라면) 내부에서 `new Thread()`로 만든 **진짜 플랫폼 스레드** — 풀은 "다르게 만드는" 게 아니라 "만들어 재사용·관리"하는 방식 차이. (`Executors.newVirtualThreadPerTaskExecutor()`나 `Thread.ofVirtual().factory()`를 넘기면 일꾼이 [가상 스레드](./virtual-threads.md)가 된다)
 
 ---
 
@@ -105,6 +105,8 @@ CompletableFuture = 작업 지시서·결과 핸들 — 스레드를 안 만들�
 ---
 
 ## 5. 참고
+- [CompletableFuture (Javadoc)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletableFuture.html) — 기본 executor = commonPool(병렬도 2 미만이면 작업마다 새 스레드)
+- [JEP 533: Structured Concurrency (Seventh Preview, JDK 27)](https://openjdk.org/jeps/533)
 - 관련 노트: [스레드 기초](./threads.md) · [JVM 동시성 도구](./jvm-concurrency-tools.md) · [가상 스레드](./virtual-threads.md) · [락 개념](./locks.md) · [동시성 테스트](../test/concurrency-test.md)
 
 ---

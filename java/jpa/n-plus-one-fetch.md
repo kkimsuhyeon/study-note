@@ -30,7 +30,7 @@ for (Order order : orders) {
 
 JPA 연관관계는 보통 지연 로딩(`LAZY`)으로 둔다. 지연 로딩은 나쁜 게 아니다. 필요할 때만 읽으니 기본값으로 좋다.
 
-> **선행지식 — 지연 로딩은 "프록시"로 동작한다.** LAZY면 연관 객체 자리에 **프록시(가짜 객체)**를 끼워두고, 실제로 그 필드에 접근하는 순간 쿼리를 날려 채운다(→ [영속성 컨텍스트](./persistence-context.md)). N+1은 바로 그 "접근 시 쿼리"가 루프를 돌며 N번 반복되는 것.
+> **선행지식 — 지연 로딩은 "프록시"로 동작한다.** LAZY면 연관 객체 자리에 **프록시(가짜 객체)**를 끼워두고, 실제로 그 필드에 접근하는 순간 쿼리를 날려 채운다(→ [프록시와 지연 로딩](./proxy.md)). N+1은 바로 그 "접근 시 쿼리"가 루프를 돌며 N번 반복되는 것.
 
 문제는 **목록 화면에서 연관 데이터를 매번 필요로 하는데도**, 그 사실을 쿼리에 알려주지 않을 때 생긴다.
 
@@ -61,6 +61,15 @@ List<Order> findByStatusWithMember(OrderStatus status);
 
 `Order`와 `Member`를 한 SQL로 가져온다. 단일 연관(`ManyToOne`, `OneToOne`)을 같이 가져올 때 특히 편하다.
 
+### `@EntityGraph` — 같은 fetch를 JPQL 없이 선언
+
+```java
+@EntityGraph(attributePaths = {"member"})   // member를 함께 조회
+List<Order> findByStatus(OrderStatus status);
+```
+
+파생 쿼리·`findAll` 재정의 같은 Repository 메서드에 "이 연관도 같이 읽어라"만 얹는다. JPQL을 쓰지 않아도 되는 대신 조건이 복잡해지면 결국 `@Query` + fetch join이 낫다. (fetch join은 `join fetch`가 기본 inner, EntityGraph는 보통 left outer join으로 나간다 — 실제 SQL은 로그로 확인)
+
 ---
 
 ## 5. ⚠️ 컬렉션 fetch join + 페이징 = 메모리 페이징(OOM)
@@ -70,8 +79,11 @@ List<Order> findByStatusWithMember(OrderStatus status);
 그래서 Hibernate는 이때 **`LIMIT`/`OFFSET`을 SQL에 넣지 못한다.** `Pageable`(= `setFirstResult`/`setMaxResults`)을 같이 주면 잘리는 게 아니라 **전체 row를 메모리로 다 읽은 뒤 애플리케이션 메모리에서 페이징**한다 → 데이터가 많으면 **OOM**. 로그에 경고가 뜬다:
 
 ```
-HHH000104: firstResult/maxResults specified with collection fetch; applying in memory!
+HHH90003004: firstResult/maxResults specified with collection fetch; applying in memory   ← Hibernate 6.x
+HHH000104: firstResult/maxResults specified with collection fetch; applying in memory!   ← Hibernate 5.x
 ```
+
+> 경고로 끝내지 않으려면 `hibernate.query.fail_on_pagination_over_collection_fetch=true` — 메모리 페이징이 될 쿼리를 **예외로** 막는다(5.2.13+, 기본 false).
 
 > ⚠️ 흔한 오해 교정: "주문이 아니라 row 기준으로 잘린다"가 아니라 **"페이징이 SQL에서 안 되고 전부 메모리에 올라온다(OOM 위험)"**가 진짜 함정. → 컬렉션은 fetch join과 페이징을 같이 쓰지 말 것.
 
@@ -90,7 +102,7 @@ HHH000104: firstResult/maxResults specified with collection fetch; applying in m
 
 ```
 쿼리 횟수  = 1번   ✅ (N+1 해결)
-행 수      = 부모 수 × 자식 수
+행 수      = 자식 총수 (= 부모 수 × 부모당 평균 자식 수, left join이면 자식 없는 부모도 1행)
 행의 폭    = fetch join 한 모든 엔티티의 전체 컬럼
 ```
 
@@ -101,12 +113,12 @@ HHH000104: firstResult/maxResults specified with collection fetch; applying in m
 가장 놓치기 쉬운 부분. 부모의 `ManyToOne` 연관을 fetch join하면, **컬렉션 때문에 늘어난 모든 행에 그 컬럼이 반복**된다.
 
 ```java
-.leftJoin(usr.assignments, asgn).fetchJoin()   // 컬렉션 → 행이 곱해짐
-.leftJoin(usr.org, org).fetchJoin()            // ⚠️ org 는 화면에서 안 쓰는데
-.leftJoin(usr.org.brnFile).fetchJoin()         // ⚠️ 전 행에 컬럼 40개가 반복됨
+.leftJoin(member.orders, order).fetchJoin()     // 컬렉션 → 행이 곱해짐
+.leftJoin(member.team, team).fetchJoin()        // ⚠️ team 은 화면에서 안 쓰는데
+.leftJoin(member.team.logoFile).fetchJoin()     // ⚠️ 전 행에 컬럼 40개가 반복됨
 ```
 
-부모 27건 × 자식 3,173건 = **3,173행**인데, 전 직원이 같은 기관이라 `org` 컬럼 40개가 **3,173번 똑같이** 전송된다. 실측으로 이 두 줄을 빼는 것만으로 **1,500ms → 971ms**가 됐다.
+부모(회원) 27건에 자식(주문)이 합쳐서 3,173건이라 결과는 **3,173행**인데, 회원 전원이 같은 팀이라 `team` 컬럼 40개가 **3,173번 똑같이** 전송된다. 실측으로 이 두 줄을 빼는 것만으로 **1,500ms → 971ms**가 됐다.
 
 > 💡 **"연관을 쓰나?"를 응답 조립 코드에서 확인하고 붙인다.** 습관적으로 fetch join을 늘리면 N+1은 사라져도 그만큼 행이 뚱뚱해진다.
 
@@ -127,15 +139,15 @@ p6spy [statement] 55 ms      ← SQL 실행 시간 (DB 가 결과를 만들기�
 
 ```java
 // 엔티티 조회 → 행마다 100+ 컬럼, 엔티티 생성·스냅샷·중복제거
-.selectFrom(usr).leftJoin(...).fetchJoin()
+.selectFrom(member).leftJoin(...).fetchJoin()
 
 // 프로젝션 → 행마다 6컬럼, 엔티티 생성 없음
-.select(Projections.fields(UsrRow.class,
-        usr.id.usrId, usr.usrNm, usr.usrEml,
-        asgn.id.childId, mgmt.extlId, mgmt.channelId))
-.from(usr)
-.leftJoin(usr.assignments, asgn)        // fetchJoin 아님 — 엔티티를 안 만드니 필요 없다
-.leftJoin(asgn.mgmt, mgmt)
+.select(Projections.fields(MemberOrderRow.class,
+        member.id.as("memberId"), member.name, member.email,
+        order.id.as("orderId"), delivery.trackingNo, delivery.carrier))
+.from(member)
+.leftJoin(member.orders, order)        // fetchJoin 아님 — 엔티티를 안 만드니 필요 없다
+.leftJoin(order.delivery, delivery)
 ```
 
 행 수는 그대로지만 **행의 폭과 객체 생성이 사라진다.** 실측 **2,553ms → 수백 ms**. 부수 효과로 영속성 컨텍스트에 안 올라가니 스냅샷·더티 체킹도 없다.
@@ -146,7 +158,7 @@ p6spy [statement] 55 ms      ← SQL 실행 시간 (DB 가 결과를 만들기�
 
 ```java
 rows.stream()
-    .collect(groupingBy(Row::getParentId, LinkedHashMap::new, toList()))   // 부모별로 묶기
+    .collect(groupingBy(MemberOrderRow::getMemberId, LinkedHashMap::new, toList()))   // 부모(회원)별로 묶기
     .values().stream()
     .map(this::toResponse)
 ```
@@ -155,7 +167,7 @@ rows.stream()
 
 > ⚠️ **`left join`이면 자식이 없는 부모도 한 행이 나온다**(자식 컬럼 전부 null). 그 행을 자식으로 세면 개수가 1로 틀어진다. **자식 식별자를 프로젝션에 포함시켜 `null` 여부로 판별**할 것.
 > ```java
-> this.childCount = rows.stream().filter(r -> r.getChildId() != null).count();
+> this.orderCount = rows.stream().filter(r -> r.getOrderId() != null).count();
 > ```
 
 ---
@@ -203,18 +215,19 @@ spring:
 - **p6spy 의 SQL 시간과 실제 메서드 시간이 크게 다르면 매핑 비용을 의심** — 인덱스를 봐도 답이 안 나온다 (→ §5-1)
 - N+1은 테스트에서 SQL 로그를 보지 않으면 놓치기 쉽다.
 - Repository 메서드 이름만 봐서는 fetch 여부가 안 보일 수 있으니 `WithMember`, `WithItems`처럼 의도를 드러내면 좋다.
-- **컬렉션 fetch join은 딱 1개만** — 둘 이상 걸면 (1:N:M으로 행이 곱해져) 데이터 부정합 가능. `MultipleBagFetchException`(List 2개)과는 별개로, 되더라도 걸면 안 된다.
+- **컬렉션 fetch join은 딱 1개만** — 둘 이상 걸면 1:N:M으로 행이 곱해진다(카테시안 곱). `List` 2개면 `MultipleBagFetchException`, `Set`으로 바꾸면 예외만 사라질 뿐 곱은 그대로다 → 하나만 fetch join, 나머지는 batch size나 쿼리 분리. (fetch join 한계 정리 → [JPQL 심화 §3](./jpql-advanced.md))
 - **JPQL `distinct`는 이중 동작**: SQL에 DISTINCT 추가 + **애플리케이션에서 같은 식별자 엔티티 중복 제거**(1:N 조인 행 뻥튀기 대응). SQL DISTINCT만으론 행이 완전히 같지 않아 중복이 안 걸러지기 때문. **Hibernate 6부터는 distinct 없이도 자동 중복 제거**된다.
 
 ---
 
 ## 9. 참고
 
-- Hibernate User Guide: fetching
-- Spring Data JPA EntityGraph
-- 관련 노트: [영속성 컨텍스트](./persistence-context.md) · [Stream API(groupingBy·프로젝션 후 묶기)](../functional/stream-api.md) · [스레드 풀 내부](../concurrency/thread-pool.md)
+- [Hibernate ORM 6.6 User Guide - Fetching](https://docs.hibernate.org/orm/6.6/userguide/html_single/#fetching)
+- [Hibernate ORM 6.6 User Guide - `hibernate.query.fail_on_pagination_over_collection_fetch`](https://docs.hibernate.org/orm/6.6/userguide/html_single/#settings-hibernate.query.fail_on_pagination_over_collection_fetch)
+- [Spring Data JPA - Configuring Fetch- and LoadGraphs (`@EntityGraph`)](https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html#jpa.entity-graph)
+- 관련 노트: [프록시와 지연 로딩](./proxy.md) · [영속성 컨텍스트](./persistence-context.md) · [Stream API(groupingBy·프로젝션 후 묶기)](../functional/stream-api.md) · [스레드 풀 내부](../concurrency/thread-pool.md)
 
 ---
 
-**학습 날짜**: 2026-08-12 (§5-1 추가)
+**학습 날짜**: 2026-08-12 (§5-1 추가, 2026-10-02 행 수 공식·Hibernate 6 로그 코드 보정, EntityGraph 예시 추가)
 **계기**: 목록 조회 최적화에서 외부 API 호출을 40회→2회로 줄였는데 기대만큼 안 빨라져 프로파일링 → **전체의 80%가 DB 조회 한 줄**이었다. `p6spy`는 SQL 을 55ms 로 찍는데 `.fetch()` 는 2,553ms — 차이가 전부 엔티티 매핑이었다. 컬렉션 fetch join 이 만든 3,173행에 안 쓰는 연관 컬럼까지 실려 있었고, 실제로 필요한 건 컬럼 6개뿐이라 프로젝션으로 바꿔 해결. **"쿼리 1회니까 병목이 아니다"라고 넘겨짚은 게 가장 큰 시간 낭비**였다.

@@ -37,8 +37,8 @@ List<String> result =
 | 선별 | `filter(pred)` | 조건 통과만 |
 | 선별 | `distinct()` | 중복 제거 (**equals/hashCode 기준**) — ⚠️ "특정 필드 기준"은 못 한다 (↓ 함정) |
 | 선별 | `limit(n)` / `skip(n)` | 앞 n개 / 앞 n개 버림 (페이징 조합) |
-| 선별 | `takeWhile` / `dropWhile` (Java 9) | 조건이 깨질 때**까지**/깨진 **뒤부터** — 정렬된 데이터 전제 |
-| 정렬 | `sorted()` / `sorted(comparator)` | 전 원소를 버퍼링해서 정렬 (여기서만 lazy가 아님) |
+| 선별 | `takeWhile` / `dropWhile` (Java 9) | 조건이 깨질 때**까지**/깨진 **뒤부터** — **ordered(만남 순서 있는) 스트림** 전제. 경계가 의미 있으려면 보통 정렬된 데이터와 쓴다 |
+| 정렬 | `sorted()` / `sorted(comparator)` | 전 원소를 버퍼링해서 정렬 — lazy이긴 하지만 **stateful**이라 여기서 수직 실행이 끊긴다(`distinct`도 stateful) |
 | 관찰 | `peek(consumer)` | 원소를 **그대로 통과**시키며 부수 작업 — 디버깅용 (아래 ⚠️) |
 
 `map` vs `peek`: `map`은 반환값으로 원소를 **교체**, `peek`은 반환값 없이 **그대로 통과**.
@@ -119,7 +119,7 @@ import static java.util.stream.Collectors.*;
 | `toList()` / `toSet()` | List / Set | |
 | `toMap(keyF, valF)` | Map | ⚠️ key 중복 → `IllegalStateException`, value가 null → NPE |
 | `toMap(keyF, valF, mergeF)` | Map | 중복 시 병합 규칙 지정 — `(a, b) -> b` = 나중 값 승리 |
-| `groupingBy(classifier)` | `Map<K, List<T>>` | **그룹핑** — 부모ID별 자식 리스트 조립의 주역 |
+| `groupingBy(classifier)` | `Map<K, List<T>>` | **그룹핑** — 부모ID별 자식 리스트 조립의 주역. ⚠️ 결과 Map의 타입·순서는 보장 없음(현재 구현 HashMap) → 순서가 필요하면 `groupingBy(f, LinkedHashMap::new, toList())`·`TreeMap::new` |
 | `groupingBy(f, downstream)` | `Map<K, ?>` | 그룹 안을 재집계 — `groupingBy(f, counting())` = 그룹별 개수 |
 | `partitioningBy(pred)` | `Map<Boolean, List<T>>` | true/false 2분할 |
 | `joining(", ", "[", "]")` | String | 문자열 이어붙이기 |
@@ -221,6 +221,7 @@ Map<Long, Long> countByRoom = questions.stream()
 - `Stream.flatMap` Javadoc (매핑된 스트림은 내용 반영 후 닫힌다): https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/stream/Stream.html#flatMap(java.util.function.Function)
 - `Stream.mapMulti` Javadoc (Java 16+, flatMap 대안): https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/stream/Stream.html#mapMulti(java.util.function.BiConsumer)
 - 관련 노트: [람다 실행 타이밍](./lambda-execution-timing.md) · [스레드 풀 내부](../concurrency/thread-pool.md) · [동시성 도구 가이드](../concurrency/concurrency-tool-guide.md)
-- 학습 날짜: 2026-08-03 (2026-08-12 보강)
+- [Collectors Javadoc](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/stream/Collectors.html) (`groupingBy` 결과 Map의 타입·변경 가능성 보장 없음)
+- 학습 날짜: 2026-08-03 (2026-08-12 보강, 2026-10-02 보강: `sorted`는 lazy·stateful로 정정, `takeWhile`은 ordered 전제로 정정, `groupingBy` 결과 순서 함정)
 - 계기: 실무 코드의 `peek(answer -> question.addAnswer(answer))`가 뭐 하는 연산인지에서 시작 → peek의 정체(디버깅용 관찰)·lazy 함정 → Stream 전체 연산 지도 정리로 확장
 - 보강 계기(2026-08-12): 외부 API 반복 호출을 일괄+병렬로 바꾸며 — ① `flatMap`이 왜 `Stream`을 반환해야 하는지(1:N을 표현하는 타입) ② 특정 필드 기준 중복 제거는 `distinct()`로 안 되고 `groupingBy`+`toSet()`에 흡수시키는 게 낫다 ③ **lazy 때문에 try-catch가 무력화되고 `CompletableFuture`가 순차로 도는** 두 함정을 겪음. ③은 이 노트가 이미 적어둔 "수직 실행"이 실제로 물린 사례

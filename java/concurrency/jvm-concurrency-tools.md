@@ -26,7 +26,7 @@
 > ⚠️ **이건 "스레드 관리"가 아니다** — 여기 도구들은 **이미 떠 있는 스레드들의 공유 자원 접근·진행 타이밍을 "조율"**할 뿐, 스레드를 **만들거나 스케줄하지 않는다.** 스레드를 생성·재사용·스케줄하는 건 `Thread`·**`ExecutorService`**·스레드풀 쪽(= 스레드 관리)으로 **다른 층**이다.
 > - 스레드 관리 = "일꾼을 몇 명 고용·배치하나" (`ExecutorService`)
 > - 동시성 도구(이 문서) = "그 일꾼들이 한 작업대 같이 쓸 때 안 부딪치게 하는 규칙" (락/세마포어/래치/배리어)
-> - 둘은 짝꿍: 스레드 관리로 여러 스레드를 띄우고 → 동시성 도구로 조율. (예: `ExecutorService`로 10개 띄우고 `CountDownLatch`로 동시 출발 — [@Lock 실무 패턴](../jpa/lock-practical.md)의 동시성 테스트)
+> - 둘은 짝꿍: 스레드 관리로 여러 스레드를 띄우고 → 동시성 도구로 조율. (예: `ExecutorService`로 10개 띄우고 `CountDownLatch`로 동시 출발 — [동시성 테스트](../test/concurrency-test.md))
 > - `CountDownLatch`/`CyclicBarrier`가 "진행 시점을 맞춘다"라 스레드 관리처럼 보여도, **스레드를 만들진 않는다** — 있는 스레드의 타이밍만 맞춘다.
 
 > ⚠️ **가시성은 별개 축이다.** 이 도구들은 주로 **원자성**(한 번에 하나)을 다룬다. "한 스레드가 쓴 값을 다른 스레드가 보느냐"(**가시성**)는 `volatile`·happens-before의 영역 → [메모리 가시성](./memory-visibility.md). (락은 가시성도 같이 주지만, 플래그 하나면 `volatile`이 더 싸다.)
@@ -60,7 +60,7 @@ A:[read→write]900   B: 대기 → [read 900→write 800] ✅
 스케일 아웃하면 **비즈니스 데이터(재고·잔액) 정합성**은 맞다 — JVM 락 무력, DB 락(1순위: 데이터가 어차피 DB에 살고 인프라 추가 없음)/분산락으로 간다. 그러나:
 1. **서버마다 하나씩 있는 로컬 자원**(로컬 캐시·메트릭 카운터·싱글턴 초기화)은 각 JVM 안에서 보호해야 한다 — 서버 10대면 캐시도 10개, 각각 자기 JVM 락으로. (서버끼리 공유 안 하니 분산락도 불필요)
 2. **프레임워크 내부가 전부 이 도구로 만들어져 있다** — Tomcat 풀·HikariCP·Kafka 클라이언트. 직접 안 짜도 디버깅하려면 이해 필요.
-3. **락이 아닌 조율 도구는 서버 수와 무관** — `ExecutorService`/`CompletableFuture`/`Semaphore`(인스턴스당 외부 API 동시 제한)는 그대로 쓰인다.
+3. **락이 아닌 조율 도구는 스케일 아웃 후에도 그대로 쓰인다** — `ExecutorService`/`CompletableFuture`/`Semaphore`. 단 `Semaphore(N)`은 **인스턴스당** 상한이라 전역 동시 수는 N × 서버 수가 된다 — 상대 API의 한도가 전역이면 §5 표의 DB·분산 세마포어가 필요하다.
 4. **DB 락을 테스트할 때 JVM 도구를 쓴다** — `ExecutorService`+`CountDownLatch`+`AtomicInteger`가 락 검증의 표준([동시성 테스트](../test/concurrency-test.md)).
 개념도 그대로 이전된다 — `@Version`=CAS의 DB판, `FOR UPDATE`=DB판 배타락.
 
@@ -156,7 +156,7 @@ rw.writeLock().lock();  // 하나만 보유 (배타, 읽기·쓰기 모두 차�
 
 - **읽기끼리는 공존**, 쓰기는 독점 → **읽기 많고 쓰기 적은** 데이터에 처리량↑ (캐시, 설정값 등).
 - 락 **다운그레이드**(쓰기락 보유 중 읽기락 획득 후 쓰기락 해제) 가능.
-- 락 **업그레이드**(읽기락 → 쓰기락)는 **불가**(데드락 유발) — 둘 다 읽기락 쥐고 쓰기락 올리려 하면 [공유락 업그레이드 데드락](./deadlock.md). 이 한계를 푼 게 StampedLock.
+- 락 **업그레이드**(읽기락 → 쓰기락)는 **불가**(데드락 유발) — 쓰기락은 모든 읽기락이 풀리길 기다리므로, **스레드 하나만** 읽기락을 쥔 채 `writeLock().lock()`을 불러도 자기 자신을 기다리며 영원히 멈춘다. 둘이 동시에 그러면 [공유락 업그레이드 데드락](./deadlock.md). StampedLock은 `tryConvertToWriteLock(stamp)`로 **조건부** 변환을 제공한다(실패하면 0 반환 → 읽기락을 놓고 쓰기락을 새로 잡아야 함).
 
 ---
 
@@ -210,7 +210,7 @@ finally { sem.release(); }
 | | JVM 안 | DB | 분산(Redis) |
 | --- | --- | --- | --- |
 | 뮤텍스 (동시 1) | `synchronized`·`ReentrantLock` | `FOR UPDATE`(행), `pg_advisory_xact_lock(n)`(번호) | `SET key NX PX`, Redisson `RLock` |
-| 세마포어 (동시 N) | `Semaphore(N)` | claim 트랜잭션에서 `count(*) WHERE status='running' AND lease 미만료` < N일 때만 진입 | Redisson `RSemaphore`·`RPermitExpirableSemaphore`(permit에 lease) |
+| 세마포어 (동시 N) | `Semaphore(N)` | claim 트랜잭션에서 **advisory lock으로 세는 순간을 직렬화**한 뒤 `count(*) WHERE status='running' AND lease 미만료` < N일 때만 진입 (직렬화 없으면 둘이 동시에 N-1을 세고 둘 다 들어감 — [advisory lock](../../database/postgres-advisory-lock.md)) | Redisson `RSemaphore`·`RPermitExpirableSemaphore`(permit에 lease) |
 | 암묵적 세마포어 | 스레드 풀 크기 N | 워커 스레드 수 N (인스턴스당) | — |
 
 ⚠️ **rate limit과 헷갈리지 말 것.** 세마포어는 나오면 자리가 **돌아오고**, rate limit("시간당 5회")은 쓴 횟수가 **돌아오지 않고 시간 창이 바뀌면 리셋**된다. "동시에 몇 명"은 뮤텍스/세마포어, "시간당 몇 번"은 rate limit — 한 유즈케이스 안에 둘이 같이 있는 경우가 흔하다(예: 멱등 키 advisory lock = 뮤텍스, 세션당 시간 5회 카운터 = rate limit). 자세한 DB·분산 쪽은 [advisory lock](../../database/postgres-advisory-lock.md)·[Redisson 분산 락](../../infra/redis/redisson-distributed-lock.md).
@@ -224,8 +224,8 @@ finally { sem.release(); }
 ```java
 CountDownLatch latch = new CountDownLatch(3);
 
-// 작업 스레드들
-runAsync(() -> { work(); latch.countDown(); });  // ×3
+// 작업 스레드들 — countDown은 finally에 (work()가 예외면 await가 영원히 안 풀림)
+runAsync(() -> { try { work(); } finally { latch.countDown(); } });  // ×3
 
 latch.await();   // 3개가 다 countDown 할 때까지 대기
 System.out.println("모든 작업 완료");
@@ -378,6 +378,7 @@ do {
 
 ## 10. 참고
 - [Java 공식 - java.util.concurrent.locks 패키지](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/locks/package-summary.html)
+- [ReentrantReadWriteLock (Javadoc)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/locks/ReentrantReadWriteLock.html) — "upgrading from a read lock to the write lock is not possible" · [StampedLock.tryConvertToWriteLock](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/locks/StampedLock.html)
 - [Baeldung - Guide to java.util.concurrent.Locks](https://www.baeldung.com/java-concurrent-locks)
 - [Baeldung - CountDownLatch vs CyclicBarrier](https://www.baeldung.com/java-cyclicbarrier-countdownlatch)
 - 관련 노트: [락 개념 종합](./locks.md) · [데드락](./deadlock.md)

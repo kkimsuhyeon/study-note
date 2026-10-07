@@ -42,7 +42,8 @@ public class App {
 |---|---|---|---|
 | `@Component`, `@Bean`, `@ComponentScan` | `ConfigurationClassPostProcessor` (BeanFactoryPostProcessor) | ① | BeanDefinition 목록에 추가 |
 | `@Autowired`, `@Value`, `@Inject` | `AutowiredAnnotationBeanPostProcessor` | ③ | 필드·세터·생성자에 값 주입 |
-| `@PostConstruct`, `@PreDestroy`, `@Resource` | `CommonAnnotationBeanPostProcessor` (Before) | ⑤ | 초기화 메서드 호출 |
+| `@Resource` | `CommonAnnotationBeanPostProcessor` (`postProcessProperties`) | ③ | 필드·세터에 이름 기준 주입 |
+| `@PostConstruct`, `@PreDestroy` | `CommonAnnotationBeanPostProcessor` (Before) | ⑤ | 초기화·소멸 메서드 호출 |
 | `@ConfigurationProperties` | `ConfigurationPropertiesBindingPostProcessor` (Before, Boot) | ⑤ | 프로퍼티 바인딩 |
 | `@Transactional`, `@Aspect` 대상 | `InfrastructureAdvisorAutoProxyCreator` / `AnnotationAwareAspectJAutoProxyCreator` (After) | ⑥ | 원본을 프록시로 바꿔치기 |
 | `@Async` | `AsyncAnnotationBeanPostProcessor` (After) | ⑥ | 원본을 프록시로 바꿔치기 |
@@ -88,8 +89,8 @@ public interface ApplicationContext extends
 ```java
 // 빈 조회
 OrderService a = ctx.getBean(OrderService.class);                       // 타입으로 (유일해야 함)
-AbstactCommand b = ctx.getBean("marketingAgreeNotifyCommand", AbstactCommand.class);  // 이름 + 타입
-Map<String, AbstactCommand> all = ctx.getBeansOfType(AbstactCommand.class);  // 키 = 빈 이름
+BatchCommand b = ctx.getBean("dailyReportCommand", BatchCommand.class);  // 이름 + 타입
+Map<String, BatchCommand> all = ctx.getBeansOfType(BatchCommand.class);  // 키 = 빈 이름
 boolean exists = ctx.containsBean("someBean");
 
 // 환경·설정 — "설정을 가져올 수 있나?" → 있다
@@ -114,7 +115,7 @@ String msg   = ctx.getMessage("error.invalid", new Object[]{field}, Locale.KOREA
 // ① 생성자 주입 — 권장. ApplicationContext도 그냥 빈처럼 주입된다
 @Component
 @RequiredArgsConstructor
-public class DynamicBatch {
+public class DynamicJobScheduler {
     private final ApplicationContext applicationContext;
 }
 
@@ -144,7 +145,7 @@ ConfigurableApplicationContext ctx = SpringApplication.run(App.class, args);
 | ③ static 홀더 | **빈이 아닌 코드**(static 유틸, 역직렬화된 객체, 레거시 서블릿 필터)가 빈을 써야 할 때 | 초기화 순서·테스트 격리 함정(§7). **최후의 수단** |
 | ④ run 반환값 | 부트스트랩 코드·통합 테스트 | 애플리케이션 코드에 흘려보내지 않기 |
 
-> ⚠️ 위 pharos_batch의 `AppContextProvider`는 ③ 패턴인데, 실제 사용처는 `DynamicBatch` **한 곳이고 그 클래스는 이미 빈**이다. 빈이면 ①로 받으면 끝이라 ③을 거칠 이유가 없다. "static으로 감싸는 건 빈이 아닌 코드를 위한 것"이라는 용도를 모르고 관성으로 만든 우회.
+> ⚠️ 흔한 오용: ③ `AppContextProvider`를 만들어 두었는데 실제 사용처는 `DynamicJobScheduler` **한 곳이고 그 클래스는 이미 빈**인 경우. 빈이면 ①로 받으면 끝이라 ③을 거칠 이유가 없다. "static으로 감싸는 건 빈이 아닌 코드를 위한 것"이라는 용도를 모르고 관성으로 만든 우회.
 
 ---
 
@@ -169,11 +170,11 @@ boolean enabled = environment.getProperty(key, Boolean.class, true);
 |---|---|---|---|
 | 키 결정 시점 | 컴파일 | 컴파일 (prefix) | **런타임** |
 | 묶음 | 값 1개 | 객체 1개(여러 키) | 값 1개씩 |
-| 완화 바인딩(`pool-size`↔`poolSize`) | ✕ 정확한 키 | ✓ | ✕ 정확한 키 |
+| 완화 바인딩(`pool-size`↔`poolSize`) | △ 표준형(kebab) 키로 조회할 때만 | ✓ | △ 표준형 키로(확인 필요) |
 | 검증(`@Validated`) | ✕ | ✓ | ✕ |
 | 쓸 곳 | 단발 설정값 | 설정 묶음(권장 기본) | 동적 키, 조건 분기, 프레임워크성 코드 |
 
-> ⚠️ **완화 바인딩은 `Binder`(=`@ConfigurationProperties`) 기능**이다. `environment.getProperty("batch.poolSize")`는 yml에 `pool-size`로 적혀 있으면 못 찾는다. 환경변수 `BATCH_POOL_SIZE`→`batch.pool-size` 매핑은 별도 프로퍼티 소스가 해주니 그건 된다.
+> ⚠️ **완전한 완화 바인딩은 `Binder`(=`@ConfigurationProperties`) 기능**이고, `@Value`는 Boot 문서상 "제한적(Limited)"이다. **표준형(소문자 kebab-case)으로 조회해야** 다른 표기도 찾는다 — `@Value("${batch.pool-size}")`는 `batch.poolSize`·환경변수 `BATCH_POOLSIZE`도 잡지만, `@Value("${batch.poolSize}")`는 yml의 `pool-size`를 못 찾는다. `@Value`가 `Environment`를 거쳐 해석되므로 `environment.getProperty(...)`도 같은 규칙으로 보면 된다(확인 필요: `Environment` 직접 호출은 문서에 별도 언급이 없음).
 
 ---
 
@@ -242,25 +243,25 @@ public class A {
 스프링은 `List<T>`·`Map<String, T>`(키=빈 이름) 타입의 주입 지점을 보면 **그 타입의 빈 전부**를 채워 넣는다. 그래서 "핸들러들 중 조건에 맞는 하나"를 고르는 파인더는 컨테이너 없이 쓸 수 있다.
 
 ```java
-// client_api — 엑셀 타입별 핸들러 파인더
+// 파일 형식별 핸들러 파인더
 @Component
-public class ExcelTypeHandlerFinder {
-    private final Map<String, ExcelTypeHandler> handlers;
+public class FileTypeHandlerFinder {
+    private final Map<String, FileTypeHandler> handlers;
 
-    public ExcelTypeHandlerFinder(List<ExcelTypeHandler> handlers) {          // ← 스프링이 ExcelTypeHandler 빈 전부를 넣어줌
+    public FileTypeHandlerFinder(List<FileTypeHandler> handlers) {          // ← 스프링이 FileTypeHandler 빈 전부를 넣어줌
         this.handlers = handlers.stream()
-                .collect(toMap(ExcelTypeHandler::getSupportedType, identity()));  // 키를 "빈 이름"이 아니라 도메인 키로 재구성
+                .collect(toMap(FileTypeHandler::getSupportedType, identity()));  // 키를 "빈 이름"이 아니라 도메인 키로 재구성
     }
 
-    public Optional<ExcelTypeHandler> find(String type) { return Optional.ofNullable(handlers.get(type)); }
+    public Optional<FileTypeHandler> find(String type) { return Optional.ofNullable(handlers.get(type)); }
 }
 ```
 
 한 단계 더 가면 **기동 시점 검증**까지 넣는다. 담당이 비었거나 겹치면 서버가 뜨지 않게 해서 배선 실수를 런타임까지 끌고 가지 않는다.
 
 ```java
-// client_api — 스크래핑 종류별 핸들러 레지스트리
-public ScrapDataHandlers(List<ScrapDataHandler<?>> handlers) {
+// 수집 대상(enum)별 핸들러 레지스트리
+public ImportHandlers(List<ImportHandler<?>> handlers) {
     this.handlerByTarget = handlers.stream()
             .flatMap(h -> h.targets().stream().map(t -> Map.entry(t, h)))
             .collect(toMap(Map.Entry::getKey, Map.Entry::getValue, this::rejectDuplicate));  // 겹치면 예외
@@ -272,35 +273,35 @@ public ScrapDataHandlers(List<ScrapDataHandler<?>> handlers) {
 
 ### b. 빈 이름이 외부 데이터에서 올 때 — `getBean`이 정당한 유일한 흔한 경우, 그러나 Map이 더 낫다
 
-pharos_batch `DynamicBatch`: DB 테이블에 `job_command = 'marketingAgreeNotifyCommand'`처럼 **빈 이름이 문자열로** 저장돼 있고, 기동 시 그 이름으로 빈을 찾아 스케줄에 묶는다 (구조 전체는 [동적 스케줄링](./dynamic-scheduling.md)).
+DB 정의 스케줄러(`DynamicJobScheduler`): 매핑 테이블에 `command_bean = 'dailyReportCommand'`처럼 **빈 이름이 문자열로** 저장돼 있고, 기동 시 그 이름으로 빈을 찾아 스케줄에 묶는다 (구조 전체는 [동적 스케줄링](./dynamic-scheduling.md)).
 
 ```java
-// 현재 — 정당한 조회지만 두 가지 아쉬움: static 홀더 우회(§3) + 오타 한 건이 전체를 죽임
+// 흔한 형태 — 정당한 조회지만 두 가지 아쉬움: static 홀더 우회(§3) + 오타 한 건이 전체를 죽임
 ApplicationContext ctx = appContextProvider.getAppContext();
-for (SchdJobCommandMapp mapp : mappList) {
-    AbstactCommand command = ctx.getBean(mapp.getJobCommand(), AbstactCommand.class);  // 이름 오타 → 예외 → 바깥 try가 init 전체 중단
+for (ScheduleCommandMapping mapping : mappings) {
+    BatchCommand command = ctx.getBean(mapping.getCommandBean(), BatchCommand.class);  // 이름 오타 → 예외 → 바깥 try가 init 전체 중단
     ...
 }
 
 // 대안 — Map 주입. 없으면 null이라 "그 건만 건너뛰고 경고" 가능
-private final Map<String, AbstactCommand> commands;   // 키 = 빈 이름, 스프링이 채움
+private final Map<String, BatchCommand> commands;   // 키 = 빈 이름, 스프링이 채움
 
-for (SchdJobCommandMapp mapp : mappList) {
-    AbstactCommand command = commands.get(mapp.getJobCommand());
-    if (command == null) { log.warn("정의 없는 job_command: {}", mapp.getJobCommand()); continue; }
+for (ScheduleCommandMapping mapping : mappings) {
+    BatchCommand command = commands.get(mapping.getCommandBean());
+    if (command == null) { log.warn("정의 없는 command_bean: {}", mapping.getCommandBean()); continue; }
     ...
 }
 ```
 
-`getBean`은 "없으면 예외"가 기본 의미라 **부분 실패를 전체 실패로 승격**시킨다. DB에서 온 이름은 오타·대소문자 실수가 언제든 들어올 수 있는 입력이므로, "없을 수 있다"를 전제한 Map 조회가 의미에 맞는다.
+`getBean`은 "없으면 예외"가 기본 의미라 **부분 실패를 전체 실패로 승격**시킨다. DB에서 온 이름은 오타·대소문자 실수가 언제든 들어올 수 있는 입력이므로, "없을 수 있다"를 전제한 Map 조회가 의미에 맞는다. 특히 대소문자는 빈 기본 이름 규칙(§7 첫 항목)을 모르면 틀리기 쉽다 — `step = 0` 같은 비활성 행에 잘못된 이름이 숨어 있다가 **활성화하는 순간 init 전체가 죽는** 식으로 늦게 드러난다.
 
 ### c. 지연·선택적·프로토타입 — `ObjectProvider<T>`
 
 ```java
-// client_api — 순환 의존 회피 (마이그레이션 후 삭제 예정 FIXME가 붙어 있음)
-private final ObjectProvider<SalMgmtInpService> salMgmtInpServiceProvider;
+// 순환 의존 회피 (마이그레이션 후 삭제 예정 FIXME를 붙여 둠)
+private final ObjectProvider<PayrollInputService> payrollInputServiceProvider;
 
-SalMgmtInpService svc = salMgmtInpServiceProvider.getObject();          // 실제 필요한 시점에 꺼냄
+PayrollInputService svc = payrollInputServiceProvider.getObject();      // 실제 필요한 시점에 꺼냄
 ```
 
 | `ObjectProvider` 메서드 | 의미 |
@@ -317,7 +318,7 @@ SalMgmtInpService svc = salMgmtInpServiceProvider.getObject();          // 실�
 
 ```java
 private final ApplicationEventPublisher publisher;    // ApplicationContext가 이 인터페이스를 상속하므로 어느 쪽이든 되지만
-publisher.publishEvent(new DemoOrgCreatedEvent(orgId));  // 필요한 능력만 받는다 (client_api 35개 클래스가 이 방식)
+publisher.publishEvent(new OrgCreatedEvent(orgId));  // 필요한 능력만 받는다
 ```
 
 ### f. 빈이 아닌 코드 — "빈으로 만들 수 없나"를 먼저
@@ -328,13 +329,13 @@ static 유틸에서 `MessageSource`가 필요하다면, 답은 static 홀더가 
 
 ## 7. ⚠️ 함정
 
-- **빈 이름은 대소문자 구분, 기본 이름은 `Introspector.decapitalize(클래스명)`** — `MarketingAgreeNotifyCommand` → `marketingAgreeNotifyCommand`. 단 **앞 두 글자가 모두 대문자면 그대로**(`URLParser` → `URLParser`, `DBConfig` → `DBConfig`). DB에 이름을 저장하는 구조면 이 규칙을 문서에 박아둘 것. pharos_batch DB엔 `DailyPassOrgMpaaUpdateCommand`처럼 대문자 시작 행이 있는데 `step 0`(비활성)이라 살아 있을 뿐, 활성화 순간 init 전체가 죽는다.
+- **빈 이름은 대소문자 구분, 기본 이름은 `Introspector.decapitalize(클래스명)`** — `DailyReportCommand` → `dailyReportCommand`. 단 **앞 두 글자가 모두 대문자면 그대로**(`URLParser` → `URLParser`, `DBConfig` → `DBConfig`). DB에 이름을 저장하는 구조면 이 규칙을 문서에 박아둘 것 — 틀린 이름이 어떻게 늦게 터지는지는 §6-b.
 - **`getBean(Class)`에 후보가 둘 이상이면 `NoUniqueBeanDefinitionException`** — 인터페이스 타입으로 조회할 때 흔하다. `@Primary`/`@Qualifier`로 하나를 지정하거나, 여러 개가 정상이면 `Map<String,T>`로 받는다.
 - **static 홀더의 초기화 순서** — static 필드는 `AppContextProvider` **빈이 만들어지는 ④단계**에 채워진다. 그보다 먼저 만들어지는 빈의 생성자·`@PostConstruct`에서 static을 통해 접근하면 null. 빈 생성 순서는 의존 관계로만 보장되므로 "우연히 됐다"가 배포 환경에서 깨질 수 있다. 또 테스트에서 컨텍스트가 여러 개 뜨면(슬라이스 테스트·컨텍스트 캐시) static은 **마지막 컨텍스트로 덮어써져** 다른 테스트가 엉뚱한 컨테이너를 본다.
 - **`@PostConstruct` 안에서 다른 빈 `getBean`** — 그 빈이 아직 생성 중이면 미완성 참조(프록시 안 붙은 원본 등)를 받을 수 있다. 특히 순환 구조에서. 준비 완료 뒤에 해야 하는 조회는 `ApplicationReadyEvent`/`ContextRefreshedEvent` 리스너나 `SmartInitializingSingleton.afterSingletonsInstantiated()`로 옮긴다.
 - **`getBean`은 프록시를 돌려준다** — `@Transactional`·AOP가 붙은 빈은 주입받든 조회하든 프록시다. 자기호출 함정 등은 그대로 → [@Transactional](./transactional.md).
 - **`getBeansOfType`·`Map<String,T>`는 프로토타입 스코프 빈을 매번 새로 만든다** — 조회 자체가 생성이라 부작용이 있는 프로토타입이면 주의. 실무선 싱글턴이 대부분이라 드물지만 알고 있어야 한다.
-- **완화 바인딩은 `Environment`에 없다** (§4).
+- **완화 바인딩은 표준형(kebab) 키로 조회할 때만 일부 된다** — camelCase로 조회하면 yml의 kebab 키를 못 찾는다 (§4).
 
 ---
 
@@ -342,10 +343,10 @@ static 유틸에서 `MessageSource`가 필요하다면, 답은 static 홀더가 
 
 - **"주입으로 못 받는 이유를 한 문장으로 말할 수 있나?"** 못 하면 주입이다. "이름이 DB에서 온다"는 말할 수 있고, "그때그때 필요해서"는 말이 안 된다.
 - **컨테이너 전체보다 좁은 인터페이스를 받는다** — 이벤트면 `ApplicationEventPublisher`, 설정이면 `Environment`(그것도 동적 키일 때만), 여러 빈 중 선택이면 `Map<String,T>`, 지연이면 `ObjectProvider<T>`. `ApplicationContext`를 받는 순간 "이 클래스는 컨테이너의 모든 능력에 의존한다"고 선언하는 셈이다.
-- **동적 이름은 `Map<String,T>` 주입 + 기동 시 검증이 1순위, `getBean(name)`은 2순위** — `getBean`은 "없으면 예외"라 부분 실패를 전체 실패로 키운다. 외부에서 온 이름은 "없을 수 있는 입력"이다.
-- **파인더의 키는 빈 이름이 아니라 도메인 키로** — 빈 이름은 클래스명의 부산물이라 리팩토링에 약하다. 핸들러가 스스로 담당 키를 선언하게 한다 (`ScrapDataHandlers`, `ExcelTypeHandlerFinder`).
+- **동적 이름은 `Map<String,T>` 주입 + 기동 시 검증이 1순위, `getBean(name)`은 2순위** (§6-b) — 외부에서 온 이름은 "없을 수 있는 입력"이다.
+- **파인더의 키는 빈 이름이 아니라 도메인 키로** — 빈 이름은 클래스명의 부산물이라 리팩토링에 약하다. 핸들러가 스스로 담당 키를 선언하게 한다 (`ImportHandlers`, `FileTypeHandlerFinder`).
 - **static 홀더는 최후의 수단이고, 쓰면 "빈으로 만들 수 없는 이유"를 주석으로 남긴다** — 이유가 "편해서"면 빈으로 바꾼다.
-- 구체 케이스: pharos_batch `DynamicBatch`는 조회 자체는 정당(이름이 DB에서 옴)하지만 ⓐ 이미 빈인데 static 홀더를 거치고 ⓑ `getBean`이라 오타 한 건이 스케줄 전체를 죽인다. `Map<String, AbstactCommand>` 주입 하나로 둘 다 사라진다.
+- 구체 케이스: DB 정의 스케줄러가 빈 이름을 DB에서 읽는 건 정당한 조회였지만, ⓐ 이미 빈인데 static 홀더를 거치고 ⓑ `getBean`이라 오타 한 건이 스케줄 전체를 죽이는 구조였다. `Map<String, BatchCommand>` 주입 하나로 둘 다 사라진다.
 
 ---
 
@@ -359,7 +360,8 @@ static 유틸에서 `MessageSource`가 필요하다면, 답은 static 홀더가 
 - [Spring Framework Reference — Container Extension Points (BeanPostProcessor·BeanFactoryPostProcessor)](https://docs.spring.io/spring-framework/reference/core/beans/factory-extension.html) · [Lifecycle Callbacks](https://docs.spring.io/spring-framework/reference/core/beans/factory-nature.html#beans-factory-lifecycle) (어노테이션 = 표식, processor = 읽는 쪽)
 - [Spring Framework Reference — Method Injection (@Lookup)](https://docs.spring.io/spring-framework/reference/core/beans/dependencies/factory-method-injection.html)
 - [Javadoc — ApplicationContext](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/ApplicationContext.html) · [ObjectProvider](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/beans/factory/ObjectProvider.html) · [GenericApplicationContext.registerBean](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/support/GenericApplicationContext.html)
-- [Spring Boot Reference — Externalized Configuration (Relaxed Binding)](https://docs.spring.io/spring-boot/reference/features/external-config.html)
+- [Spring Boot Reference — Externalized Configuration (Relaxed Binding)](https://docs.spring.io/spring-boot/reference/features/external-config.html) (`@ConfigurationProperties` vs `@Value` 표 — `@Value`는 "Limited")
+- [Javadoc — CommonAnnotationBeanPostProcessor](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/CommonAnnotationBeanPostProcessor.html) (`@Resource` 주입 + `@PostConstruct`·`@PreDestroy`)
 - [Martin Fowler — Inversion of Control Containers and the Dependency Injection pattern](https://martinfowler.com/articles/injection.html) (Service Locator vs DI 비교의 원전)
 - [Mark Seemann — Service Locator is an Anti-Pattern](https://blog.ploeh.dk/2010/02/03/ServiceLocatorisanAnti-Pattern/)
 - 관련 노트: [빈 후처리기](../design/bean-post-processor.md) · [Spring 이벤트](./application-events.md) · [@Transactional](./transactional.md) · [동적 스케줄링](./dynamic-scheduling.md)
@@ -367,4 +369,4 @@ static 유틸에서 `MessageSource`가 필요하다면, 답은 static 홀더가 
 ---
 
 **학습 날짜**: 2026-09-16
-**계기**: pharos_batch `DynamicBatch`의 `private final AppContextProvider appContextProvider;`가 뭔지에서 출발. "코드가 돌면서 Component를 직접 만드는 건가?" → 아니, 이미 있는 빈을 **이름으로 꺼내는** 것 → 그럼 컨테이너가 뭘 할 수 있고, 언제 직접 쥐어야 하며, 어떻게 쓰면 안티패턴인가까지 정리. client_api의 `ExcelTypeHandlerFinder`·`ScrapDataHandlers`·`ObjectProvider` 사용처를 "실제로는 이렇게"의 예로 붙임.
+**계기**: 배치 서버의 DB 정의 스케줄러가 `private final AppContextProvider appContextProvider;`를 들고 있는 게 뭔지에서 출발. "코드가 돌면서 Component를 직접 만드는 건가?" → 아니, 이미 있는 빈을 **이름으로 꺼내는** 것 → 그럼 컨테이너가 뭘 할 수 있고, 언제 직접 쥐어야 하며, 어떻게 쓰면 안티패턴인가까지 정리. 다른 서버의 핸들러 파인더·레지스트리·`ObjectProvider` 사용처를 "실제로는 이렇게"의 예로 붙임.

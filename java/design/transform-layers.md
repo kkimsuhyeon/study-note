@@ -15,7 +15,7 @@ Request (web DTO)
 Command / Query          [application/dto]
    │  ── Assembler ──>   [application/assembler]   의도 → 진짜 도메인 객체로 조립
    ▼
-Domain Model (User)  ← 생성은 Factory(User.create / User.of)가 담당
+Domain Model (User)  ← 생성은 Factory(User.create), DB에서 되살리는 복원은 User.of
 ```
 
 ## 2. 3개 구분
@@ -24,7 +24,7 @@ Domain Model (User)  ← 생성은 Factory(User.create / User.of)가 담당
 |---|---|---|---|
 | **Mapper** | `adapter/in/web/mapper` | Request → **Command/Query** (변환, web 계층) | `CreateUserRequest → CreateUserCommand` |
 | **Assembler** | `application/assembler` | Command/Query → **Domain Model** (변환, app 계층) | `CreateUserCommand → User` |
-| **Factory** | 도메인(모델 내 static) | 값 → **유효한 도메인 객체 *생성*** (기본값·불변식·검증) | `User.create(email, pw)`, `User.of(...)` |
+| **Factory** | 도메인(모델 내 static) | 값 → **유효한 도메인 객체 *생성*** (기본값·불변식·검증) | `User.create(email, pw)` — 복원 팩토리 `User.of(...)`는 저장된 상태 재조립이라 입력 검증 X ([도메인 검증 §2-3](./domain-validation.md)) |
 
 ```java
 // Assembler가 Factory를 호출 — "변환"이 "생성"을 부른다
@@ -44,6 +44,7 @@ public static User toModel(CreateUserCommand command) {
 - Mapper = "바깥세상(HTTP)"을 안쪽 언어로 번역하는 **어댑터 책임**.
 - Assembler = 그 Command를 진짜 도메인으로 조립하는 **application 책임**.
 - → **웹이 GraphQL로 바뀌어도 Assembler는 그대로** 써야 함. 그게 분리 목적(어댑터 교체에 도메인 조립이 안 흔들림).
+- ⚠️ 이건 application이 web 타입을 import하지 않는 구조(헥사고날) 기준이다. 계층형 구조의 작은 프로젝트는 Request를 그대로 서비스에 넘기는 것도 흔하다 — Command(번역)로 올라갈 신호는 [책임 경계 §3-1](./responsibility-boundaries.md)에 모아뒀다.
 
 ## 5. 곁가지 — Command vs Query
 | | 의미 | 트랜잭션 | 서비스 |
@@ -57,7 +58,7 @@ public static User toModel(CreateUserCommand command) {
 
 설계 이유(스펙 종속)만이 아니라 **기술적으로도 터진다** (김영한 활용2):
 
-- **프록시 직렬화 예외**: 지연 로딩 상태의 연관 필드는 프록시 객체라 Jackson이 직렬화 못 하고 예외. `Hibernate5Module`(부트 3.x는 `Hibernate5JakartaModule`)로 우회 가능하지만 미초기화 필드가 null로 나가는 등 결국 **DTO 변환이 정답**.
+- **프록시 직렬화 예외**: 지연 로딩 상태의 연관 필드는 프록시 객체라 Jackson이 직렬화 못 하고 예외. `Hibernate5Module`(Hibernate 5.5+ Jakarta는 `Hibernate5JakartaModule`, 부트 3.x의 Hibernate 6은 `jackson-datatype-hibernate6`의 `Hibernate6Module` — Jackson 2.15+)로 우회 가능하지만 미초기화 필드가 null로 나가는 등 결국 **DTO 변환이 정답**.
 - **양방향 무한루프**: 양방향 연관관계 엔티티를 그대로 JSON화하면 서로를 호출하며 무한루프 — 한쪽에 `@JsonIgnore`가 필요해지는 것 자체가 "화면 사정이 엔티티에 침투"한 신호.
 - **엔티티 필드 추가 = API 스펙 변경**: 내부 리팩토링이 외부 계약을 깨뜨린다.
 
@@ -136,8 +137,10 @@ return new CreateBookingCommand(
 ---
 
 ## 7. 참고
-- 관련 노트: [도메인 검증 위치](./domain-validation.md)
+- 관련 노트: [도메인 검증 위치](./domain-validation.md) · [책임 경계](./responsibility-boundaries.md)
+- [jackson-datatype-hibernate README](https://github.com/FasterXML/jackson-datatype-hibernate) — Hibernate 버전별 모듈(5 / 5-jakarta / 6)
 
+- 보강: 2026-10-02. Hibernate 6용 Jackson 모듈 정정, 복원 팩토리 `of`는 검증하지 않는다는 점을 도메인 검증 노트와 맞춤, Request 직접 전달이 허용되는 구조 표시.
 - 보강: 2026-09-22. Request·Command·도메인 사이의 타입 일관성, enum 공유의 의존 방향, 달력 의미에 따른 LocalDate 선택. 기존 명칭 표는 한 가지 프로젝트 관례이며 모든 프로젝트가 따라야 하는 표준은 아니다. 예시는 설명용으로 별도 실행하지 않았다.
 
 ---

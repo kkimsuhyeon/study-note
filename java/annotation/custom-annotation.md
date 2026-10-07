@@ -23,7 +23,7 @@ public @interface DistributedLock {
 ```
 
 - 요소(element)는 메서드 선언 형태로 정의. **허용 타입 제한**: 기본형, `String`, `Class`, enum, 어노테이션, 그리고 이들의 1차원 배열만. (일반 객체·`null` 불가 — "값 없음"은 `""`나 빈 배열 같은 센티널로 표현)
-- 요소가 `value` 하나뿐이면 `@Anno("x")`처럼 이름 생략 가능
+- 요소 중 하나가 `value`이고 **나머지가 전부 default를 가지면** `@Anno("x")`처럼 이름 생략 가능 (JLS §9.7.3 — 예: `@Transactional("txManager")`)
 - 붙일 때 상수만 사용 가능 (컴파일 타임에 값이 박제됨) — 동적 값이 필요하면 **SpEL 문자열**로 받고 처리기에서 평가하는 게 관용 패턴 (아래 AOP 절)
 
 ## 메타 어노테이션 (어노테이션에 붙이는 어노테이션)
@@ -56,12 +56,12 @@ public @interface DistributedLock {
 @Component
 @RequiredArgsConstructor
 public class DistributedLockAdvice {
-    private final DistributedLockTemplate lockTemplate;
+    private final LockExecutor lockExecutor;   // 락 획득 → 작업 실행 → 해제를 감싼 헬퍼 (예: Redisson 기반)
 
     @Around("@annotation(distributedLock)")   // 파라미터 바인딩: 어노테이션 인스턴스를 직접 받는다
     public Object around(ProceedingJoinPoint joinPoint, DistributedLock distributedLock) throws Throwable {
         String lockKey = buildLockKey(distributedLock, joinPoint);  // "key:value" 조합
-        return lockTemplate.executeWithThrowable(lockKey,
+        return lockExecutor.execute(lockKey,
                 distributedLock.waitTime(), distributedLock.leaseTime(), distributedLock.timeUnit(),
                 joinPoint::proceed);
     }
@@ -72,13 +72,13 @@ public class DistributedLockAdvice {
 
 ```java
 @Transactional
-@DistributedLock(key = "empl_lock", value = "#param.orgId", waitTime = 3L, leaseTime = 120L)
-public String addEmpl(EmplAdd param) { ... }
+@DistributedLock(key = "order_lock", value = "#req.storeId", waitTime = 3L, leaseTime = 120L)
+public String createOrder(OrderCreateRequest req) { ... }
 ```
 
 ### 동적 값은 SpEL로
 
-어노테이션 요소는 상수만 가능하므로, `"#param.orgId"` 같은 **SpEL 문자열**을 받아 Aspect에서 평가한다:
+어노테이션 요소는 상수만 가능하므로, `"#req.storeId"` 같은 **SpEL 문자열**을 받아 Aspect에서 평가한다:
 
 ```java
 Expression expr = parser.parseExpression(spelString);          // 파싱은 비싸므로 ConcurrentHashMap에 캐시
@@ -86,30 +86,33 @@ EvaluationContext context = new StandardEvaluationContext();   // 컨텍스트�
 String[] paramNames = ((MethodSignature) joinPoint.getSignature()).getParameterNames();
 Object[] args = joinPoint.getArgs();
 for (int i = 0; i < paramNames.length; i++) context.setVariable(paramNames[i], args[i]);
-String value = expr.getValue(context, String.class);           // #param.orgId → 실제 orgId
+String value = expr.getValue(context, String.class);           // #req.storeId → 실제 storeId
 ```
 
 ## 함정 / 메커니즘 (⚠️)
 
-- ⚠️ **프록시 기반이라 self-invocation에 안 먹힌다**: 같은 클래스 안에서 `this.addEmpl(...)`로 호출하면 프록시를 안 거치므로 락이 안 걸린다. `@Transactional`과 동일한 메커니즘 — 상세는 [@Transactional 노트](../spring/transactional.md)의 프록시 함정 참고. private 메서드도 같은 이유로 불가.
-- ⚠️ **`getParameterNames()`가 null일 수 있다**: 파라미터 이름은 기본적으로 바이트코드에 안 남는다. `-parameters` 컴파일 옵션(스프링 부트 그래들/메이븐 플러그인은 기본 켜줌)이 없으면 SpEL `#파라미터명` 바인딩이 깨진다. 빌드 환경 바뀌고 나서야 터지는 유형.
+- ⚠️ **프록시 기반이라 self-invocation에 안 먹힌다**: 같은 클래스 안에서 `this.createOrder(...)`로 호출하면 프록시를 안 거치므로 락이 안 걸린다. `@Transactional`과 동일한 메커니즘 — 상세는 [@Transactional 노트](../spring/transactional.md)의 프록시 함정 참고. private 메서드도 같은 이유로 불가.
+- ⚠️ **`getParameterNames()`가 null일 수 있다**: 파라미터 이름은 기본적으로 바이트코드에 안 남는다. `-parameters` 컴파일 옵션이 없으면 SpEL `#파라미터명` 바인딩이 깨진다. Gradle은 스프링 부트 플러그인이, Maven은 **`spring-boot-starter-parent`**가 기본으로 켜준다 — parent 없이 `spring-boot-maven-plugin`만 쓰면 꺼져 있다. 빌드 환경 바뀌고 나서야 터지는 유형.
 - ⚠️ **Aspect 간 순서는 `@Order`로 명시**: 락과 트랜잭션이 붙은 메서드라면 "락 획득 → 트랜잭션 시작 → 커밋 → 락 해제" 순서여야 정합성이 보장된다. `@Order`를 안 주면 트랜잭션이 락 밖에서 커밋될 수 있다(락 해제 후 커밋 전 틈에 다른 요청이 옛 데이터를 읽음). `@Transactional`의 기본 order는 `LOWEST_PRECEDENCE`이므로 그보다 작은 값을 주면 먼저 실행된다.
 - ⚠️ **인터페이스 메서드에 붙인 어노테이션은 구현체로 상속되지 않는다**: `@Inherited`는 클래스 상속에만 적용. 서비스 인터페이스가 있는 구조면 **구현 클래스 메서드**에 붙여야 안전 (스프링 공식 문서도 `@Transactional`을 구체 클래스에 붙이라고 권고).
+- ⚠️ **`@annotation`은 메서드에 붙은 어노테이션만 본다**: `@Target`에 `TYPE`을 열어두고 클래스에 붙이면 조용히 안 걸린다. 클래스 레벨도 받으려면 `@within(...)`을 `||`로 함께 걸고, 어노테이션 값은 메서드 → 클래스 순으로 직접 찾는다. 스프링 `@Transactional`이 클래스에도 먹는 건 AspectJ 표현식이 아니라 전용 Pointcut이라서다 → [AOP 포인트컷 §8](../design/aop-pointcut.md)
 - ⚠️ 붙이기만 하고 처리기(Aspect 빈)가 등록 안 되면 **조용히 무시된다** — 어노테이션은 컴파일 에러를 못 낸다. 동작 테스트(락이 실제로 잡히는지)로 확인해야 한다.
 
 ## 💡 판단 기준
 
-- **케이스**: 사원 등록(`addEmpl`)과 데이터 마이그레이션의 사원 일괄 등록이 같은 기관에 동시 실행되면 사번 채번이 중복될 수 있었다. try-lock/해제 보일러플레이트를 메서드마다 쓰는 대신, `@DistributedLock(key=..., value="#param.orgId")` 어노테이션 + AOP로 선언화하고 `@Order`로 트랜잭션보다 먼저 잡게 했다.
-- **판단**: 같은 부가 동작이 **여러 메서드에 반복 + "트랜잭션보다 먼저" 같은 순서 제어가 필요**하면 커스텀 어노테이션 + AOP. 반대로 **한두 곳**이면 템플릿 직접 호출(`lockTemplate.execute(key, () -> ...)`)이 더 단순하고 프록시 함정도 없다 — "어노테이션부터 만들고 보자"는 과설계 신호.
+- **케이스**: 주문 생성(`createOrder`)과 배치의 주문 일괄 등록이 같은 매장에 동시 실행되면 주문번호 채번이 중복될 수 있다. try-lock/해제 보일러플레이트를 메서드마다 쓰는 대신, `@DistributedLock(key=..., value="#req.storeId")` 어노테이션 + AOP로 선언화하고 `@Order`로 트랜잭션보다 먼저 잡게 한다.
+- **판단**: 같은 부가 동작이 **여러 메서드에 반복 + "트랜잭션보다 먼저" 같은 순서 제어가 필요**하면 커스텀 어노테이션 + AOP. 반대로 **한두 곳**이면 헬퍼 직접 호출(`lockExecutor.execute(key, () -> ...)`)이 더 단순하고 프록시 함정도 없다 — "어노테이션부터 만들고 보자"는 과설계 신호.
 - 분산 락 자체(왜 Redis 락인지, synchronized로 안 되는 이유)는 [락 개념 종합](../concurrency/locks.md) 참고.
 
 ## 참고
 
 - [JLS §9.6 Annotation Interfaces](https://docs.oracle.com/javase/specs/jls/se17/html/jls-9.html#jls-9.6) — 요소 허용 타입, 기본 retention
+- [JLS §9.7.3 Single-Element Annotations](https://docs.oracle.com/javase/specs/jls/se17/html/jls-9.html#jls-9.7.3) — `value` 생략형은 나머지 요소가 전부 default일 때 허용
 - [Java Tutorial - Annotations](https://docs.oracle.com/javase/tutorial/java/annotations/)
-- [Spring AOP - @annotation pointcut & 파라미터 바인딩](https://docs.spring.io/spring-framework/reference/core/aop/ataspectj/pointcuts.html)
+- [Spring AOP - @annotation pointcut & 파라미터 바인딩](https://docs.spring.io/spring-framework/reference/core/aop/ataspectj/pointcuts.html) — `@annotation`은 실행되는 메서드에 붙은 어노테이션 기준
 - [Spring - AOP 프록시 이해 (self-invocation)](https://docs.spring.io/spring-framework/reference/core/aop/proxying.html)
+- [Spring Boot Maven Plugin - Using the parent POM](https://docs.spring.io/spring-boot/maven-plugin/using.html) · [Gradle Plugin - Reacting to the Java plugin](https://docs.spring.io/spring-boot/gradle-plugin/reacting.html) — `-parameters` 기본 적용 주체
 
 ---
 학습 날짜: 2026-07-09
-계기: 회사 프로젝트에서 `addEmpl`에 붙은 `@DistributedLock`(Redisson 분산 락 커스텀 어노테이션)의 동작 원리를 분석하면서 — 어노테이션 선언·SpEL 키 생성·`@Order`로 트랜잭션과의 순서 제어까지 한 세트로 정리
+계기: Redisson 기반 분산 락 커스텀 어노테이션(`@DistributedLock`)의 동작 원리를 분석하면서 — 어노테이션 선언·SpEL 키 생성·`@Order`로 트랜잭션과의 순서 제어까지 한 세트로 정리

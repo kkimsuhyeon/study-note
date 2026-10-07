@@ -389,7 +389,9 @@ public class WithinTest {
 | `execution` | ✅ 매칭 (다형성 적용) | ✅ 반환타입·이름·파라미터 전부 | **kinded**(어떤 종류의 조인 포인트인가) |
 | `within` | ❌ **실패** — 정확한 타입만 | ❌ 타입 단위만 | **scoping**(어느 범위인가) |
 
-> 💡 **`within`은 "패키지·클래스 범위를 빠르게 자르는 도구"**로 이해하면 된다. 공식 문서도 `within(com.xyz.service..*)` 같은 **레이어 구분용 공용 포인트컷** 예시로 `within`을 쓴다. 메서드 조건은 `execution`이, 범위 자르기는 `within`이 담당하는 역할 분담. (→ §12 "좋은 포인트컷 쓰기")
+> 💡 **`within`은 "패키지·클래스 범위를 빠르게 자르는 도구"**로 이해하면 된다. 공식 문서도 `within(com.xyz.service..*)` 같은 **레이어 구분용 공용 포인트컷** 예시로 `within`을 쓴다. 메서드 조건은 `execution`이, 범위 자르기는 `within`이 담당하는 역할 분담. (→ §13-② "좋은 포인트컷은 kinded + scoping")
+>
+> 📌 `within`도 하위 타입까지 넣고 싶으면 AspectJ 타입 패턴의 **`+`** 를 붙인다 — `within(hello.aop.member.MemberService+)`는 `MemberService`와 그 하위 타입 안의 메서드를 매칭한다(구현체에만 있는 `internal()`도 포함). `execution(* hello.aop.member.MemberService+.*(..))`도 같은 문법이다.
 
 ---
 
@@ -465,7 +467,7 @@ public class ArgsTest {
 
 공식 문서도 같은 구분을 명시한다 — `args(java.io.Serializable)`은 **런타임에 전달된 인수가 `Serializable`이면** 매칭이고, `execution(* *(java.io.Serializable))`은 **메서드 시그니처가 `Serializable` 파라미터 하나를 선언했을 때** 매칭이라고.
 
-> ⚠️ **"정적/동적"은 단순한 수식어가 아니라 §11(단독 사용 금지)의 원인이다.** 동적 판단은 프록시가 있어야만 가능하고, 프록시를 만들지 말지는 로딩 시점에 결정해야 한다 — 이 순환이 §11의 전부다.
+> ⚠️ **"정적/동적"은 단순한 수식어가 아니라 §12(단독 사용 금지)의 원인이다.** 동적 판단은 프록시가 있어야만 가능하고, 프록시를 만들지 말지는 로딩 시점에 결정해야 한다 — 이 순환이 §12의 전부다.
 
 ---
 
@@ -480,7 +482,7 @@ public class ArgsTest {
 
 ### ⚠️ 먼저 오해부터 정리 — 이건 프록시 이야기가 **아니다**
 
-> **세션에서 "@target은 진짜 객체, @within은 프록시 객체 아닌가?"라고 답했는데, 그건 `this` vs `target`(§9) 이야기다.**
+> ⚠️ **흔한 오해: "@target은 진짜 객체, @within은 프록시 객체 아닌가?" — 그건 `this` vs `target`(§9) 이야기다.**
 >
 > 이름이 비슷해서 생기는 착각인데, **축이 완전히 다르다**:
 > - `this` vs `target` → **프록시냐 타깃이냐** (§9)
@@ -654,7 +656,9 @@ public class AtAnnotationTest {
 [@annotation] String hello.aop.member.MemberService.hello(String)
 ```
 
-> 📌 **`@annotation`이 바로 커스텀 AOP 애노테이션의 정체다.** `@Transactional`, `@Cacheable`, `@PreAuthorize`가 전부 이 방식으로 걸린다 — "이 애노테이션이 붙은 메서드만 가로채라". [커스텀 어노테이션 노트](../annotation/custom-annotation.md)의 "AOP 처리 방식"이 이것이고, 실무에서 직접 만드는 AOP는 대부분 `@annotation` + 파라미터 바인딩(§10) 조합이다.
+> 📌 **`@annotation`이 바로 커스텀 AOP 애노테이션의 정체다** — "이 애노테이션이 붙은 메서드만 가로채라". [커스텀 어노테이션 노트](../annotation/custom-annotation.md)의 "AOP 처리 방식"이 이것이고, 실무에서 직접 만드는 AOP는 대부분 `@annotation` + 파라미터 바인딩(§11) 조합이다.
+>
+> ⚠️ 스프링 내장 `@Transactional`·`@Cacheable`·`@PreAuthorize`도 **발상은 같지만 구현은 AspectJ 표현식이 아니다.** 각자 Advisor + 전용 Pointcut(`TransactionAttributeSourcePointcut`, `CacheOperationSourcePointcut`, 스프링 시큐리티의 `AuthorizationMethodPointcuts`)을 쓰고, 그래서 **클래스에 붙인 애노테이션도 인식**한다. 반면 `@annotation`은 **메서드에 붙은 것만** 본다 — 직접 만든 애노테이션을 클래스에 붙여도 걸리게 하려면 `@within`을 함께 써야 한다.
 >
 > ⚠️ `@target`/`@within`(클래스 애노테이션)과 `@annotation`(메서드 애노테이션)의 대상이 다르다는 걸 놓치기 쉽다. 애노테이션 선언의 `@Target(ElementType.TYPE)` vs `@Target(ElementType.METHOD)`와 짝을 이룬다.
 
@@ -666,7 +670,7 @@ public class AtAnnotationTest {
 @args(test.Check)
 ```
 
-즉 `someMethod(파라미터)`를 호출했을 때, 넘어온 그 객체의 클래스에 `@Check`가 붙어 있으면 적용. **런타임 판단이라 단독 사용 금지 대상**(§11)이다.
+즉 `someMethod(파라미터)`를 호출했을 때, 넘어온 그 객체의 클래스에 `@Check`가 붙어 있으면 적용. **런타임 판단이라 단독 사용 금지 대상**(§12)이다.
 
 ---
 
@@ -685,7 +689,7 @@ public class AtAnnotationTest {
 - **타입 하나를 정확히 지정**해야 한다. `*` 같은 패턴 **사용 불가**
 - **부모 타입 허용** (다형성 적용)
 
-> 📌 참고로 **AspectJ에서는 `this`와 `target`이 같은 객체**를 가리킨다 — AspectJ는 프록시를 안 만들고 바이트코드에 직접 위빙하기 때문에 "프록시 객체"라는 게 존재하지 않는다. **`this` ≠ `target`은 프록시 기반인 스프링 AOP만의 구분**이다. (공식 문서 명시)
+> 📌 참고로 **AspectJ에서는 execution 조인 포인트에서 `this`와 `target`이 같은 객체**(메서드를 실행 중인 객체)를 가리킨다 — AspectJ는 프록시를 안 만들고 바이트코드에 직접 위빙하기 때문에 "프록시 객체"라는 게 존재하지 않는다. **`this` ≠ `target`은 프록시 기반인 스프링 AOP만의 구분**이다. (공식 문서 명시. AspectJ의 call 조인 포인트에서는 `this`=호출하는 쪽, `target`=호출받는 쪽이라 원래부터 다르다)
 
 ### 왜 프록시 종류에 따라 달라지는가
 
@@ -720,7 +724,7 @@ MemberServiceImpl ← target이 보는 것      MemberServiceImpl
 | JDK + `target(...)` | 타깃(`MemberServiceImpl`)이 그 타입인가? → 둘 다 그렇다 | ✅✅ |
 | CGLIB + `this(MemberServiceImpl)` | 프록시가 `MemberServiceImpl`을 **상속**했나? → 그렇다 (부모 타입 허용) | ✅ |
 
-> ⚠️ **세션에서 나온 오해 정정**: "`target(MemberServiceImpl)`로 하면 CGLIB가 사용될 것 같다"고 답했는데, **`this`/`target`은 프록시 생성 방식을 결정하지 않는다.** 이미 만들어진 프록시/타깃 중 **어느 쪽을 보고 매칭할지**만 정한다. 프록시 기술 선택은 전적으로 `spring.aop.proxy-target-class` 설정(과 인터페이스 유무)이 결정한다. **"지시자는 판단 대상을 고르는 것이지 프록시를 만드는 것이 아니다."**
+> ⚠️ **흔한 오해**: "`target(MemberServiceImpl)`로 하면 CGLIB가 사용될 것 같다" — **`this`/`target`은 프록시 생성 방식을 결정하지 않는다.** 이미 만들어진 프록시/타깃 중 **어느 쪽을 보고 매칭할지**만 정한다. 프록시 기술 선택은 전적으로 `spring.aop.proxy-target-class` 설정(과 인터페이스 유무)이 결정한다. **"지시자는 판단 대상을 고르는 것이지 프록시를 만드는 것이 아니다."**
 >
 > 📌 **영상 오류 정정**(강의 자료에 명시): 영상에서 "JDK Proxy는 `MemberService`를 알 수 없다"고 설명했는데, **`MemberServiceImpl`을 알 수 없다**가 맞다.
 
@@ -817,6 +821,8 @@ memberService Proxy=class hello.aop.member.MemberServiceImpl$$EnhancerBySpringCG
                             4개 전부 출력된다
 ```
 
+> 📌 출력의 클래스명은 강의 환경(Boot 2.x) 기준이다. Spring Framework 6.0부터 CGLIB 프록시 이름은 해시 대신 카운터를 붙인 `MemberServiceImpl$$SpringCGLIB$$0` 형태이고, JDK 동적 프록시도 최신 JDK에서는 `jdk.proxy2.$Proxy53`처럼 나올 수 있다([ProxyFactory 노트](./proxy-factory.md) 참고).
+
 > 💡 **실무에서는 이 함정을 만날 일이 거의 없다.** 스프링 부트 2.0부터 `proxyTargetClass=true`가 기본이라 **항상 CGLIB**이고, CGLIB에서는 8칸이 전부 O이기 때문. 하지만 **"왜 CGLIB이 기본이 되었는가"** 를 이해하려면 이 차이를 알아야 한다 — JDK 동적 프록시는 **구체 클래스 타입으로 의존관계를 주입할 수 없다**는 문제가 있었고, 그게 정확히 여기서 `this(MemberServiceImpl)`가 실패하는 것과 **같은 원인**(프록시가 구체 클래스 타입이 아님)이다. ([동적 프록시 노트](./dynamic-proxy.md) 참고)
 
 ---
@@ -878,7 +884,7 @@ public class BeanTest {
 
 ## 11. 매개변수 전달 (파라미터 바인딩)
 
-포인트컷 표현식으로 **어드바이스에 값을 넘길 수 있다.** [AOP 구현 노트 §3](./aop-implementation.md)에서 "`@Pointcut` 파라미터는 금지가 아니라 바인딩 기능"이라고 정정했던 것의 본론이 여기다.
+포인트컷 표현식으로 **어드바이스에 값을 넘길 수 있다.** [AOP 구현 노트 §3](./aop-implementation.md)에서 "`@Pointcut` 파라미터는 금지가 아니라 바인딩 기능"이라고 정리했던 것의 본론이 여기다.
 
 **바인딩 가능한 지시자**: `this`, `target`, `args`, `@target`, `@within`, `@annotation`, `@args`
 
@@ -891,7 +897,7 @@ public void logArgs3(String arg) {          // ← 포인트컷의 arg와 파라
 
 ### 규칙
 
-1. **포인트컷 표현식의 이름과 어드바이스 메서드 파라미터 이름을 맞춰야 한다** (여기서는 `arg`)
+1. **포인트컷 표현식의 이름과 어드바이스 메서드 파라미터 이름을 맞춰야 한다** (여기서는 `arg`) — 그러려면 스프링이 컴파일된 클래스에서 파라미터 이름을 알아내야 한다. 시도 순서: 애노테이션의 `argNames` 속성 → `-parameters` 컴파일 플래그(공식 권장, Boot의 Gradle 플러그인·Maven `starter-parent`가 기본으로 켬) → 포인트컷 표현식·`returning`·`throwing`에서 추론. 전부 실패하면 예외가 난다.
 2. **파라미터 타입이 곧 추가 필터가 된다** — 위 예제는 파라미터가 `String`이므로 `args(arg,..)`가 실질적으로 `args(String,..)`로 좁혀진다
 
 > ⚠️ 2번이 중요하다. [AOP 구현 노트 §8 함정 1](./aop-implementation.md)의 `@AfterReturning(returning=...)` 타입 필터와 **완전히 같은 메커니즘**이다 — **타입을 좁게 쓰면 타깃은 정상 실행되고 advice만 조용히 스킵**된다.
@@ -1036,7 +1042,7 @@ memberService Proxy=class hello.aop.member.MemberServiceImpl$$EnhancerBySpringCG
 ⑥ 💥 스프링 내부 빈 중에는 final 클래스가 있고, CGLIB는 상속 기반이라 final을 못 감싼다 → 기동 실패
 ```
 
-> ⚠️ **세션 정정**: "final class 때문인가?"라고 답했는데 **결론은 맞다.** 다만 연결 고리가 빠져 있었다 — `final`이 직접적 원인이 아니라, **"동적 판단 → 프록시 필요 → 로딩 시점엔 판단 불가 → 전체 빈에 프록시 시도"** 라는 연쇄의 **마지막 증상**이 `final` 오류다. 원인을 `final`로 기억하면 "final이 없으면 괜찮겠네"로 잘못 이어진다. **실제 원인은 "판단 시점과 프록시 생성 시점의 불일치"** 고, 그래서 **범위를 좁히는 표현식(`execution`/`within`)을 반드시 함께 써야 한다.**
+> ⚠️ **흔한 오해**: "final class 때문"이라고만 기억하기 쉽다. **결론(증상)은 맞지만** 연결 고리가 빠져 있다 — `final`이 직접적 원인이 아니라, **"동적 판단 → 프록시 필요 → 로딩 시점엔 판단 불가 → 전체 빈에 프록시 시도"** 라는 연쇄의 **마지막 증상**이 `final` 오류다. 원인을 `final`로 기억하면 "final이 없으면 괜찮겠네"로 잘못 이어진다. **실제 원인은 "판단 시점과 프록시 생성 시점의 불일치"** 고, 그래서 **범위를 좁히는 표현식(`execution`/`within`)을 반드시 함께 써야 한다.**
 
 ### 왜 `this`/`target`/`@within`은 괜찮은가
 
@@ -1056,7 +1062,7 @@ memberService Proxy=class hello.aop.member.MemberServiceImpl$$EnhancerBySpringCG
 
 ### ① 지시자를 외우지 말고 **"무엇을 보는가"의 축 3개**로 정리한다
 
-세션에서 5문항 중 3개가 헷갈렸는데, 틀린 방식이 전부 같았다 — **비슷한 이름의 두 지시자를 놓고 엉뚱한 축으로 구분**한 것. `@target` vs `@within`을 "프록시 vs 진짜 객체"로 답한 게 대표적이다(그건 `this` vs `target`의 축). 이름이 비슷하다는 이유로 기준축까지 같을 거라고 가정하면 반드시 틀린다. 세 축은 이렇게 독립적이다:
+이 챕터에서 헷갈리는 지점은 대부분 같은 모양이다 — **비슷한 이름의 두 지시자를 놓고 엉뚱한 축으로 구분**하는 것. `@target` vs `@within`을 "프록시 vs 진짜 객체"로 구분하는 게 대표적이다(그건 `this` vs `target`의 축). 이름이 비슷하다는 이유로 기준축까지 같을 거라고 가정하면 반드시 틀린다. 세 축은 이렇게 독립적이다:
 
 | 축 | 대립쌍 | 질문 |
 |---|---|---|
@@ -1089,7 +1095,7 @@ Spring/AspectJ 공식 문서는 지시자를 세 그룹으로 분류한다:
 | | 지시자 | 용도 |
 |---|---|---|
 | **주력** | `execution` | 90% 이상. 패키지·레이어·메서드 패턴 |
-| **주력** | `@annotation` | 커스텀 AOP 애노테이션. `@Transactional`·`@Cacheable`이 이 방식 |
+| **주력** | `@annotation` | 커스텀 AOP 애노테이션 (스프링 내장 `@Transactional` 등은 발상만 같고 구현은 전용 Pointcut — §8) |
 | **보조** | `within` | 범위 좁히기(scoping). 공용 포인트컷 클래스에서 레이어 정의용 |
 | 바인딩용 | `args`, `this`, `target`, `@target`, `@within`, `@args` | 값을 **어드바이스로 넘길 때**. 매칭 조건으로 단독 사용하는 경우는 거의 없음 |
 | 특수 | `bean` | 빈 이름 컨벤션이 잘 잡힌 프로젝트에서 |
@@ -1116,15 +1122,11 @@ Spring/AspectJ 공식 문서는 지시자를 세 그룹으로 분류한다:
 ## 참고
 
 - 김영한, 스프링 핵심 원리 고급편 — Ch.11 스프링 AOP - 포인트컷
-- [Spring Framework Reference — Declaring a Pointcut](https://docs.spring.io/spring-framework/reference/core/aop/ataspectj/pointcuts.html) (지원 PCD 9종 + `bean` / 미지원 지시자는 `IllegalArgumentException` / AspectJ에서는 `this`와 `target`이 같은 객체지만 프록시 기반인 스프링은 구분 / `bean`은 스프링 전용·인스턴스 레벨 / `args(Serializable)`과 `execution(* *(Serializable))`의 차이 / Writing Good Pointcuts — kinded·scoping·contextual 분류와 "최소 kinded+scoping" 원칙 / DNF 재작성으로 순서는 신경 쓸 필요 없음 / JDK 프록시는 public 인터페이스 메서드만, CGLIB는 public·protected까지 인터셉트)
-- [Spring Framework Reference — Declaring Advice](https://docs.spring.io/spring-framework/reference/core/aop/ataspectj/advice.html) (파라미터 바인딩 형태)
+- [Spring Framework Reference — Declaring a Pointcut](https://docs.spring.io/spring-framework/reference/core/aop/ataspectj/pointcuts.html) (지원 PCD 9종 + `bean` / 미지원 지시자는 `IllegalArgumentException` / AspectJ에서는 execution 조인 포인트에서 `this`와 `target`이 같은 객체지만 프록시 기반인 스프링은 구분 / `@annotation`은 "실행되는 메서드"에 붙은 애노테이션 기준 / `bean`은 스프링 전용·인스턴스 레벨 / `args(Serializable)`과 `execution(* *(Serializable))`의 차이 / Writing Good Pointcuts — kinded·scoping·contextual 분류와 "최소 kinded+scoping" 원칙 / DNF 재작성으로 순서는 신경 쓸 필요 없음 / JDK 프록시는 public 인터페이스 메서드만, CGLIB는 public·protected까지 인터셉트)
+- [Spring Framework Reference — Declaring Advice](https://docs.spring.io/spring-framework/reference/core/aop/ataspectj/advice.html) (파라미터 바인딩 형태 / Determining Argument Names — `argNames` → `-parameters`(권장) → 포인트컷 표현식 추론 순)
 - [Spring Framework Reference — Proxying Mechanisms](https://docs.spring.io/spring-framework/reference/core/aop/proxying.html)
-- [AspectJ Programming Guide — Language Semantics](https://www.eclipse.org/aspectj/doc/released/progguide/semantics-pointcuts.html) (원본 포인트컷 언어 명세)
+- [AspectJ Programming Guide — Language Semantics](https://www.eclipse.org/aspectj/doc/released/progguide/semantics-pointcuts.html) (원본 포인트컷 언어 명세 / Subtype patterns — 타입 이름 뒤 `+`로 하위 타입 포함)
+- [Spring Javadoc — `SpringNamingPolicy`](https://docs.spring.io/spring/docs/current/javadoc-api/org/springframework/cglib/core/SpringNamingPolicy.html) (6.0부터 CGLIB 클래스명 태그 `SpringCGLIB` + 카운터 접미사)
+- 스프링 내장 애노테이션의 포인트컷: [`BeanFactoryTransactionAttributeSourceAdvisor`](https://github.com/spring-projects/spring-framework/blob/main/spring-tx/src/main/java/org/springframework/transaction/interceptor/BeanFactoryTransactionAttributeSourceAdvisor.java) · [`BeanFactoryCacheOperationSourceAdvisor`](https://github.com/spring-projects/spring-framework/blob/main/spring-context/src/main/java/org/springframework/cache/interceptor/BeanFactoryCacheOperationSourceAdvisor.java) · [`AuthorizationMethodPointcuts`](https://github.com/spring-projects/spring-security/blob/main/core/src/main/java/org/springframework/security/authorization/method/AuthorizationMethodPointcuts.java) 소스
 
-**학습 날짜**: 2026-08-14 · **계기**: 김영한 고급편 Ch.11 수강 후 Claude 소크라테스 복습 세션(5문항). 강의를 듣고 "전반적으로 다 이해 못 한 것 같다"는 느낌으로 시작. 결과는 이렇게 갈렸다 —
-① **`execution` vs `within`(부모 타입 허용 여부) 정확히 답함** ✅
-② `execution` vs `args`의 O/X는 맞혔으나 **"정적/동적"이라는 용어로 설명하지 못함** ⚠️ → §6에 "무엇을 보는가 / 판단 시점 / 부모 타입" 3열 표와 한 문장 정리 수록
-③ **`@target` vs `@within`을 `this` vs `target`과 혼동** 🔴 ("@target은 진짜 객체, @within은 프록시 객체 아닌가?") → §7 첫머리에 **축이 다르다**는 경고 박스를 따로 세움. `@`가 붙으면 "애노테이션으로 판단"이라는 뜻일 뿐 앞 단어 의미가 이어지지 않는다는 게 핵심
-④ `this`/`target` 8칸 표에서 **X 위치를 반대로 찍음**(`O O O X / X X X O` → 정답 `O X O O / O O O O`) 🔴. 다만 "JDK 동적 프록시는 인터페이스 기반"이라는 **원리는 맞게 짚었고**, 다음 문장에서 "그러면 CGLIB가 사용될 것 같다"로 이어진 게 오류 → §9에 **"지시자는 판단 대상을 고르는 것이지 프록시를 만드는 것이 아니다"** 정정 수록
-⑤ 단독 사용 금지 이유를 **`final` 클래스 + "런타임에 판단되고 그런 건가"로 방향은 맞게 답함** ⚠️ 다만 연결 고리가 비어 있었음 → §12에 **6단계 연쇄 다이어그램**으로 정리하고, `final`은 원인이 아니라 마지막 증상이라는 점을 명시.
-📌 세션 후 조사에서 추가로 확인해 수록: 스프링 AOP가 **지원하지 않는** AspectJ 지시자 목록과 `IllegalArgumentException` / `bean`이 **인스턴스 레벨**이라 AspectJ 네이티브 위빙에서는 못 쓴다는 점 / 공식 문서의 **kinded·scoping·contextual 3분류와 "최소 kinded+scoping" 원칙**(§13-②) — 강의의 "단독 사용 금지"가 이 원칙의 극단적 사례라는 연결 / DNF 재작성 덕에 **표현식 순서는 최적화할 필요 없다**는 점 / `@within`은 단독 사용해도 안전한 이유(선언 정보라 로딩 시점에 판단 가능)
+**학습 날짜**: 2026-08-14 · **계기**: 김영한 고급편 Ch.11 수강 후 복습 — `@target`/`@within`을 `this`/`target`과 같은 축으로 혼동하고, `this`/`target` 8칸 표와 "단독 사용 금지"의 연쇄가 비어 있어서 판단 축 3개로 다시 정리. 공식 문서의 미지원 지시자·kinded/scoping 원칙으로 보강.

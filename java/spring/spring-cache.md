@@ -167,6 +167,8 @@ public class CacheConfig {
 - **로컬 캐시(ConcurrentMap·Caffeine)는 참조를 저장한다** — 꺼낸 `List`에 `add()`·`set()`을 하면 **캐시 안의 원본이 바뀌어** 다음 호출자 전부가 오염된 값을 받는다. Redis는 매번 새 복사본이라 이 문제가 안 드러나서, **개발(ConcurrentMap)과 운영(Redis)의 동작이 달라진다.** 캐시 반환값은 읽기 전용으로 다루고(불변 컬렉션 `List.copyOf`·record), 꼭 필요하면 `ConcurrentMapCacheManager.setStoreByValue(true)`로 복사 저장(직렬화 필요)
 - **파라미터 없는 메서드끼리 같은 캐시 이름을 쓰면 키 충돌** — 둘 다 키가 `SimpleKey.EMPTY`라 한 칸을 공유 → 서로 덮어쓰거나 엉뚱한 타입을 돌려받는다(`ClassCastException`). 위 예시처럼 `key = "'all'"`을 명시하거나 캐시 이름을 분리
 - **Redis에서 객체 파라미터를 키로 쓰면 문자열 변환이 필요** — `RedisCache.convertKey`는 String이면 그대로, ConversionService로 변환 가능하면 변환, 아니면 **`toString()`을 오버라이드했는지** 보고, 없으면 `IllegalStateException`. `Object.toString()`에는 identity 해시가 들어가 같은 내용도 다른 키가 되기 때문. record는 `toString`이 자동 생성돼서 그대로 쓸 수 있다
+- **캐시 쓰기는 트랜잭션을 기다리지 않는다** — `@Transactional` 메서드의 `@CachePut`·`@CacheEvict`는 메서드가 반환하는 즉시(커밋 전) 반영된다. 이후 롤백되면 캐시에 **커밋되지 않은 값**이 남고, 커밋 전에 evict되면 그 사이 다른 요청이 **옛 DB 값**을 다시 캐시에 채울 수 있다. `RedisCacheManager.builder(factory).transactionAware()`(기본 꺼짐)나 `TransactionAwareCacheManagerProxy`로 감싸면 put·evict가 **커밋 성공 후(after-commit)**로 미뤄진다 — 원리는 [Spring 이벤트의 AFTER_COMMIT](./application-events.md)과 같다.
+- **JSON 직렬화의 `@class`는 클래스 이름 계약이다** — 위 `GET` 결과처럼 `GenericJackson2JsonRedisSerializer`는 FQCN을 같이 저장한다. 캐시된 클래스를 이동·리네임하거나 필드를 바꿔 배포하면 TTL이 끝날 때까지 기존 항목의 역직렬화가 실패한다. 배포 때 해당 캐시를 비우거나, 캐시 이름·키에 버전(`referenceConfigs:v2`)을 넣어 옛 항목을 자연 만료시킨다([outbox의 payload 함정](./event-outbox-pattern.md)과 같은 문제).
 - **같은 키로 동시에 miss가 나면 전부 본문을 실행한다(캐시 스탬피드)** — 기본은 락이 없다. `@Cacheable(sync = true)`면 한 스레드만 계산하고 나머지는 기다린다. 단 **Redis는 `RedisCacheManager` 기본 writer가 `nonLockingRedisCacheWriter`라 sync를 줘도 락이 안 걸린다** → 필요하면 `RedisCacheWriter.lockingRedisCacheWriter(factory)`. 이 락은 키 단위가 아니라 **캐시 이름 단위(`이름~lock` 키)**라, 그 캐시의 miss 전체가 한 줄로 선다. (Spring Data Redis main 브랜치 소스 기준. 구버전은 `RedisCache.get(key, loader)`가 `synchronized`라 JVM 안에서만 막았던 것으로 보임 — 쓰는 버전 확인 필요)
 
 ## 💡 판단 기준
@@ -184,6 +186,8 @@ public class CacheConfig {
 - Spring Framework 공식 문서 — Default Key Generation · Synchronized Caching: https://docs.spring.io/spring-framework/reference/integration/cache/annotations.html
 - 소스 — `SimpleKeyGenerator`·`SimpleKey`·`ConcurrentMapCacheManager`(storeByValue): https://github.com/spring-projects/spring-framework/tree/main/spring-context/src/main/java/org/springframework/cache
 - 소스 — `RedisCache.convertKey`·`CacheKeyPrefix`·`DefaultRedisCacheWriter`(`~lock`)·`RedisCacheManager`(nonLocking 기본): https://github.com/spring-projects/spring-data-redis/tree/main/src/main/java/org/springframework/data/redis/cache
+- Spring Data Redis — Redis Cache (`transactionAware()`, 기본값 표 "Transaction Aware: No"): https://docs.spring.io/spring-data/redis/reference/redis/redis-cache.html
+- Javadoc — `TransactionAwareCacheManagerProxy`(put을 after-commit에 수행): https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/cache/transaction/TransactionAwareCacheManagerProxy.html
 - 관련 노트: [Redis 기초](../../infra/redis/redis-basics.md), [스케일 아웃](../../infra/scaling.md), [@Transactional 프록시](./transactional.md), [영속성 컨텍스트](../jpa/persistence-context.md)
 - 학습 날짜: 2026-08-03 (보강 2026-09-30)
 - 계기: 실무 코드의 `~Cache` 전용 컴포넌트(@Cacheable/@CachePut/@CacheEvict + Redis 30분 TTL)를 따라가며, "Redis에 진짜 넣는 건가?"부터 자동구성·로컬 캐시 사본 문제까지 정리

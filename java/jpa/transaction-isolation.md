@@ -41,7 +41,14 @@ Lost Update는 단순 격리 수준만으로 해결된다고 외우면 위험하
 | REPEATABLE READ | 같은 트랜잭션 안에서 같은 행은 반복 조회 안정 | Dirty Read, Non-repeatable Read |
 | SERIALIZABLE | 트랜잭션이 순서대로 실행된 것처럼 보장 | Dirty Read, Non-repeatable Read, Phantom Read |
 
-주의: 이름이 같아도 DB마다 구현이 다르다. 예) **MySQL InnoDB의 `REPEATABLE READ`는 next-key lock으로 Phantom까지 사실상 막는다**(위 표의 "SERIALIZABLE만 Phantom 차단"은 SQL 표준 정의 기준일 뿐). **PostgreSQL의 `REPEATABLE READ`는 스냅샷 격리(SI)**라 Phantom은 막지만 표준 SERIALIZABLE과는 위치가 다르다. → 격리 수준 이름만 믿지 말고 쓰는 DB의 실제 동작을 확인할 것.
+주의: 이름이 같아도 DB마다 구현이 다르다. (위 표의 "SERIALIZABLE만 Phantom 차단"은 SQL 표준의 최소 보장 기준일 뿐)
+
+- **기본 격리 수준**: MySQL InnoDB = `REPEATABLE READ`, PostgreSQL = `READ COMMITTED`. Spring `@Transactional`은 `isolation = DEFAULT`라 **DB 설정을 따른다** → 같은 코드가 DB를 바꾸면 다르게 동작한다.
+- **MySQL InnoDB `REPEATABLE READ`의 Phantom 방어는 두 갈래다.** 일반 SELECT는 **첫 읽기 시점 스냅샷(MVCC)**을 계속 읽어서 새 행이 안 보이고, 잠금 읽기(`FOR UPDATE`/`FOR SHARE`)·UPDATE·DELETE는 **next-key lock(갭 락)**으로 범위에 끼어드는 INSERT를 막는다. 두 방식을 한 트랜잭션에서 섞으면 어긋난다 — DML은 스냅샷이 아니라 최신 커밋 행에 적용되므로, 스냅샷에 안 보이던 행이 UPDATE에는 걸릴 수 있다 (MySQL 문서도 섞지 말라고 권고).
+- **PostgreSQL `REPEATABLE READ`는 스냅샷 격리(SI)**라 Phantom까지 막지만 serialization anomaly(write skew)는 남는다.
+- **같은 행을 동시에 UPDATE할 때(Lost Update)도 다르다.** PostgreSQL RR은 내가 읽은 뒤 남이 바꾸고 커밋한 행을 수정하려 하면 `could not serialize access due to concurrent update`로 실패시킨다(재시도 필요). MySQL RR의 UPDATE는 최신 커밋 값에 그대로 적용되므로, 스냅샷 값을 읽어 계산한 뒤 쓰는 Lost Update를 막지 못한다.
+
+→ 격리 수준 이름만 믿지 말고 쓰는 DB의 실제 동작을 확인할 것.
 
 ---
 
@@ -51,10 +58,11 @@ Lost Update는 단순 격리 수준만으로 해결된다고 외우면 위험하
 
 ```java
 @Lock(LockModeType.PESSIMISTIC_WRITE)
-Optional<Product> findById(Long id);
+@Query("select p from Product p where p.id = :id")
+Optional<Product> findByIdForUpdate(@Param("id") Long id);   // 일반 findById와 분리
 ```
 
-위 쿼리는 조회 대상 행에 쓰기 락을 걸어 다른 트랜잭션의 수정을 기다리게 만든다.
+위 쿼리는 조회 대상 행에 쓰기 락을 걸어 다른 트랜잭션의 수정을 기다리게 만든다. (`findById` 자체에 `@Lock`을 붙이면 모든 조회가 락을 걸게 되므로 락 메서드는 따로 둔다 → [@Lock 실무 패턴 §3](./lock-practical.md))
 
 격리 수준을 무작정 높이는 것보다, 실제 충돌 지점에 락이나 조건부 UPDATE를 거는 편이 더 명확한 경우가 많다.
 
@@ -62,7 +70,7 @@ Optional<Product> findById(Long id);
 
 ---
 
-## 5. 판단 기준
+## 5. 💡 판단 기준
 
 | 상황 | 우선 검토 |
 |---|---|
@@ -85,6 +93,13 @@ Optional<Product> findById(Long id);
 
 ## 7. 참고
 
-- Spring Framework Transaction Management
-- PostgreSQL Transaction Isolation
-- MySQL InnoDB Transaction Isolation
+- [Spring Framework - Transaction Management](https://docs.spring.io/spring-framework/reference/data-access/transaction.html)
+- [PostgreSQL - Transaction Isolation (RC 기본·RR의 concurrent update 에러)](https://www.postgresql.org/docs/current/transaction-iso.html)
+- [MySQL 8.0 - Transaction Isolation Levels (RR 기본·next-key lock)](https://dev.mysql.com/doc/refman/8.0/en/innodb-transaction-isolation-levels.html)
+- [MySQL 8.0 - Consistent Nonlocking Reads (스냅샷은 SELECT에만, DML은 최신 행)](https://dev.mysql.com/doc/refman/8.0/en/innodb-consistent-read.html)
+- 관련 노트: [SELECT FOR UPDATE](../../database/select-for-update.md) · [@Lock 기본](./lock.md)
+
+---
+
+**학습 날짜**: 2026-06-08
+**계기**: 락·Read-Modify-Write 노트와 함께, "격리 수준과 락은 무슨 관계인가"를 따로 정리 (2026-10-02 DB별 기본값·MySQL RR 메커니즘·Lost Update 차이 보정)

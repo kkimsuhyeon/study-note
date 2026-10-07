@@ -393,9 +393,9 @@ transactionTemplate.executeWithoutResult(status -> memberRepository.save(member)
 
 ## 4. ⚠️ 함정 / 헷갈렸던 것
 
-### "V2가 재사용된다"의 진짜 의미 (❓ 세션에서 막혔던 지점)
+### ⚠️ 흔한 오해: "V2가 재사용된다" = 계층을 넘나들며 하나를 쓴다?
 
-"하나의 template으로 orderService도 orderRepository도 실행"이라는 예시를 보면 이상하다 — **Service와 Repository는 애초에 사용처(계층)가 다른데?** 맞는 지적. 재사용의 실제 의미는 계층을 넘나드는 게 아니라, **한 클래스 안의 여러 메서드가 template 하나를 공유**한다는 것:
+"하나의 template으로 orderService도 orderRepository도 실행"이라는 예시를 보면 이상하다 — **Service와 Repository는 애초에 사용처(계층)가 다른데?** 재사용의 실제 의미는 계층을 넘나드는 게 아니라, **한 클래스 안의 여러 메서드가 template 하나를 공유**한다는 것:
 
 ```java
 @Service
@@ -412,7 +412,7 @@ public class OrderService {
 ### 그 외 함정들
 
 - **캡처되는 지역변수는 effectively final이어야 한다**: V4·V5 코드가 익명 클래스/람다 안에서 바깥의 `itemId`를 쓸 수 있는 건, 자바가 그 값을 **복사(캡처)**해 넣기 때문 — 그래서 캡처된 변수는 재할당 불가(사실상 final)여야 한다. `itemId = itemId.trim();` 같은 재할당을 한 줄이라도 넣으면 람다 쪽에서 컴파일 에러. 금지의 이유: 복사본이므로 원본을 재할당하면 **원본과 람다 속 복사본이 서로 다른 값**이 되는 혼란이 생김 → 자바는 재할당 자체를 막아 "복사본=원본, 영원히"를 보장. 해법은 재할당 대신 **새 변수**(`String trimmedId = itemId.trim()`).
-  - 복사본이 사는 곳: **람다는 객체다**(함수형 인터페이스 구현체) → 캡처본은 "람다의 스택"이 아니라 **힙에 있는 람다 객체의 필드**로 저장된다. 스택은 함수가 아니라 스레드의 소유물이라 람다는 자기 스택이 없고, 실행 순간 실행 스레드의 스택에 프레임만 빌린다(람다 안에서 선언한 지역변수는 그 프레임에 — 그래서 자유). 힙으로 복사하는 이유 = **힙은 모든 스레드가 공유**하므로 람다가 딴 스레드에서 실행돼도 값을 볼 수 있다([threads.md §1](../concurrency/threads.md) "힙 공유/스택 각자"가 캡처 설계의 이유까지 설명). 원본이 아닌 복사본이라는 것은 [람다 실행 타이밍](../functional/lambda-execution-timing.md)의 "람다=코드 값"과 같은 맥락.
+  - 복사본이 사는 곳: **람다는 객체다**(함수형 인터페이스 구현체) → 캡처본은 "람다의 스택"이 아니라 **힙에 있는 람다 객체의 필드**로 저장된다. 스택은 함수가 아니라 스레드의 소유물이라 람다는 자기 스택이 없고, 실행 순간 실행 스레드의 스택에 프레임만 빌린다(람다 안에서 선언한 지역변수는 그 프레임에 — 그래서 자유). 복사하는 일차 이유는 **수명**이다 — 지역변수는 메서드가 끝나면 스택 프레임과 함께 사라지는데(JVMS §2.6), 람다 객체는 반환·저장되어 그 뒤에도(같은 스레드든 딴 스레드든) 실행될 수 있다. 재할당까지 막는 이유로 JLS는 **동시성**을 든다 — 계속 바뀌는 지역변수를 캡처하면 동시성 문제를 부르기 쉽다는 것(JLS §15.27.2, 힙 공유/스택 각자는 [threads.md §1](../concurrency/threads.md)). 원본이 아닌 복사본이라는 것은 [람다 실행 타이밍](../functional/lambda-execution-timing.md)의 "람다=코드 값"과 같은 맥락.
 - **제네릭 + void**: 반환값 없는 로직은 `Void`(래퍼) + `return null` — 제네릭은 기본 타입(`void`, `int`)을 못 받는다.
 - **함수형 인터페이스라는 용어**: "추상 메서드 1개면 람다 가능"까지 알아도 이름을 모르면 검색·면접에서 막힌다. `@FunctionalInterface`는 선택이지만 붙이는 게 안전망. (Effective Java Item 44가 이 주제 — 도달하면 여기 링크 추가)
 - **예외 되던지기(`throw e`)**: 템플릿의 catch에서 로그만 남기고 삼키면 상위 계층이 실패를 모른다. `exception()` 후 반드시 다시 던질 것. 삼키면 생기는 피해 사슬: ①실패가 성공으로 둔갑(주문 저장 실패인데 사용자는 "완료" 응답) ②**트랜잭션 롤백 무산** — `@Transactional`은 예외가 프록시 경계까지 올라와야 롤백하므로, 중간에서 삼키면 실패 작업이 커밋됨([transactional.md](../spring/transactional.md)) ③`return null`이 위로 전파되다 엉뚱한 계층에서 NPE(에러의 현장 이탈). 원칙: **부가 기능은 관찰자여야지 흐름을 바꾸는 심판이 되면 안 된다** — AOP 어드바이스에서도 동일.
@@ -431,27 +431,7 @@ public void orderItem(String itemId) {
 
 아무리 줄여도 **원본 클래스를 열어서 수정해야 한다**. 클래스 수백 개면 수백 번 — "더 편하게 수정하느냐"의 차이일 뿐 본질은 그대로.
 
-**해결 방향(4장 예고): 프록시.** 원본과 **같은 인터페이스를 구현한 대리인**을 중간에 세우고, 대리인이 부가 기능을 수행한 뒤 진짜 객체에 위임한다. 클라이언트는 인터페이스만 보므로 대리인인지 진짜인지 모른다 → 원본도 클라이언트도 수정 0.
-
-```java
-public class OrderServiceProxy implements OrderService {
-    private final OrderService target;   // 진짜 객체
-    private final LogTrace trace;
-
-    @Override
-    public void orderItem(String itemId) {
-        TraceStatus status = null;
-        try {
-            status = trace.begin("OrderService.orderItem()");
-            target.orderItem(itemId);    // ⭐ 진짜 객체에 위임
-            trace.end(status);
-        } catch (Exception e) {
-            trace.exception(status, e);
-            throw e;
-        }
-    }
-}
-```
+**해결 방향(4장 예고): 프록시.** 원본과 **같은 인터페이스를 구현한 대리인**을 중간에 세우고, 대리인이 부가 기능을 수행한 뒤 진짜 객체에 위임한다. 클라이언트는 인터페이스만 보므로 대리인인지 진짜인지 모른다 → 원본도 클라이언트도 수정 0. 코드는 [프록시/데코레이터 패턴 §5](./proxy-decorator-pattern.md).
 
 ⚠️ 단, 프록시도 **클래스마다 일일이 만들어야 한다**는 같은 종류의 문제를 갖는다 → 5장 동적 프록시(런타임 자동 생성)로 이어진다. 이 "챕터의 한계가 다음 챕터를 부르는" 서사가 트랙 10의 뼈대.
 
@@ -459,7 +439,8 @@ public class OrderServiceProxy implements OrderService {
 
 ## 5. 💡 판단 기준
 
-- **"변하는 것과 변하지 않는 것을 분리하라"는 말이 추상적이면, try-catch로 감싸는 부가 기능(로그·시간측정·트랜잭션)이 비즈니스 한 줄을 파묻는 순간을 떠올려라** — 그게 분리 신호다. 그리고 2026년에 이걸 직접 구현할 일은 거의 없다: 스프링이 이미 `xxxTemplate`으로 만들어뒀고, 그마저도 원본 수정이 필요해서 결국 AOP로 간다. **이 챕터의 가치는 "왜 AOP가 그렇게 생겼는지"의 족보를 아는 것.**
+- **"변하는 것과 변하지 않는 것을 분리하라"는 말이 추상적이면, try-catch로 감싸는 부가 기능(로그·시간측정·트랜잭션)이 비즈니스 한 줄을 파묻는 순간을 떠올려라** — 그게 분리 신호다. 그리고 이 패턴을 직접 구현할 일은 거의 없다: 스프링이 이미 `xxxTemplate`으로 만들어뒀다. **이 챕터의 가치는 "왜 AOP가 그렇게 생겼는지"의 족보를 아는 것** — 단 템플릿 콜백이 AOP에 밀려 사라진 건 아니다(아래).
+- **부가 기능의 경계가 메서드 단위면 AOP, 메서드 안의 일부 구간이면 템플릿 콜백.** 트랜잭션이 대표 사례다. 메서드 전체가 한 트랜잭션이면 `@Transactional`(프록시)이 원본을 안 건드려서 낫다. 그런데 "외부 API 호출은 트랜잭션 밖, 저장만 안"처럼 **메서드 안의 짧은 구간만** 묶어야 하거나 같은 클래스 안에서 호출해야 해서 프록시가 안 걸리는(자기호출) 상황이면 `TransactionTemplate.execute()`/`executeWithoutResult()`로 그 구간만 감싸는 게 맞다 — [@Transactional](../spring/transactional.md)에서 "외부 호출을 트랜잭션 밖으로 빼는" 해법 중 하나가 이것이다. 원본에 한 줄이 남는 게 단점이 아니라 **경계를 코드에 드러내는 장점**이 되는 경우다.
 - **상속이냐 위임이냐 고민되면 위임.** 템플릿 메서드→전략으로 넘어온 이유가 전부다: 부모 기능을 안 쓰는데도 강결합, 단일 상속 제약. 실제로 스프링 생태계에서 상속 기반 확장(추상 클래스 상속)보다 인터페이스+조합이 표준이 된 것도 같은 이유.
 - **전략을 언제 정하느냐가 V1/V2 갈림길**: 앱 구동 시 한 번 정해지고 안 바뀌면 V1(=DI로 주입), 호출마다 로직이 달라지면 V2(=콜백 파라미터). "메서드마다 감싸는 내용이 다르다" = V2 신호.
 
@@ -471,5 +452,6 @@ public class OrderServiceProxy implements OrderService {
 - GOF, Design Patterns — Template Method / Strategy
 - [Spring TransactionTemplate docs](https://docs.spring.io/spring-framework/reference/data-access/transaction/programmatic.html) — 템플릿 콜백 실전 예
 - Effective Java Item 44 (함수형 인터페이스) — 도달 시 상호 링크
+- [JLS §15.27.2 Lambda Body](https://docs.oracle.com/javase/specs/jls/se21/html/jls-15.html#jls-15.27.2) (캡처 변수는 final/effectively final — "계속 바뀌는 지역변수의 캡처는 동시성 문제를 부르기 쉽다") · [JVMS §2.6 Frames](https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-2.html#jvms-2.6) (프레임은 메서드 호출이 끝나면 파괴)
 
-**학습 날짜**: 2026-08-12 · **계기**: 김영한 고급편 Ch.3 수강 후 Claude 소크라테스 복습 세션 — V1/V2 차이와 "재사용"의 의미를 질문으로 파고들었고, 프록시의 동작 원리를 스스로 추론해냄 ("로그 쪽이 service를 받아서 감싸고, 외부에서는 service 쓰듯 쓰면 되지 않나" → 정확히 프록시)
+**학습 날짜**: 2026-08-12 · **계기**: 김영한 고급편 Ch.3 복습 — V1/V2 차이와 "재사용"의 의미를 파고들다 "감싸는 쪽이 target을 받아 위임하면 원본을 안 고쳐도 된다"는 프록시 발상까지 도달

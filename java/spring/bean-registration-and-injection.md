@@ -38,7 +38,7 @@ public RemoteCatalogClient remoteCatalogClient(
 | 메서드 내부 `RestClient client` | 프록시 구성에 사용하는 일반 객체. 이 선언만으로 Bean이 되지 않음 |
 | 반환한 `RemoteCatalogClient` | HTTP 요청을 수행하는 프록시이며, 새로 등록되는 Bean |
 
-기본 Bean 이름은 `@Bean` 메서드 이름이다. 위에서는 `catalogTransport`와 `remoteCatalogClient` 두 개를 등록한다. 매개변수 이름을 `client`나 `api`로 바꿔도 객체의 Java 타입은 바뀌지 않는다.
+기본 Bean 이름은 `@Bean` 메서드 이름이다. 위에서는 `catalogTransport`와 `remoteCatalogClient` 두 개를 등록한다. 매개변수 이름을 `client`나 `api`로 바꿔도 객체의 Java 타입은 바뀌지 않는다. 다만 이름이 무의미한 것은 아니다 — 같은 타입 후보가 여럿이면 매개변수 이름이 빈 이름 매칭에 쓰인다(⚠️ 아래).
 
 다른 Bean의 생성자 또는 `@Bean` 메서드가 `RemoteCatalogClient`를 요청하면 해당 타입의 후보를 찾는다. `HttpClient`를 요청하면 JDK 클라이언트 후보를 찾는다. HTTP 프록시의 메서드를 호출하면 설정된 RestClient와 transport를 통해 요청이 실행된다.
 
@@ -59,43 +59,7 @@ public RemoteCatalogClient remoteCatalogClient(
 → RequestFactory가 만든 요청 실행 → HttpClient → 외부 서버
 ```
 
-### 명시하지 않았을 때: 자동 선택
-
-```java
-RestClient client = RestClient.builder()
-        .baseUrl("https://example.com")
-        .build();
-```
-
-이 코드도 내부에서 요청 factory와 통신 구현을 사용한다. `.requestFactory(...)`를 생략하면 Spring이 클래스패스의 라이브러리와 실행 환경에 따라 선택한다. JDK 구현 외에 Apache·Jetty 등의 구현도 있으므로, 짧은 설정 코드만 보고 당시 어떤 클라이언트가 선택됐는지 확정하지 않는다. 정확한 선택은 사용한 Spring 버전과 런타임 의존성을 함께 확인한다.
-
-### 직접 지정했을 때: 구현과 설정을 고정
-
-```java
-HttpClient transport = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(2))
-        .followRedirects(HttpClient.Redirect.NEVER)
-        .build();
-
-var factory = new JdkClientHttpRequestFactory(transport);
-factory.setReadTimeout(Duration.ofSeconds(5));
-
-RestClient client = RestClient.builder()
-        .baseUrl("https://example.com")
-        .requestFactory(factory)
-        .build();
-```
-
-위 예시는 JDK 클라이언트, 연결 타임아웃, 리다이렉트 정책, 읽기 타임아웃을 명시한다. factory·RestClient를 반드시 각각 Bean으로 등록할 필요는 없다. 생성한 HttpClient의 종료 책임은 구성 방식에 맞게 정한다. 앞의 Bean 예시처럼 등록하면 Spring의 생명주기 관리를 사용할 수 있다.
-
-| 선택 | 이점 | 확인할 점 |
-|---|---|---|
-| 자동 선택 | 설정 코드가 짧고 기본 동작을 쉽게 사용 | 의존성에 따라 구현이 달라질 수 있고 통신 설정은 선택된 구현의 기본값에 의존 |
-| 직접 지정 | 원하는 구현과 통신 설정을 명확하게 제어 | 설정·객체 생명주기를 관리할 코드가 늘어남 |
-
-⚠️ factory를 생략했다고 타임아웃이 없다고 단정할 수는 없다. 다만 위의 짧은 코드에는 애플리케이션이 정한 제한이 없다. 또한 읽기 타임아웃을 지정한 것과 재시도·본문 처리까지 포함한 호출 전체 시간 제한은 동일하지 않으므로, 필요한 보장은 별도로 확인한다.
-
-💡 **호출이 되는지만 확인할 때는 기본 선택으로 시작할 수 있지만, 지연·리다이렉트 등 동작을 보장해야 한다면 해당 설정을 명시하고 검증한다.** 길어진 설정 코드는 HTTP 인터페이스를 쓰기 위한 필수 의식이 아니라 통신 정책을 표현하는 수단이다.
+`.requestFactory(...)`를 생략하면 Spring이 클래스패스를 보고 통신 구현을 고른다. 자동 선택 순서, 구현과 타임아웃을 고정하는 직접 지정 코드, 구현체별로 다른 재시도·타임아웃 의미는 [HTTP 클라이언트 구현체 비교](./http-client-transports.md)에 있다. 이 노트 관점에서는 하나만 기억한다 — factory·RestClient는 각각 Bean일 필요가 없고, Bean으로 등록할지는 "누가 주입받는가"와 "누가 닫는가"로 정한다.
 
 ## 옵션 비교
 
@@ -110,6 +74,8 @@ RestClient client = RestClient.builder()
 
 - 타입 이름에 `Client`가 포함되어도 서로 호환되는 타입이라는 뜻은 아니다. 인터페이스 구현·상속 관계가 기준이다.
 - `@Qualifier`는 타입에 맞는 후보를 좁힌다. 이름이 같다는 이유로 다른 타입의 객체를 주입하지 않는다. Bean 이름은 qualifier의 대체 매칭 값으로 사용할 수 있다.
+- **같은 타입 후보가 여럿인데 `@Qualifier`·`@Primary`가 없으면, 주입 지점의 이름(필드·매개변수 이름)을 빈 이름과 맞춰 고른다.** 그래서 `HttpClient catalogTransport`를 `HttpClient transport`로 바꾸는 "이름만 바꾼 리팩토링"이 주입 대상을 바꾸거나 `NoUniqueBeanDefinitionException`을 낼 수 있다. Spring 6.1+는 매개변수 이름 매칭에 `-parameters` 컴파일 플래그가 필요하다(Boot Gradle/Maven 플러그인은 기본으로 켠다 — 확인 필요). 의도가 있으면 `@Qualifier`로 명시한다.
+- 직접 만든 `HttpClient`(JDK 21+ `AutoCloseable`)를 `@Bean`으로 반환하면 기본 destroy 메서드 추론으로 컨테이너 종료 시 `close()`가 호출된다. 메서드 안의 지역 객체로만 쓰면 닫는 책임은 직접 진다.
 - 클래스에 필드만 선언하거나 직접 `new`로 생성했다고 자동 주입되지 않는다. Spring이 처리하는 생성자·주입 지점이어야 한다.
 - `@Bean` 메서드가 사용하는 모든 지역 객체가 Bean으로 등록되지는 않는다.
 - 반환 타입을 필요 이상으로 넓게 선언하면 생성 전 타입 예측이 제한된다. 소비자가 주입받을 계약을 표현하는 타입을 선언한다.
@@ -132,4 +98,4 @@ HTTP 클라이언트 설정에서 무엇이 주입되는지 헷갈리면 **매�
 
 학습 날짜: 2026-09-19. 계기: HTTP 인터페이스 Bean을 등록하면 내부에서 사용한 JDK HttpClient 타입의 주입 지점에도 그 프록시가 들어가는지에 대한 질문. 공식 문서와 코드 구조로 확인했으며, 예시를 별도로 실행하지는 않았다.
 
-보강 날짜: 2026-09-19. 사용자 승인으로 RestClient·RequestFactory·HttpClient의 역할과 자동 선택·명시 설정의 차이를 추가했다. Spring Framework 7.0.9 공식 문서를 확인했으며 과거 프로젝트의 실제 통신 구현은 확인하지 않았다.
+보강 날짜: 2026-09-19. RestClient·RequestFactory·HttpClient의 역할 구분 추가(Spring Framework 7.0.9 문서 기준). 2026-10-02: 자동 선택·직접 지정 설명은 [HTTP 클라이언트 구현체 비교](./http-client-transports.md)로 넘기고, 주입 지점 이름 매칭·destroy 추론 추가.

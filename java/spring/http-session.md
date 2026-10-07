@@ -169,6 +169,18 @@ public String language(HttpServletRequest request) {
 
 위 두 메서드는 같은 경로의 **대안**이므로 한 Controller에 동시에 넣지 않는다. 아래 방식은 처음 방문한 사람에게 기본 언어만 알려주면서 불필요한 세션을 만들지 않는다.
 
+읽기만 한다면 Spring MVC의 `@SessionAttribute`가 더 짧다. 세션 범위 조회가 내부에서 `getSession(false)`를 쓰므로 **세션을 만들지 않는다.**
+
+```java
+@GetMapping("/language")
+public String language(
+        @SessionAttribute(name = "preferredLanguage", required = false) String language) {
+    return language == null ? "en" : language;   // 세션이 없거나 속성이 없으면 null
+}
+```
+
+`required = false`를 빼면 속성이 없을 때 400(`ServletRequestBindingException`)이 난다. 값을 넣거나 지울 때는 여전히 `HttpSession`을 받는다. 이름이 비슷한 클래스 레벨 `@SessionAttributes`는 컨트롤러 흐름 동안 모델 속성을 세션에 잠시 두는 별개 기능이다.
+
 세션 접근은 Controller나 웹 전용 컴포넌트에 두고, 업무 서비스에는 `cartId`·`userId`처럼 필요한 값만 전달할 수 있다. 업무 계산이 쿠키와 Servlet API를 알 필요는 없다.
 
 ### 세션을 언제 만들지는 업무 정책이다
@@ -219,6 +231,7 @@ public String language(HttpServletRequest request) {
 - [Jakarta Servlet — HttpServletRequest](https://jakarta.ee/specifications/servlet/6.1/apidocs/jakarta.servlet/jakarta/servlet/http/httpservletrequest)
 - [Jakarta Servlet — HttpSession](https://jakarta.ee/specifications/servlet/6.1/apidocs/jakarta.servlet/jakarta/servlet/http/httpsession)
 - [Spring MVC — Controller 메서드 매개변수](https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-methods/arguments.html)
+- [Spring MVC — @SessionAttribute](https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-methods/sessionattribute.html) · 소스 `ServletRequestAttributes.getAttribute`(세션 범위는 `getSession(false)`)
 - [Spring Security — 세션 관리](https://docs.spring.io/spring-security/reference/servlet/authentication/session-management.html)
 - 기준: Jakarta Servlet 6.1, Spring MVC 7 계열. 코드 조각은 API 설명용이며 독립 실행 애플리케이션은 아니다.
 - 학습일: 2026-09-21. 계기: `request.getSession(false)`가 무엇을 찾고 왜 `null`을 반환하는지 이해하기.

@@ -10,6 +10,8 @@
 
 ## 예제 셋업
 
+> ⚠️ **a·b·c는 각각 다른 빈의 메서드라고 가정한다.** 코드는 줄여 썼지만, 같은 클래스 안에서 `b()`·`c()`를 부르면 자기호출이라 프록시를 안 거쳐 b의 `REQUIRES_NEW`도 c의 `@Transactional`도 무시된다 — 아래 시나리오가 전부 "트랜잭션 A 하나"로 무너진다([@Transactional §6(1)](./transactional.md)).
+
 ```java
 @Transactional                              // a — 트랜잭션 A (최상위)
 public void a() {
@@ -119,11 +121,12 @@ public void c() { throw new RuntimeException(); }
 | **상위가 살 수 있냐** | 실패한 하위가 **독립(REQUIRES_NEW)**이고 상위가 **catch**하면 산다. **합류(REQUIRED)**면 같이 죽는다 |
 | **rethrow vs swallow** | swallow → 커밋 시도 → `UnexpectedRollbackException` / rethrow → 커밋 안 함 → **원본 예외** 전파 |
 
-**핵심 한 줄**: **"같은 트랜잭션이면 한 명만 깨져도 전부 롤백 운명(잡아도 못 살림). 독립 트랜잭션(REQUIRES_NEW)으로 떼고 잡으면 상위는 산다."**
+💡 **핵심 한 줄**: **"같은 트랜잭션이면 한 명만 깨져도 전부 롤백 운명(잡아도 못 살림). 독립 트랜잭션(REQUIRES_NEW)으로 떼고 잡으면 상위는 산다."**
 
 ---
 
 ## 참고
+- [Spring - Transaction Propagation](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/tx-propagation.html) (REQUIRED·REQUIRES_NEW·NESTED, `UnexpectedRollbackException`)
 - 관련 노트: [@Transactional](./transactional.md) · [영속성 컨텍스트](../jpa/persistence-context.md) · [@Lock 실무 패턴(재시도)](../jpa/lock-practical.md)
 
 ---

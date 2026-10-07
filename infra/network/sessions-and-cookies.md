@@ -156,7 +156,7 @@ sequenceDiagram
 | 우리 사이트 안에서 보낸 요청 | 붙음 | 붙음 | 붙음 |
 
 - **Lax가 링크 클릭 GET만 허용하는 이유는 사용성이다.** 검색 결과나 메일 링크로 들어왔을 때 로그인 상태가 유지되게 하려는 것. 그 대가로 **GET은 상태를 바꾸면 안 된다** — GET으로 삭제·송금을 만들면 링크 하나로 CSRF가 된다.
-- **쿠키가 안 붙은 CSRF 요청은 "모르는 사람의 요청"이 된다.** 익명 세션 서비스라면 서버는 그 요청을 새 방문자로 보고 새 세션을 만들 뿐, 피해자의 데이터에 손대지 못한다. 공격자는 응답도 읽을 수 없다.
+- **쿠키가 안 붙은 CSRF 요청은 "모르는 사람의 요청"이 된다.** 요청은 도착하지만 피해자 신분이 실리지 않는다 → [웹 공격 지도](./web-attacks-map.md) "SameSite가 카드를 안 붙이면 요청은 막히나?"
 - **같은 사이트의 다른 서브도메인은 막지 못한다.** `blog.example.com`에서 `app.example.com`으로의 POST는 same-site라 Lax 쿠키가 붙는다. 서브도메인 하나가 XSS에 뚫리면 SameSite는 방어가 되지 않으므로 Origin 검사가 필요하다([Origin 헤더](./origin-header.md)).
 
 ### 쿠키 삭제는 "만료된 쿠키를 다시 내리는 것"
@@ -214,7 +214,7 @@ OWASP는 둘을 함께 두라고 권한다. 참고 범위는 비활성이 고위
 - **세션이 있다고 로그인한 것은 아니다.** 로그인은 자격 증명을 검증하고 인증 정보를 연결하는 별도 과정이다.
 - **서버 세션과 `sessionStorage`는 다르다.** `sessionStorage`는 브라우저의 탭 단위 저장 기능이며 값이 자동으로 HTTP 쿠키처럼 전송되지 않는다.
 - **세션 ID는 비밀값처럼 취급한다.** 유출되면 다른 사람이 같은 세션으로 접근할 수 있으므로(세션 하이재킹) 로그·공유 URL에 넣지 않는다. 로그에 상관관계용으로 남겨야 하면 해시값을 남긴다. ID는 CSPRNG로 만들고 **엔트로피 64비트 이상**(16진수면 16자 이상)을 확보한다 — Tomcat·Spring Session 기본 생성기는 이를 충족하므로 직접 만들 이유가 없다. [OWASP 세션 관리 지침](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
-- **HttpOnly와 CSRF는 다른 문제를 막는다.** `HttpOnly`는 XSS 스크립트가 쿠키를 **읽어가는** 것을 막는다. CSRF는 반대로 "브라우저가 쿠키를 알아서 붙여 주는 성질" 자체가 악용되는 공격이라 공격자가 쿠키 값을 알 필요가 없다. 방어는 `SameSite`(1차 방어선) + CSRF 토큰(Spring Security 기본 활성)으로 따로 한다. OWASP도 SameSite를 토큰의 대체가 아닌 심층 방어(defense in depth)로 본다. 토큰 없이 서버 필터 하나로 겹쳐 거는 방법은 [Origin 헤더](./origin-header.md) 참고.
+- **HttpOnly와 CSRF는 다른 문제를 막는다.** `HttpOnly`는 XSS 스크립트가 쿠키를 **읽어가는** 것을 막는다. CSRF는 반대로 "브라우저가 쿠키를 알아서 붙여 주는 성질" 자체가 악용되는 공격이라 공격자가 쿠키 값을 알 필요가 없다. 방어는 `SameSite` 위에 **Origin 검사 또는 CSRF 토큰**을 겹쳐 따로 한다(Spring Security를 쓰면 토큰 방식이 기본 활성). OWASP도 SameSite를 단독 방어가 아닌 심층 방어(defense in depth)의 한 겹으로 본다. 어느 조합을 고를지는 [Origin 헤더](./origin-header.md) 💡.
 - **HttpOnly 쿠키도 개발자 도구에는 다 보인다.** HttpOnly가 막는 건 **페이지 안의 자바스크립트**(`document.cookie`, XSS로 심어진 스크립트 포함)뿐이다. 브라우저 자체의 도구·권한은 막지 않는다.
 
   | 누가 | 어떻게 | HttpOnly로 막히나 |
@@ -287,16 +287,6 @@ const response = await fetch("https://api.example.com/cart", {
 
 💡 **같은 사이트 안에서 돌아가는 브라우저 웹앱이고 로그아웃·강제 만료가 즉시 먹어야 한다면, 서버 세션 + `HttpOnly; Secure; SameSite=Lax` 쿠키가 기본값이다.** 모바일 앱·서드파티 클라이언트·여러 도메인에 걸친 API처럼 브라우저 쿠키가 자연스럽지 않은 소비자가 있을 때 토큰을 고른다. "둘 다"도 흔하다: 브라우저는 세션 쿠키, 외부 클라이언트는 토큰.
 
-## 8. 스스로 설명해 보기
-
-1. 쿠키와 세션이 같은 것이라면, 쿠키가 남았는데 세션이 만료되는 상황을 설명할 수 있을까?
-2. 세션 ID가 다른 두 브라우저의 요청은 같은 서버에서 어떻게 구분될까?
-3. 같은 사람의 다른 브라우저를 세션만으로 자동 연결할 수 있을까?
-4. `app.example.com`의 JS가 `api.example.com`에 `fetch`하면 `SameSite=Lax` 쿠키가 실릴까? CORS 설정은 필요할까?
-5. 로그아웃 때 서버 세션만 `invalidate()`하고 삭제 쿠키를 안 내리면 어떤 상태가 될까?
-
-답의 기준: **브라우저에는 식별자, 서버에는 상태 / ID별 조회 / 사람을 인증하거나 계정을 연결하는 것은 별도 기능 / 같은 사이트라 실린다, 다른 origin이라 CORS는 필요(`credentials: include` + 명시 origin + `Allow-Credentials: true`) / 브라우저는 죽은 ID를 계속 보내고 서버는 매번 못 찾는다 — 보안 문제는 아니지만 `getSession(false)`가 계속 `null`이 되므로 삭제 쿠키를 함께 내린다.**
-
 ## 참고·학습 기록
 
 - [RFC 9110 — HTTP Semantics §3.4 (stateless 언급)](https://www.rfc-editor.org/rfc/rfc9110.html#name-messages)
@@ -315,5 +305,4 @@ const response = await fetch("https://api.example.com/cart", {
 - 학습일: 2026-09-21. 계기: 쿠키를 이용하는 서버 세션과 Java 세션 API의 관계를 처음부터 이해하기.
 - 보강: 2026-09-21. Domain 속성·SameSite 세 값·쿠키 삭제 방법·쿠키 범위(포트 무시)·세션 고정·HttpOnly vs CSRF 분리·CORS 자격 증명 3조건·서버 세션 vs 토큰 비교(§7) 추가. RFC 6265·MDN·OWASP·Spring Security 문서로 확인.
 - 보강 2차: 2026-09-21. Path 기본값 함정·비활성 vs 절대 만료(Servlet엔 절대 만료 없음)·remember-me 분리·`__Host-` 접두사 추가. OWASP 타임아웃 범위·Spring Security remember-me 문서로 확인.
-
-💡 **장바구니가 다음 요청에서도 이어져야 한다면, 먼저 “브라우저가 보내는 식별자”와 “서버가 보관하는 상태”를 따로 그린 뒤 만료 정책을 정한다.**
+- 정리: 2026-10-02. 퀴즈 절(8)·끝의 중복 💡 삭제, CSRF 방어 조합을 Origin 헤더 노트 💡와 맞춤.

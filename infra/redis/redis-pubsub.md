@@ -83,7 +83,7 @@ public class MySubscriber implements MessageListener {
 
 ## ⚠️ 함정
 1. **유실이 스펙이다.** 저장 안 됨, 재전송 없음, 구독자 없으면 소멸(at-most-once). 구독 연결이 잠깐 끊긴 사이의 메시지도 유실. "놓치면 안 되는" 메시지면 **Redis Streams**(저장됨, consumer group, `XREADGROUP`)나 Kafka로.
-2. **onMessage는 Container의 수신 스레드에서 실행된다.** 여기서 오래 걸리는/블로킹 작업을 하면 후속 메시지 처리가 밀린다. 무거운 처리는 별도 스레드로 넘길 것.
+2. **onMessage는 Container의 `taskExecutor`에서 실행된다 — 기본은 메시지마다 새 스레드.** Container는 받은 메시지를 리스너마다 `executor.execute(...)`로 넘기고, executor를 지정하지 않으면 `SimpleAsyncTaskExecutor`(풀 없이 작업마다 새 스레드)를 쓴다. 그래서 기본 설정의 함정은 "밀림"이 아니라 **폭주 시 스레드 무제한 생성**과 **처리 순서 비보장**이다. `container.setTaskExecutor(...)`로 크기를 제한한 풀을 넣고, 순서가 중요하면 단일 스레드 executor를 쓴다(그때는 느린 처리가 뒤 메시지를 밀게 된다).
 3. **모든 구독 서버가 전부 받는다** — "한 대만 처리"가 필요한 작업(잡 큐)에 pub/sub을 쓰면 N중 실행된다. 그건 List(`LPUSH`/`BRPOP`)나 Streams consumer group의 영역.
 4. 클러스터 환경에선 pub/sub이 전 노드로 전파되어 비용이 커질 수 있다 → 샤딩되는 `SPUBLISH`/`SSUBSCRIBE`(Redis 7+)가 따로 있다.
 
@@ -95,8 +95,9 @@ public class MySubscriber implements MessageListener {
 - Redis Pub/Sub 공식 문서: https://redis.io/docs/latest/develop/interact/pubsub/
 - Redis Streams (유실 없는 대안): https://redis.io/docs/latest/develop/data-types/streams/
 - Spring Data Redis Pub/Sub: https://docs.spring.io/spring-data/redis/reference/redis/pubsub.html
+- RedisMessageListenerContainer 소스(`dispatchMessage`→`executor.execute`, 기본 `SimpleAsyncTaskExecutor`): https://github.com/spring-projects/spring-data-redis/blob/main/src/main/java/org/springframework/data/redis/listener/RedisMessageListenerContainer.java
 - 관련 노트: [Redis 기초](./redis-basics.md) · [SseEmitter 구현 패턴](../../java/spring/sse-emitter.md) · [스케일 아웃](../scaling.md) · [실시간 통신 비교](../network/realtime-communication.md)
 
 ---
-학습 날짜: 2026-07-08
+학습 날짜: 2026-07-08 (2026-10-02 onMessage 실행 스레드 정정 — 소스 확인)
 계기: SSE 알림 코드에서 `RedisMessagePublisher`(convertAndSend) / `RedisPubSubConfig`(ListenerContainer) / `RedisMessageSubscriber`(onMessage) 세 클래스가 왜 나뉘어 있는지 따라가며, "구독 = 연결을 열어두는 상태"라는 pub/sub의 동작 원리와 SSE와의 구조적 동형성(열어둔 연결에 밀어넣기 릴레이 2단)을 정리.

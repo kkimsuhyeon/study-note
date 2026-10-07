@@ -8,18 +8,7 @@
 
 ## 0. 출발점 — 템플릿 콜백으로도 안 되는 것
 
-[직전 챕터](./template-method-strategy-callback.md)에서 템플릿 콜백까지 갔지만 한계가 남았다.
-
-```java
-public void orderItem(String itemId) {
-    template.execute("OrderService.orderItem()", () -> {   // ← 이 감싸는 코드 자체가
-        orderRepository.save(itemId);                      //    원본에 "추가"된 것
-        return null;
-    });
-}
-```
-
-아무리 줄여도 **원본 클래스를 열어서 수정**해야 한다. 그래서 요구사항이 이렇게 바뀐다.
+[직전 챕터](./template-method-strategy-callback.md)에서 템플릿 콜백까지 갔지만, `template.execute(...)`로 감싸는 코드 자체가 원본에 남는다 — 아무리 줄여도 **원본 클래스를 열어서 수정**해야 한다. 그래서 요구사항이 이렇게 바뀐다.
 
 - 원본 코드를 **전혀 수정하지 않고** 로그 추적기를 적용할 것
 - v1(인터페이스 있음) · v2(구체 클래스만) · v3(컴포넌트 스캔) **모든 케이스**에 적용 가능할 것
@@ -62,9 +51,9 @@ Client ──→ ServerInterface              (프록시 도입 후)  client ─
 
 **갈림길은 "real subject를 호출하느냐 마느냐"**다. 접근 제어는 안 할 수도 있고, 부가 기능은 반드시 한다.
 
-#### ❓ "접근 제어가 정확히 뭔데?" (세션에서 막혔던 지점)
+#### 접근 제어 3종 — target을 호출하지 않는 것도 "제어"다
 
-"안에서 service를 한 번 호출 안 하게 만드는 게 접근 제어인가?" → **맞다.** 세 가지로 나눠 보면 선명해진다.
+target 호출을 막거나 건너뛰거나 미루는 것이 전부 접근 제어다. 세 가지로 나눠 보면 선명해진다.
 
 ```java
 // ① 권한에 따른 접근 차단 — 권한 없으면 target을 아예 호출하지 않는다
@@ -72,11 +61,11 @@ public class AuthProxy implements AdminService {
     private final AdminService target;
 
     @Override
-    public void deleteReservation(Long id) {
+    public void deleteOrder(Long id) {
         if (!SecurityContext.isAdmin()) {
             throw new AccessDeniedException("관리자만 가능");   // target 호출 없음
         }
-        target.deleteReservation(id);
+        target.deleteOrder(id);
     }
 }
 ```
@@ -277,7 +266,7 @@ Component (인터페이스)
 
 > 📌 **자바 표준 라이브러리의 데코레이터**: `java.io`가 통째로 이 패턴이다. `new BufferedInputStream(new FileInputStream(f))` — `InputStream`이라는 같은 타입을 유지하면서 버퍼링이라는 책임을 덧입힌다. 위 체이닝 코드와 완전히 같은 모양.
 
-> 📘 **Effective Java Item 18과 같은 이야기**: "상속보다는 컴포지션을 사용하라"에서 권하는 **래퍼 클래스(wrapper class)** 가 바로 데코레이터다 — Bloch도 책에서 명시적으로 그렇게 부른다. 상속으로 기능을 확장하면 조합 폭발(기능 n개 → 클래스 2ⁿ)과 깨지기 쉬운 결합이 생기지만, 래퍼를 쌓으면 **런타임에 재귀적으로 조합**할 수 있다. 위 `new TimeDecorator(new MessageDecorator(real))`이 그 예. ⚠️ 단 Item 18은 래퍼의 약점도 같이 짚는다 — **콜백 프레임워크와는 안 어울린다(SELF 문제)**. 이건 §9의 자기호출 함정과 완전히 같은 메커니즘이다. (이펙티브 자바 노트 작성 시 상호 링크)
+> 📘 **Effective Java Item 18과 같은 이야기**: "상속보다는 컴포지션을 사용하라"에서 권하는 **래퍼 클래스(wrapper class)** 가 바로 데코레이터다 — Bloch도 책에서 명시적으로 그렇게 부른다. 상속으로 기능을 확장하면 상위 클래스의 내부 구현(self-use)·신규 메서드에 휘둘리는 깨지기 쉬운 결합이 생기지만(Item 18의 요지), 래퍼를 쌓으면 **런타임에 재귀적으로 조합**할 수 있다. (기능 조합마다 하위 클래스를 만드는 "2ⁿ 조합 폭발"은 GOF Decorator의 동기, EJ Item 20의 이야기) 위 `new TimeDecorator(new MessageDecorator(real))`이 그 예. ⚠️ 단 Item 18은 래퍼의 약점도 같이 짚는다 — **콜백 프레임워크와는 안 어울린다(SELF 문제)**. 이건 §9의 자기호출 함정과 완전히 같은 메커니즘이다. (이펙티브 자바 노트 작성 시 상호 링크)
 
 ---
 
@@ -424,7 +413,7 @@ public class ConcreteProxyConfig {
 
 ⚠️ **`target.save()` vs `super.save()`**: `super.save()`를 부르면 "상속받은 껍데기 자신의 로직"이 돌아 프록시 의미가 없어진다. target은 **별도로 주입받은 실제 인스턴스**다. 상속은 타입을 맞추기 위한 수단일 뿐, 동작은 여전히 **위임**.
 
-### 6-1. ❓ `super(null)`은 왜 하는 건가 (세션에서 막혔던 지점)
+### 6-1. `super(null)`은 왜 하는 건가
 
 자바 규칙: **자식 생성자가 실행될 때 부모 생성자가 무조건 먼저 호출되어야 한다.** 컴파일러가 강제한다. 부모에 기본 생성자가 있으면 컴파일러가 `super()`를 몰래 넣어주므로 **아무 일도 안 일어난 것처럼 보인다.** 문제는 **부모에 파라미터 있는 생성자만 있을 때** — 이때는 직접 써야 하고, 넘길 값이 없다.
 
@@ -484,9 +473,9 @@ public class OrderServiceConcreteProxy extends OrderServiceV2 {
 | **`final` 클래스 → 상속 불가** | `extends` 자체가 안 됨 | 프록시를 아예 만들 수 없음 |
 | **`final` 메서드 → 오버라이딩 불가** | 재정의가 안 되니 가로챌 수 없음 | 그 메서드만 부가 기능이 안 붙음 |
 
-> 🔴 **이 세 개는 5장 CGLIB, 나아가 스프링 AOP에 그대로 상속된다.** 스프링 부트는 기본이 CGLIB(클래스 기반) 프록시라서 남 얘기가 아니다.
+> 🔴 **`final` 제약 2종은 5장 CGLIB, 나아가 스프링 AOP에 그대로 상속된다.** 스프링 부트는 기본이 CGLIB(클래스 기반) 프록시라서 남 얘기가 아니다. (생성자 제약은 스프링이 Objenesis로 없앴다 → [동적 프록시 §3-4](./dynamic-proxy.md))
 >
-> **실패하는 방식이 다르다는 점이 중요**하다 — `final` **클래스**는 프록시 생성 자체가 실패해서 **기동 시점에 시끄럽게** 터진다. 반면 `final` **메서드**는 CGLIB가 그 메서드만 **조용히 건너뛴다**(`Enhancer`가 final 메서드를 필터링해서 제외). 예외도, 눈에 띄는 경고도 없이 `@Transactional`이 그냥 안 먹는다. Kotlin은 `final`이 기본값이라 이 사고가 더 잦다.
+> **실패하는 방식이 다르다는 점이 중요**하다 — `final` **클래스**는 프록시 생성 자체가 실패해서 **기동 시점에 시끄럽게** 터진다. 반면 `final` **메서드**는 CGLIB가 그 메서드만 오버라이드하지 못하고 넘어간다(`Enhancer`가 final 메서드를 걸러냄). 그러면 호출이 target으로 위임되지 않고 **프록시 인스턴스 자신에서 부모 코드가 실행**된다 — 부가 기능(`@Transactional` 등)이 빠지는 건 물론, 스프링 프록시는 생성자를 안 거쳐 필드가 비어 있으므로 주입받은 필드를 건드리면 **NPE**가 난다. Spring 6.x까지는 인터페이스 구현 메서드가 아니면 DEBUG 로그뿐이라 사실상 무음이었고, **Spring 7.0부터 public final 메서드에 WARN 로그**가 찍힌다. Kotlin은 `final`이 기본값이라 이 사고가 더 잦다.
 
 ---
 
@@ -502,9 +491,9 @@ public class OrderServiceConcreteProxy extends OrderServiceV2 {
 
 ⚠️ 마지막 줄이 실무에서 덧난다. 인터페이스 기반 프록시는 **인터페이스 타입으로만 존재**하므로 `OrderServiceImpl`처럼 구현체 타입으로 주입받으려 하면 터진다(`BeanNotOfRequiredTypeException`). 강의에서도 "인터페이스 기반 프록시는 캐스팅 관련 단점이 있다"고 뒷부분 예고를 달아둔다. 스프링 부트가 기본값을 CGLIB로 잡은 이유 중 하나.
 
-### ❓ "그럼 왜 처음부터 인터페이스로 안 하나?" (세션에서 나온 질문 — 타당한 의문)
+### ❓ "그럼 처음부터 인터페이스로 하면 되지 않나?"
 
-인터페이스 기반이 제약도 적고 역할/구현이 나뉘어 더 낫다. **맞다.** 다만 강의의 결론은 "항상 인터페이스를 쓰자"가 아니다.
+인터페이스 기반이 제약도 적고 역할/구현이 나뉘어 더 낫긴 하다. 다만 강의의 결론은 "항상 인터페이스를 쓰자"가 아니다.
 
 > 인터페이스 도입은 **구현을 변경할 가능성이 있을 때** 효과적이다. 바뀔 일이 거의 없는 코드에 무작정 인터페이스를 넣는 건 번거롭고 실용적이지 않다. 실무에는 V1 같은 구조도 V2 같은 구조도 있으니 **둘 다 대응할 수 있어야 한다.**
 
@@ -513,7 +502,7 @@ public class OrderServiceConcreteProxy extends OrderServiceV2 {
 - **JDK 동적 프록시** → 인터페이스 필수
 - **CGLIB** → 클래스 상속 방식, 인터페이스 없어도 됨
 
-**두 기술이 공존하는 이유가 여기에 있다.** (스프링 부트는 두 상황을 다 커버하려고 기본을 CGLIB로 잡았다)
+**두 기술이 공존하는 이유가 여기에 있다.** (스프링 부트가 AOP 기본을 CGLIB로 잡은 이유는 위 표 마지막 줄 — 인터페이스 기반 프록시는 구체 클래스 타입 주입에서 터진다)
 
 ---
 
@@ -555,9 +544,9 @@ client → proxy.orderItem()  → [로그 남김] → target.orderItem()
 
 > 💡 이건 *Effective Java* Item 18의 **SELF 문제**와 정확히 같은 메커니즘이다. 래퍼(데코레이터)로 감싼 객체가 콜백을 위해 `this`를 넘기면, 넘어가는 건 래퍼가 아니라 **감싸진 안쪽 객체**라 이후 콜백은 래퍼를 우회한다. "감싸기는 밖에서 들어오는 호출만 잡는다"는 한 문장이 자바 레벨에서도, 스프링 레벨에서도 그대로 적용된다.
 
-### 스프링 시큐리티는 프록시인가? (세션 질문)
+### 스프링 시큐리티는 프록시인가?
 
-"`beforeFilter` 같은 걸 보니 요청과 Controller 사이에 뭔가 해주는 것 같던데?" → 맞는 관찰이지만 **레벨이 다르다.**
+요청과 Controller 사이에서 뭔가를 해주니 프록시처럼 보이지만 **레벨이 다르다.**
 
 | 시큐리티 기능 | 동작 방식 | 가로채는 레벨 |
 |---|---|---|
@@ -573,7 +562,7 @@ client → proxy.orderItem()  → [로그 남김] → target.orderItem()
 
 ### 프록시의 비용 — 공짜가 아니다
 
-프록시는 호출 스택을 한 겹 늘린다. 잘못 만든 프록시(무거운 로직, 동기 I/O)는 그대로 응답 시간에 더해진다. "부가 기능이니 가벼울 것"이라는 전제가 항상 맞진 않는다.
+프록시는 호출 스택을 한 겹 늘리고, 안에 넣은 무거운 로직(동기 I/O 등)은 그대로 응답 시간에 더해진다. 런타임 생성 프록시의 비용은 [동적 프록시 §5-4](./dynamic-proxy.md).
 
 ### 프록시 객체의 상태는 공유된다
 
@@ -592,7 +581,7 @@ client → proxy.orderItem()  → [로그 남김] → target.orderItem()
 - **"프록시냐 데코레이터냐"로 30분 고민하고 있다면 그 고민 자체가 실익이 없다.** 구조는 같고 이름만 다르니 코드는 어느 쪽으로 불러도 동작한다. 실익은 **클래스 이름을 지을 때** 나온다 — `XxxCacheProxy`/`XxxAuthProxy`처럼 "막는" 이름인지 `XxxLoggingDecorator`처럼 "더하는" 이름인지가 다음 사람에게 **target을 호출 안 할 수도 있는지**를 알려준다. 이름이 곧 계약.
 - **"원본을 수정하지 않고 기능을 넣고 싶다"가 신호.** 원본을 열어도 되는 상황이면 프록시는 과한 도구다 — 그냥 메서드에 코드를 넣는 게 낫다. 프록시의 값은 **남의 코드/공용 코드/수백 개 클래스**처럼 열 수 없거나 열기 싫을 때 나온다.
 - **인터페이스가 이미 있으면 인터페이스 기반, 없으면 굳이 만들지 말고 클래스 기반.** 인터페이스는 구현이 바뀔 가능성이 있을 때 값을 하지, 프록시를 붙이려고 만드는 건 본말전도다. (스프링도 결국 두 방식을 다 지원하는 쪽으로 갔다)
-- **`final`을 붙이기 전에 "여기 프록시가 붙을 수 있나"를 한 번 묻는다.** 불변성을 위해 `final class`를 붙였는데 나중에 `@Transactional`·`@Cacheable`을 못 붙이는 상황이 온다. 특히 **`final` 메서드는 조용히 실패**하므로, 트랜잭션이 안 먹는데 원인을 못 찾겠다면 이걸 의심할 것.
+- **`final`을 붙이기 전에 "여기 프록시가 붙을 수 있나"를 한 번 묻는다.** 불변성을 위해 `final class`를 붙였는데 나중에 `@Transactional`·`@Cacheable`을 못 붙이는 상황이 온다. 특히 **`final` 메서드는 기동 시 에러 없이 넘어가므로**, 트랜잭션이 안 먹거나 주입받은 필드가 뜬금없이 null(NPE)이라면 이걸 의심할 것.
 - **이 챕터의 진짜 가치는 "스프링 AOP가 왜 그렇게 생겼는지"의 족보.** 2026년에 프록시를 손으로 짤 일은 거의 없다. 하지만 `@Transactional`이 자기호출에서 안 먹는 이유, `@Cacheable`이 `@EnableCaching` 없으면 조용히 무시되는 이유, JPA `getReference()`가 `==` 비교에서 배신하는 이유가 **전부 "그건 프록시다"라는 한 문장에서 나온다.**
 
 ---
@@ -605,5 +594,7 @@ client → proxy.orderItem()  → [로그 남김] → target.orderItem()
 - [Baeldung — Proxy, Decorator, Adapter and Bridge Patterns](https://www.baeldung.com/java-structural-design-patterns)
 - [Stack Overflow — Differences between Proxy and Decorator Pattern](https://stackoverflow.com/questions/18618779/differences-between-proxy-and-decorator-pattern) ("데코레이터는 클라이언트에게 힘을 주고 프록시는 제한한다")
 - [spring-framework #26729 — Fail explicitly if a final method is invoked on a CGLIB proxy](https://github.com/spring-projects/spring-framework/issues/26729) (final 메서드가 **조용히** 제외되는 근거)
+- [`CglibAopProxy` 소스](https://github.com/spring-projects/spring-framework/blob/main/spring-aop/src/main/java/org/springframework/aop/framework/CglibAopProxy.java) (`doValidateClass` — "Calls to this method will NOT be routed to the target instance and might lead to NPEs against uninitialized fields in the proxy instance") · [spring-framework #33939](https://github.com/spring-projects/spring-framework/issues/33939) (final 메서드 로그 레벨 재검토, 7.0.0-M4)
+- [Spring Framework Reference — Proxying Mechanisms](https://docs.spring.io/spring-framework/reference/core/aop/proxying.html) (Objenesis로 생성자 미호출)
 
-**학습 날짜**: 2026-08-14 · **계기**: 김영한 고급편 Ch.4 수강 후 Claude 소크라테스 복습 세션 — 진단 4문항 중 "프록시의 대체 가능성 조건"과 "`final` 제약 2가지"를 못 짚었고, **접근 제어의 정의**(target을 호출 안 하는 것도 제어인가) · **`super(null)`의 이유** · **V3를 왜 안 했는지** · **스프링 시큐리티도 프록시인지**를 질문으로 파고들어 채움
+**학습 날짜**: 2026-08-14 · **계기**: 김영한 고급편 Ch.4 복습 — 대체 가능성 조건과 `final` 제약을 다시 정리하고, 접근 제어의 범위·`super(null)`의 이유·V3를 미룬 이유·시큐리티 필터와 프록시의 차이를 파고듦

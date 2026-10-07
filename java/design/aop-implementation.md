@@ -11,7 +11,7 @@
 강의는 새 프로젝트(`hello.aop`)로 시작한다. 의존성은 Lombok + AOP만 있으면 된다.
 
 ```gradle
-implementation 'org.springframework.boot:spring-boot-starter-aop'
+implementation 'org.springframework.boot:spring-boot-starter-aop'   // Boot 4.0+는 spring-boot-starter-aspectj
 ```
 
 ### OrderRepository
@@ -103,7 +103,7 @@ public class AopTest {
 }
 ```
 
-> 📌 **`AopUtils.isAopProxy(obj)`** — 프록시가 적용됐는지 확인하는 진단 도구. Aspect를 아직 안 만들었으면 `false`, 등록하면 `true`. "AOP가 안 먹어요"를 디버깅할 때 **제일 먼저 찍어볼 것**. ([@Aspect 노트의 4단계 진단](./aspect-aop.md#-판단-기준) 중 2단계)
+> 📌 **`AopUtils.isAopProxy(obj)`** — 프록시가 적용됐는지 확인하는 진단 도구. Aspect를 아직 안 만들었으면 `false`, 등록하면 `true`. "AOP가 안 먹어요"를 디버깅할 때 **제일 먼저 찍어볼 것**. (아래 [💡 판단 기준](#-판단-기준)의 무음 실패 진단 순서 1단계)
 
 ---
 
@@ -198,9 +198,9 @@ public class AspectV2 {
 | 메서드 이름 + 파라미터 | 합쳐서 **포인트컷 시그니처**라 부른다 |
 | 접근 제어자 | 같은 클래스 안에서만 쓰면 `private`, **다른 애스펙트에서 참조하려면 `public`** |
 
-### ⚠️ 정정 — 파라미터는 "없어야" 하는 게 아니다
+### ⚠️ 흔한 오해 — 파라미터는 "없어야" 하는 게 아니다
 
-**세션에서 "파라미터는 있어도 되나?"라고 물었고 내가 "없어야 한다"고 답했는데, 그건 정확하지 않다.** 파라미터가 없는 게 *기본형*일 뿐, **파라미터 바인딩**을 하려면 선언할 수 있다. Spring 공식 문서의 예시:
+위 규칙을 보고 "파라미터도 없어야 한다"고 외우기 쉽지만 **정확하지 않다.** 파라미터가 없는 게 *기본형*일 뿐, **파라미터 바인딩**을 하려면 선언할 수 있다. Spring 공식 문서의 예시:
 
 ```java
 // 포인트컷이 Account 값을 "제공"하고, advice가 그걸 받는다
@@ -287,7 +287,7 @@ public class AspectV3 {
 
 > 📌 이 `doTransaction()`이 흉내 내는 게 바로 [`@Transactional`](../spring/transactional.md)의 실제 동작이다. "선언적 트랜잭션"이 마법이 아니라 **이 모양의 `@Around` 어드바이스**라는 걸 여기서 확인할 수 있다.
 
-> ⚠️ 그리고 위 실행 결과의 `[doLog] → [doTransaction]` 순서는 **보장된 게 아니라 우연이다.** 같은 조인 포인트에 걸린 advice들의 순서는 명시하지 않으면 **미정의**(공식 문서) — 지금은 이렇게 나왔지만 버전·환경이 바뀌면 뒤집힐 수 있다. 순서가 중요해지는 순간 V5(`@Order`)가 필요해지는 이유가 이것.
+> ⚠️ 그리고 위 실행 결과의 `[doLog] → [doTransaction]` 순서는 **보장된 게 아니다.** 같은 aspect 안의 같은 타입(`@Around` 둘) advice 순서는 공식 문서상 **미정의**다. 현재 구현(`ReflectiveAspectJAdvisorFactory`)은 advice 타입 다음으로 **메서드 이름순**으로 정렬해서 `doLog` < `doTransaction`이 됐을 뿐이다 — 계약이 아니라 구현 세부사항이니 **메서드 이름만 바꿔도 뒤집힐 수 있다.** 순서가 중요해지는 순간 V5(`@Order`)가 필요해지는 이유가 이것.
 
 ---
 
@@ -518,7 +518,7 @@ public class AspectV6Advice {
 | `@Around` | 전·후 전부 | **`ProceedingJoinPoint`** | **직접 호출 필수** | ✅ 가능 | ✅ 가능 |
 | `@Before` | 호출 전 | `JoinPoint` | 자동 | ❌ | ❌ (예외 던져 중단은 가능) |
 | `@AfterReturning` | 정상 반환 후 | `JoinPoint` (+ `returning`) | 자동 | ❌ **읽기만** | ❌ |
-| `@AfterThrowing` | 예외 발생 시 | `JoinPoint` (+ `throwing`) | 자동 | ❌ | ❌ |
+| `@AfterThrowing` | 예외 발생 시 | `JoinPoint` (+ `throwing`) | 자동 | ❌ | △ 다른 예외로 **교체**는 가능, **삼키기**는 불가 |
 | `@After` | finally (항상) | `JoinPoint` | 자동 | ❌ | ❌ |
 
 > **`JoinPoint`는 `ProceedingJoinPoint`의 부모**다. `proceed()`는 `ProceedingJoinPoint`에만 있고, 그래서 `@Around`만 흐름을 통제할 수 있다. ([Join Point / Pointcut / PJP 3층 구분은 @Aspect 노트 §3](./aspect-aop.md#3-️-proceedingjoinpoint--pointcut이-아니다))
@@ -564,9 +564,9 @@ public void doReturn(JoinPoint joinPoint, Object abc) { ... }
 
 `@AfterThrowing`의 `throwing`도 동일하다 — `Exception ex`면 대부분, `IllegalStateException ex`면 그 타입만.
 
-> 📌 여담으로 `@AfterReturning(value = ..., returning = ...)`의 `value`와 `pointcut`은 **별칭(alias)**이다. 강의는 `value`, 공식 문서 예제는 `pointcut`을 쓴다 — 둘 다 같은 것.
+> 📌 여담으로 `@AfterReturning(value = ..., returning = ...)`의 `value`와 `pointcut`은 둘 다 포인트컷 표현식을 받는 속성이다. 강의는 `value`, 공식 문서 예제는 `pointcut`을 쓴다. 둘 다 쓰면 **`pointcut`이 `value`를 덮어쓴다**(AspectJ Javadoc: "overrides value when specified").
 
-> ⚠️ **세션에서 "타입이 안 맞으면 타겟이 실행이 안 되더라"고 했는데, 정확히는 그렇지 않다.** 타겟은 정상 실행되고 **advice만 조용히 건너뛴다.** 이게 더 나쁜 종류의 함정이다 — 예외가 안 나니까 "로그가 왜 안 찍히지?"로만 보인다. `@AfterReturning`이 안 도는 것 같으면 **파라미터 타입부터 `Object`로 넓혀보는 게 1차 진단**이다.
+> ⚠️ **흔한 오해: "타입이 안 맞으면 타겟이 실행이 안 된다" — 정확히는 그렇지 않다.** 타겟은 정상 실행되고 **advice만 조용히 건너뛴다.** 이게 더 나쁜 종류의 함정이다 — 예외가 안 나니까 "로그가 왜 안 찍히지?"로만 보인다. `@AfterReturning`이 안 도는 것 같으면 **파라미터 타입부터 `Object`로 넓혀보는 게 1차 진단**이다.
 
 ### 함정 2 — `@AfterReturning`으로는 반환값을 바꿀 수 없다
 
@@ -591,19 +591,7 @@ public Object change(ProceedingJoinPoint joinPoint) throws Throwable {
 
 ### 함정 3 — `@Around`에서 `proceed()`를 빼먹으면 조용히 죽는다
 
-```java
-@Around("allOrder()")
-public Object doLog(ProceedingJoinPoint joinPoint) throws Throwable {
-    log.info("[log] {}", joinPoint.getSignature());
-    return null;    // ⚠️ proceed() 없음 → 원본 메서드가 아예 실행 안 됨
-}
-```
-
-`@Around`는 **target 호출 권한을 통째로 위임받는다.** 안 부르면 원본이 실행되지 않고 반환값도 `null`. 예외가 안 나서 추적이 어렵다.
-
-- 반환 타입은 **`Object`** 로 선언할 것. `void`로 선언하면 `proceed()` 결과가 무엇이든 **호출자는 항상 `null`을 받는다**(공식 문서 명시).
-- target이 primitive(`int` 등)를 반환하는데 advice가 `null`을 반환하면 `AopInvocationException: Null return value from advice does not match primitive return type`.
-- 참고로 `proceed()`를 **0번·1번·여러 번 호출하는 건 전부 합법**이다. 캐시 히트 시 `proceed()` 없이 캐시값을 반환하는 게 [`@Cacheable`](../spring/spring-cache.md)의 원리. 문제는 "의도 없이" 빠뜨렸을 때.
+안 부르면 원본이 실행되지 않고 반환값도 `null`인데 예외가 없다. `void`로 선언하면 항상 `null`, primitive 반환 메서드면 `AopInvocationException`, 그리고 `proceed()`를 0·1·여러 번 부르는 것 자체는 합법 — 상세는 [@Aspect 노트 §6 함정 1·2](./aspect-aop.md#6-️-함정-정리).
 
 ### 함정 4 — `@Order`를 메서드에 붙이는 실수 (§6)
 
@@ -613,21 +601,11 @@ public Object doLog(ProceedingJoinPoint joinPoint) throws Throwable {
 
 공식 문서 주의사항: `@AfterThrowing` advice는 **조인 포인트(target 메서드) 자신이 던진 예외만** 받도록 되어 있고, 같이 붙은 `@After`/`@AfterReturning` 메서드에서 발생한 예외는 받지 못한다. 예외를 **삼켜서 흐름을 바꾸려는 목적**이면 `@AfterThrowing`이 아니라 `@Around`의 `catch`를 써야 한다.
 
+⚠️ 반대로 **예외를 다른 예외로 바꾸는 건 `@AfterThrowing`으로도 된다.** 구현(`AspectJAfterThrowingAdvice`)이 catch 안에서 advice 메서드를 부른 뒤 원래 예외를 다시 던지는 구조라, advice 메서드가 새 예외를 던지면 **원래 예외 대신 그 예외가 전파**된다 — 저수준 예외를 도메인 예외로 바꾸는 "예외 변환" aspect가 이 모양이다.
+
 ### 함정 6 — 자기호출은 여전히 안 먹는다
 
-`@Aspect`로 문법이 편해졌을 뿐 **실행 모델은 프록시 그대로**다.
-
-```java
-@Service
-public class OrderService {
-    public void outer() {
-        this.inner();   // ⚠️ this = target(원본) → 프록시 미경유 → advice 미적용
-    }
-    public void inner() { ... }
-}
-```
-
-[동적 프록시 노트](./dynamic-proxy.md) · [@Transactional 노트](../spring/transactional.md)에서 다룬 그 함정.
+`@Aspect`로 문법이 편해졌을 뿐 **실행 모델은 프록시 그대로**라 `this.inner()`는 advice를 안 거친다 — [@Aspect 노트 §6 함정 4](./aspect-aop.md#6-️-함정-정리) · [@Transactional 노트](../spring/transactional.md)에서 다룬 그 함정.
 
 ---
 
@@ -648,11 +626,11 @@ public class OrderService {
 
 ## 💡 판단 기준
 
-**"가장 강력한 것"이 아니라 "가장 덜 강력한 것"을 고른다.** Spring 공식 문서의 표현이 그대로 원칙이다 — *요구사항을 충족하는 가장 덜 강력한 형태의 advice를 항상 사용하라. before advice로 충분하면 around advice를 쓰지 말 것.* 이유는 두 가지다. ① `@Around`는 `proceed()`를 빠뜨릴 수 있고 반환값을 바꿀 수 있어서 **실수의 여지 자체가 크다.** ② 읽는 사람에게 잘못된 신호를 준다 — 로그만 남기는데 `@Around`를 쓰면 "이 메서드가 흐름을 바꿀 수도 있다"고 읽힌다. **제약이 곧 문서다.** 세션에서 "@Around가 컨트롤할 수 있는 게 많다"까지는 답했지만, 그게 **선택 이유가 아니라 회피 이유**라는 게 이 챕터의 관점.
+**"가장 강력한 것"이 아니라 "가장 덜 강력한 것"을 고른다.** Spring 공식 문서의 표현이 그대로 원칙이다 — *요구사항을 충족하는 가장 덜 강력한 형태의 advice를 항상 사용하라. before advice로 충분하면 around advice를 쓰지 말 것.* 이유는 두 가지다. ① `@Around`는 `proceed()`를 빠뜨릴 수 있고 반환값을 바꿀 수 있어서 **실수의 여지 자체가 크다.** ② 읽는 사람에게 잘못된 신호를 준다 — 로그만 남기는데 `@Around`를 쓰면 "이 메서드가 흐름을 바꿀 수도 있다"고 읽힌다. **제약이 곧 문서다.** 흔히 "@Around가 컨트롤할 수 있는 게 많다"를 고르는 이유로 꼽지만, 그건 **선택 이유가 아니라 회피 이유**다.
 
-**규칙을 "금지"로 외우지 말고 "왜"를 붙인다.** `@Pointcut`의 `void`·빈 바디는 진짜 제약이지만(실행되는 메서드가 아니라 이름표니까), 파라미터는 제약이 아니라 **바인딩 기능**이다. 세션에서 이 둘을 같은 줄에 놓고 "전부 없어야 한다"고 외웠다가 틀렸다. 규칙 하나하나에 "이게 왜 필요한가"를 붙여두면 **어디까지가 문법 제약이고 어디부터가 기능인지** 구분된다 — 그리고 그 구분이 안 되면 쓸 수 있는 기능을 못 쓴 채 지나간다.
+**규칙을 "금지"로 외우지 말고 "왜"를 붙인다.** `@Pointcut`의 `void`·빈 바디는 진짜 제약이지만(실행되는 메서드가 아니라 이름표니까), 파라미터는 제약이 아니라 **바인딩 기능**이다. 이 둘을 같은 줄에 놓고 "전부 없어야 한다"고 외우면 틀린다(§3). 규칙 하나하나에 "이게 왜 필요한가"를 붙여두면 **어디까지가 문법 제약이고 어디부터가 기능인지** 구분된다 — 그리고 그 구분이 안 되면 쓸 수 있는 기능을 못 쓴 채 지나간다.
 
-**"조용히 안 되는" 실패는 계층을 나눠 진단한다.** 이 챕터에서만 무음 실패가 네 종류 나왔다 — 빈 등록 누락 / `@Order`를 메서드에 붙임 / `returning` 타입이 좁아 advice 스킵 / `proceed()` 누락. 전부 예외 없이 "그냥 안 된다". 실무 진단 순서는 **① `AopUtils.isAopProxy()`로 프록시 여부 → ② 포인트컷 표현식이 맞나 → ③ advice 파라미터 타입이 좁지 않나 → ④ 자기호출인가.** ①이 `false`면 등록 문제, `true`인데 안 걸리면 ②~④. **에러 메시지가 없는 영역에서는 "확인 순서"를 미리 정해두는 것 자체가 도구다.**
+**"조용히 안 되는" 실패는 계층을 나눠 진단한다.** 이 챕터에서만 무음 실패가 네 종류 나왔다 — 빈 등록 누락 / `@Order`를 메서드에 붙임 / `returning` 타입이 좁아 advice 스킵 / `proceed()` 누락. 전부 예외 없이 "그냥 안 된다". 실무 진단 순서는 **① `AopUtils.isAopProxy()`로 프록시 여부 → ② 포인트컷 표현식이 맞나 → ③ advice 파라미터 타입이 좁지 않나 → ④ 자기호출인가.** ①이 `false`면 활성화·등록 문제(aspect가 빈으로 안 올라감, `@Enable~` 누락 — [@Aspect 노트 §5](./aspect-aop.md#5-️-aspect만-붙이면-아무-일도-안-일어난다)), `true`인데 안 걸리면 ②~④. ②는 [`AspectJExpressionPointcut` 학습 테스트](./aop-pointcut.md)로 찍어보는 자리다. **에러 메시지가 없는 영역에서는 "확인 순서"를 미리 정해두는 것 자체가 도구다.**
 
 ---
 
@@ -662,5 +640,9 @@ public class OrderService {
 - [Spring Framework Reference — Declaring Advice](https://docs.spring.io/spring-framework/reference/core/aop/ataspectj/advice.html) (advice 5종 / `returning`·`throwing`은 이름 매칭 + 타입 제한 / after returning으로는 다른 참조 반환 불가 / `@After`는 "after finally" 의미 / `@AfterThrowing`은 동반 advice의 예외를 받지 않음 / around는 `Object` 반환·PJP 첫 파라미터·`void`면 항상 null / "가장 덜 강력한 advice를 쓰라" / advice ordering — 다른 aspect 간은 미정의, `@Order`/`Ordered`로 지정, 같은 aspect 내 같은 타입끼리는 순서 지정 불가)
 - [Spring Framework Reference — Declaring a Pointcut](https://docs.spring.io/spring-framework/reference/core/aop/ataspectj/pointcuts.html) (named pointcut, 포인트컷 조합, 파라미터 바인딩)
 - [Spring Framework Reference — Proxying Mechanisms](https://docs.spring.io/spring-framework/reference/core/aop/proxying.html) (자기호출 미인터셉트)
+- [`ReflectiveAspectJAdvisorFactory` 소스](https://github.com/spring-projects/spring-framework/blob/main/spring-aop/src/main/java/org/springframework/aop/aspectj/annotation/ReflectiveAspectJAdvisorFactory.java) (`adviceMethodComparator` — advice 타입 순 → 메서드 이름순 정렬)
+- [`AspectJAfterThrowingAdvice` 소스](https://github.com/spring-projects/spring-framework/blob/main/spring-aop/src/main/java/org/springframework/aop/aspectj/AspectJAfterThrowingAdvice.java) (catch에서 advice 호출 후 원래 예외 재throw — advice가 던진 예외가 있으면 그게 전파)
+- [AspectJ `@AfterReturning` 소스](https://github.com/eclipse-aspectj/aspectj/blob/master/runtime/src/main/java/org/aspectj/lang/annotation/AfterReturning.java) (`pointcut`은 지정 시 `value`를 덮어씀)
+- [Spring Boot 4.0 Migration Guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide) (`spring-boot-starter-aop` → `spring-boot-starter-aspectj`)
 
-**학습 날짜**: 2026-08-14 · **계기**: 김영한 고급편 Ch.10 수강 후 Claude 소크라테스 복습 세션(5문항). ① `@Aspect` 빈 등록 필요성·`@Import` 방법 **정확히 답함** ② `@Pointcut` 분리 방식과 `@Around`에서의 참조 **정확히 답함** — 단 "파라미터는 있어도 되나?"라는 본인 질문에 내가 "없어야 한다"고 잘못 답했고, 세션 후 공식 문서 확인 결과 **파라미터 바인딩용으로 선언 가능**이 맞아 §3에 정정 수록 ③ `@Order`가 클래스 단위 + `static class` 분리 전략 **정확히 답함** ④ Advice 5종 중 **`@After` 이름을 떠올리지 못함**("final처럼 작동하는 게 있었는데") → §7에 finally 의미로 정리 / `proceed()`를 "process"로 부름 → 용어 정정 ⑤ `@AfterReturning`이 반환값을 **바꿀 수 없다는 판단은 정확했음**(근거도 "리턴 이후에 실행되니까"로 맞음) — 다만 `returning` 속성 문법은 기억 못 함, 그리고 "타입이 안 맞으면 타겟이 실행 안 된다"고 했는데 실제로는 **타겟은 정상 실행되고 advice만 스킵**이라 §8 함정 1에 정정. 📌 세션 후 조사에서 추가로 확인: `returning`/`throwing`의 **타입 필터 역할** / `@AfterThrowing`은 동반 advice의 예외를 못 받음 / `@After`가 `@AfterReturning`보다 뒤에 호출되는 이유 / around advice를 `void`로 선언하면 항상 null 반환
+**학습 날짜**: 2026-08-14 · **계기**: 김영한 고급편 Ch.10 수강 후 복습 — `@Pointcut` 파라미터를 "금지"로 오해한 것, `@After`(finally 의미)와 `returning` 타입 필터가 흐릿했던 것을 공식 문서로 확인해 정리.

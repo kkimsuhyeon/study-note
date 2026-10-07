@@ -81,7 +81,7 @@
 - [ ] [락 개념 종합 - 낙관적/비관적/분산 락](./java/concurrency/locks.md)
 - [ ] [JVM 동시성 도구 - synchronized/ReentrantLock/Semaphore/Latch/Barrier 등](./java/concurrency/jvm-concurrency-tools.md)
 - [ ] [동시성 도구 목적별 정리 & 선택 가이드 - 만들기/조합(CompletableFuture)/대기/세기/정합성 / 최신≠최선](./java/concurrency/concurrency-tool-guide.md)
-- [ ] [데드락(교착 상태) - Coffman 4조건/예방/DB 자동 감지](./java/concurrency/deadlock.md)
+- [ ] [데드락(교착 상태) - Coffman 4조건/예방/DB 자동 감지 vs JVM은 감지·해소 없음 / lock.timeout 힌트가 무시되는 경우](./java/concurrency/deadlock.md)
 - [ ] [동시성 컬렉션 - ConcurrentHashMap(개별 연산만 원자적·check-then-act는 computeIfAbsent로)/CopyOnWriteArrayList(읽기多쓰기小)/BlockingQueue(스레드 풀 큐의 정체)](./java/concurrency/concurrent-collections.md)
 
 ### JPA
@@ -89,7 +89,7 @@
 
 - [ ] [영속성 컨텍스트 · flush · 더티 체킹 - "커밋 시점"의 정체](./java/jpa/persistence-context.md)
 - [ ] [트랜잭션 격리 수준 - Dirty/Non-repeatable/Phantom/Lost Update와 락 관계](./java/jpa/transaction-isolation.md)
-- [ ] [@Lock 기본 - 락 어노테이션 (언제·종류·사용·주의)](./java/jpa/lock.md)
+- [ ] [@Lock 기본 - Spring Data JPA 락 어노테이션 (언제·종류·사용·주의·💡 선택 기준)](./java/jpa/lock.md)
 - [ ] [@Lock 심화 개념 - @Version·공유/배타·FORCE_INCREMENT](./java/jpa/lock-concepts.md)
 - [ ] [@Lock 실무 패턴 - 프록시·네이밍·테스트·재시도·벌크/조건부 UPDATE](./java/jpa/lock-practical.md)
 - [ ] [Read-Modify-Write와 트랜잭션 경계 - 쓰기 서비스가 조회 서비스에 의존하면 안 되는 이유](./java/jpa/read-modify-write.md)
@@ -97,28 +97,28 @@
 - [ ] [N+1과 fetch 전략 - fetch join, EntityGraph, batch size 판단 기준 / ⚠️"쿼리 1회=빠름"이 아니다 — 페이징 없어도 컬렉션 fetch join은 행×컬럼으로 비쌈(안 쓰는 연관이 전 행에 중복) / SQL은 55ms인데 fetch()가 2,553ms면 매핑 비용 → 프로젝션 + 직접 groupingBy](./java/jpa/n-plus-one-fetch.md)
 - [ ] [연관관계 매핑 - 연관관계 주인·mappedBy(양방향=단방향 2개, FK는 하나) / ⚠️역방향에만 값 넣으면 FK null / 편의 메서드 / 1:N 단방향·N:M 금지 / ToOne은 기본 EAGER→LAZY 명시](./java/jpa/relation-mapping.md)
 - [ ] [엔티티 설계 실무 규칙 - Setter 금지·모든 연관관계 LAZY·컬렉션 필드 초기화 후 교체 금지(PersistentBag)·@Enumerated STRING 강제 / @Entity 제약·hbm2ddl 환경별 규칙](./java/jpa/entity-design-rules.md)
-- [ ] [기본 키 생성 전략 - IDENTITY는 persist 즉시 INSERT(쓰기 지연 무력화) / SEQUENCE+allocationSize / Long+대체키가 정석](./java/jpa/id-generation.md)
+- [ ] [기본 키 생성 전략 - IDENTITY는 persist 즉시 INSERT(쓰기 지연 무력화) / SEQUENCE+allocationSize / Long+대체키가 정석 / ⚠️MySQL은 IDENTITY 명시(AUTO는 테이블 채번)](./java/jpa/id-generation.md)
 - [ ] [상속 매핑 - JOINED/SINGLE_TABLE(기본값)/TABLE_PER_CLASS(금지) 트레이드오프 / @MappedSuperclass는 상속 매핑이 아니라 BaseEntity(공통 필드) 도구](./java/jpa/inheritance-mapping.md)
 - [ ] [프록시와 지연 로딩 - getReference 동작 원리 / ⚠️3대 함정: == 비교·find/getReference 순서별 동일성·LazyInitializationException(트랜잭션 밖 지연 로딩의 근본 원인)](./java/jpa/proxy.md)
 - [ ] [영속성 전이와 고아 객체 - cascade·orphanRemoval은 "소유자 하나+수명 동일"일 때만 / ALL+orphanRemoval=애그리거트 루트 구현 / 정적 생성 메서드 패턴](./java/jpa/cascade-orphan-removal.md)
-- [ ] [값 타입 - @Embeddable/@Embedded / 공유 참조 부작용→불변 설계 / ⚠️값 타입 컬렉션은 전체 DELETE+재INSERT→일대다 엔티티로 대체](./java/jpa/value-types.md)
+- [ ] [값 타입 - @Embeddable/@Embedded / 공유 참조 부작용→불변 설계 / ⚠️값 타입 컬렉션(List/bag)은 변경 시 전체 DELETE+재INSERT→일대다 엔티티로 대체](./java/jpa/value-types.md)
 - [ ] [준영속 엔티티 수정: 변경 감지 vs merge - ⚠️merge는 전체 교체(폼에 없는 필드 null 덮어쓰기) / save()의 정체=id 있으면 merge / "id+DTO 넘겨 변경 감지"가 정답](./java/jpa/merge-vs-dirty-checking.md)
-- [ ] [JPQL 심화 - ⚠️벌크 연산은 영속성 컨텍스트 우회(@Modifying clearAutomatically) / 묵시적 조인 금지 / fetch join 한계 3종(별칭·컬렉션 2개·페이징) / getSingleResult 예외](./java/jpa/jpql-advanced.md)
+- [ ] [JPQL 심화 - ⚠️벌크 연산은 영속성 컨텍스트 우회(@Modifying clearAutomatically) / 묵시적 조인 금지 / fetch join 한계 3종(별칭·컬렉션은 하나만·페이징) / getSingleResult 예외](./java/jpa/jpql-advanced.md)
 - [ ] [OSIV - 기본 ON: 응답 완료까지 영속성 컨텍스트+커넥션 유지→실시간 트래픽에서 커넥션 고갈 / "고객 API는 OFF, ADMIN은 ON" / OFF 대응=커맨드·쿼리 서비스 분리](./java/jpa/osiv.md)
 
 ### MyBatis
-- [ ] [resultMap 중첩 매핑 - association(단수)·collection(1:N) / `<id>`=정체성 판별(없으면 전컬럼 비교·그룹핑 오동작) / "이미 JOIN하면 컬럼+매핑 추가가 0비용" / 중첩 select는 N+1 / collection+LIMIT 함정](./java/mybatis/resultmap-association-collection.md)
+- [ ] [resultMap 중첩 매핑 - association(단수)·collection(1:N) / `<id>`=정체성 판별(없으면 전컬럼 비교·그룹핑 오동작) / "이미 JOIN하면 컬럼+매핑 추가가 0비용" / 중첩 select는 N+1 / collection+LIMIT 함정 / ⚠️중첩 매핑 추가 시 부모 자동 매핑 꺼짐(PARTIAL)](./java/mybatis/resultmap-association-collection.md)
 
 ### Spring
 - [ ] [HttpSession - getSession(false)·생성·속성 저장/조회·무효화 / 세션과 로그인 구분](./java/spring/http-session.md)
 - [ ] [Spring Session JDBC - HttpSession 저장소를 PostgreSQL로 교체 / SESSION 쿠키·자동 구성·Flyway·만료 / 프록시 뒤 Secure(X-Forwarded-Proto)](./java/spring/spring-session-jdbc.md)
-- [ ] [@Bean 등록과 타입 기반 주입 - 매개변수는 의존성·반환 객체는 Bean / RestClient·RequestFactory·HttpClient 역할과 자동 선택·명시 설정 / Qualifier는 타입 후보를 좁힘](./java/spring/bean-registration-and-injection.md)
+- [ ] [@Bean 등록과 타입 기반 주입 - 매개변수는 의존성·반환 객체는 Bean / RestClient·RequestFactory·HttpClient 역할 / Qualifier는 타입 후보를 좁힘 / ⚠️같은 타입이 여럿이면 주입 지점 이름=빈 이름으로 매칭](./java/spring/bean-registration-and-injection.md)
 - [ ] [HTTP 클라이언트 구현체 비교 - RestClient 아래 통신 라이브러리 5종(JDK/Apache/Jetty/Reactor/Simple) / Boot 자동 감지 순서·spring.http.clients·ClientHttpRequestFactoryBuilder / ⚠️JDK는 멱등 요청을 알아서 1회 재시도→"최대 1회" 루프 얹으면 4회 / read timeout=요청 시작부터 총 시간 / 오류 본문은 close 때 drain](./java/spring/http-client-transports.md)
-- [ ] [@Transactional - 선언적 트랜잭션·전파(propagation)·롤백 규칙·프록시 함정 / 부수 작업 격리(REQUIRES_NEW+try-catch) → 스프링 이벤트(AFTER_COMMIT+@Async)와 ⚠️트랜잭션 없으면 조용히 안 도는 함정 / 커넥션(창구)≠트랜잭션(전표 묶음) / 트랜잭션 밖≠비동기(A~D 4조합)·외부 호출은 창구에서 일어나서 / 워커·reaper·정리 책임 3층·DB를 큐로](./java/spring/transactional.md)
+- [ ] [@Transactional - 선언적 트랜잭션·전파(propagation)·롤백 규칙·프록시 함정 / 부수 작업 격리(REQUIRES_NEW+try-catch) → 스프링 이벤트(AFTER_COMMIT+@Async)와 ⚠️트랜잭션 없으면 조용히 안 도는 함정 / 커넥션(창구)≠트랜잭션(전표 묶음) / 트랜잭션 밖≠비동기(A~D 4조합)·외부 호출은 창구에서 일어나서 / ⚠️JPA+OSIV면 tx 밖에서도 커넥션 보유 / 6.0+ CGLIB는 non-public에도 적용 / 6.1+ 리스너 @Transactional은 REQUIRES_NEW만 (워커·reaper·DB 큐는 → DB를 작업 큐로)](./java/spring/transactional.md)
 - [ ] [예제로 보는 트랜잭션 전파·롤백 - a→b→c 워크스루](./java/spring/transaction-rollback-example.md)
-- [ ] [@Valid · @Validated - Bean Validation 동작·위치, 중첩 cascade 함정](./java/spring/validation.md)
-- [ ] [@AssertTrue 필드 조합 검증 - boolean getter에 붙는 cross-field 규칙 / is·get 네이밍 아니면 조용히 무시 / null 가드 필수·Jackson 노출 / vs 클래스 레벨 제약](./java/spring/assert-true-cross-field.md)
-- [ ] [Spring 예외 처리 - @ControllerAdvice, ErrorCode, Validation 예외 흐름](./java/spring/exception-handling.md)
+- [ ] [@Valid · @Validated - Bean Validation 동작·위치, 중첩 cascade 함정 / 6.1+ MVC 내장 메서드 검증(@Validated 없이 → HandlerMethodValidationException)](./java/spring/validation.md)
+- [ ] [@AssertTrue 필드 조합 검증 - boolean getter에 붙는 cross-field 규칙 / get·is·has(원시 boolean) getter가 아니면 조용히 무시(Boolean 반환도) / null 가드 필수·Jackson 노출 / vs 클래스 레벨 제약](./java/spring/assert-true-cross-field.md)
+- [ ] [Spring 예외 처리 - @ControllerAdvice, ErrorCode, Validation 예외 흐름 / ⚠️Exception.class fallback이 MVC 4xx를 500으로 → ResponseEntityExceptionHandler](./java/spring/exception-handling.md)
 - [ ] ["배치"의 세 층위 - 쿼리 배치화(N+1→IN+groupingBy) / Spring Batch(스케줄러 없음!) / JDBC 쓰기 배치](./java/spring/batch-three-meanings.md)
 - [ ] [ApplicationContext - 컨테이너 객체 하나=BeanFactory+환경·이벤트·리소스·메시지 / 기동 7단계(Aware→@PostConstruct→후처리) / getBean·Aware·static홀더·run반환값 4가지 참조법 / ⚠️서비스 로케이터 안티패턴(의존성 은닉·테스트·런타임 예외·프레임워크 결합) / 실제론 List·Map<String,T> 주입·ObjectProvider·EventPublisher / 💡"주입으로 못 받는 이유를 한 문장으로"](./java/spring/application-context.md)
 - [ ] [동적 스케줄링 - @Scheduled(컴파일 고정) vs TaskScheduler+CronTrigger(DB 정의) vs Quartz / 스프링 크론 6자리·L·W·#·? (5.3+) / DB 빈 이름=계약→오타 1건이 init 전체 중단 / shutdown은 실행 중 작업 안 기다림 / 인스턴스 2대=2번 / 미스파이어 없음 / 💡"동적"의 범위는 언제·순서까지, 잡 종류는 배포](./java/spring/dynamic-scheduling.md)
@@ -129,8 +129,8 @@
 
 ### 기본 / 박싱 (Basics)
 - [ ] [Java 시간 - Clock·Instant·LocalDateTime 구분 / 고정 시계로 테스트 / truncatedTo와 시간별 집계 / UTC 자정과 한국 자정](./java/basics/java-time-clock-instant-localdatetime.md)
-- [ ] [오토박싱 & 래퍼 캐시 - `Integer`·`Long`끼리 `==` 금지 / -128~127 캐시(JLS 5.1.7) → 작은 값엔 우연히 맞고 커지면 조용히 틀림 / JPA `Long id` 비교도 같은 메커니즘](./java/basics/autoboxing-wrapper-cache.md)
-- [ ] [switch 문 vs 식 - Java14 JEP361 / 식은 enum 전체 커버 강제(exhaustiveness) = 상수 추가 시 컴파일 에러로 매핑 누락 잡는 안전망 / default는 "모든 미래 값에 공통 처리가 옳을 때"만(아니면 버그 은닉처) / 암묵 default→ICCE / values() 순회 검증도 함께 오염](./java/basics/switch-expression-exhaustiveness.md)
+- [ ] [오토박싱 & 래퍼 캐시 - `Integer`·`Long`끼리 `==` 금지 / -128~127 캐시(JLS 5.1.7은 상수, `valueOf` Javadoc은 실행 중 값까지 보장) → 작은 값엔 우연히 맞고 커지면 조용히 틀림 / JPA `Long id` 비교도 같은 메커니즘](./java/basics/autoboxing-wrapper-cache.md)
+- [ ] [switch 문 vs 식 - Java14 JEP361 / 식은 enum 전체 커버 강제(exhaustiveness) = 상수 추가 시 컴파일 에러로 매핑 누락 잡는 안전망 / default는 "모든 미래 값에 공통 처리가 옳을 때"만(아니면 버그 은닉처) / 암묵 default→ICCE(Java 21+ 컴파일은 MatchException) / values() 순회 검증도 함께 오염](./java/basics/switch-expression-exhaustiveness.md)
 
 ### BigDecimal
 - [ ] [BigDecimal - 돈·정밀 계산, equals vs compareTo, scale, 반올림](./java/bigdecimal/bigdecimal.md)
@@ -159,25 +159,25 @@
 - [ ] [JUnit 5 라이프사이클 - @BeforeEach·@BeforeAll·@Nested / 테스트 전 데이터 셋업](./java/test/junit-lifecycle.md)
 - [ ] [파라미터화 테스트 - @ParameterizedTest / ValueSource·EnumSource·CsvSource·MethodSource / 검증 같을 때만](./java/test/parameterized-test.md)
 - [ ] [Mockito 서비스 테스트 - @Mock·@InjectMocks·given·verify·ArgumentCaptor / 분기·조합·상호작용 검증](./java/test/mockito-service-test.md)
-- [ ] [동시성 테스트 작성법 - ExecutorService·CountDownLatch 3개 / @Transactional 금지 / 비관(합계)·낙관(1성공) 검증](./java/test/concurrency-test.md)
-- [ ] [Spring Boot 테스트 슬라이스 - @SpringBootTest, @WebMvcTest, @DataJpaTest 선택 기준](./java/test/spring-boot-test-slices.md)
+- [ ] [동시성 테스트 작성법 - ExecutorService·CountDownLatch 3개 / @Transactional 금지(워커는 다른 트랜잭션) / 비관(합계)·낙관(1성공) 검증 / 대조 실험(락 빼면 실패하나)](./java/test/concurrency-test.md)
+- [ ] [Spring Boot 테스트 슬라이스 - @SpringBootTest, @WebMvcTest, @DataJpaTest 선택 기준 / @MockitoBean(Boot 3.4+, @MockBean은 4.0 삭제)](./java/test/spring-boot-test-slices.md)
 
 ### 설계 (DDD / 도메인 모델)
-- [ ] [도메인 검증 위치 - 엔티티(불변식) vs 도메인 서비스(유니크)·체커 주입 / 규칙=도메인·조회=인프라](./java/design/domain-validation.md)
+- [ ] [도메인 검증 위치 - 엔티티(불변식) vs 집합 규칙(유니크)=결과·체커 주입, 무거우면 도메인 서비스 / 규칙=도메인·조회=인프라](./java/design/domain-validation.md)
 - [ ] [변환 계층 - Factory(생성)/Mapper(web→Command)/Assembler(Command→Model) + Command/Query · Request→Command→Domain의 enum·시간 타입 유지](./java/design/transform-layers.md)
 - [ ] [애그리거트 소유권 & 참조 방향 - source of truth / 자기 사실만 판정 / 1:1 FK는 나중 생긴 쪽이 단방향](./java/design/aggregate-ownership.md)
 - [ ] [포트와 어댑터 - 콘센트(규격)/플러그(구현) 비유 / 인터페이스는 의존 역전 필요할 때만 / 포트 소유권](./java/design/ports-and-adapters.md)
 - [ ] [일급 컬렉션 - 컬렉션 하나만 감싼 클래스 / 응집·불변(방어적 복사) / vs 값 객체(Tell Don't Ask·널 객체)](./java/design/first-class-collection.md)
-- [ ] [계산 파이프라인 구조 - Pipes and Filters + supports-execute + Collecting Parameter / 불변 Factor·정책·순서 고정 / ⚠️순서가 곧 스펙·supports 스킵은 무음 / 조회는 밖에서·계산 코어에 I/O 금지](./java/design/calculation-pipeline.md)
+- [ ] [계산 파이프라인 구조 - Pipes and Filters 변형(공유 Context) + supports-execute + Collecting Parameter / 불변 Factor·정책·순서 고정 / ⚠️순서가 곧 스펙·supports 스킵은 무음 / 조회는 밖에서·계산 코어에 I/O 금지](./java/design/calculation-pipeline.md)
 - [ ] [집계를 SQL vs 애플리케이션 - 판단 축은 건수와 유지보수성 / 수천 건 이하면 앱(테스트 가능·읽힘) / ⚠️"읽을 수 없는 SQL은 느려져도 아무도 못 고친다" — 성능 문제 방치의 진짜 원인 / 기간 오프바이원(N-1 시작·배타 상한 +1)](./java/design/aggregation-placement.md)
 - [ ] [책임 경계 - 계층(위아래)≠책임(옆) / 리뷰 "얘의 역할이 뭘까요?"=나눈 기준을 한 문장으로 못 말함 / 결정과 저장이 갈라지면 둘 다 반쪽 / 완성품 아닌 재료를 넘김(받는 쪽이 결정을 가짐) / ⚠️Request를 통째로 품은 Command=번역 없는 봉투→Request 직접 넘기거나 평탄 Command+Factory / 함수 추출은 호출처 수 아닌 상위 함수의 높이(Rule of Three≠Extract 동기) / 공통부<고유부면 합치지 않음 / ⚠️구현 수단(Redis)≠역할 · 이름 바꾸기로는 안 풀림 · 어중간하게 옮기면 더 나쁨](./java/design/responsibility-boundaries.md)
 - [ ] [템플릿 메서드/전략/템플릿 콜백 - 변하는·변하지 않는 코드 분리 / 상속→위임→위임+람다 발전사 / V1(선조립=DI) vs V2(실행시 콜백=xxxTemplate) / 함수형 인터페이스=추상 메서드 1개→람다 / ⚠️원본 수정은 여전→프록시(4장) 예고](./java/design/template-method-strategy-callback.md)
-- [ ] [프록시 패턴/데코레이터 패턴 - 같은 인터페이스 대리인(대체 가능성)→원본·클라이언트 수정 0 / 구조는 동일, **의도**로 구분(접근제어=프록시·기능추가=데코레이터) / 접근제어 3종(권한차단·캐싱·지연로딩)=@PreAuthorize·@Cacheable·getReference의 정체 / 클래스 기반 제약 3종(super(null)·final 클래스·final 메서드) ⚠️final 클래스는 기동시 시끄럽게 실패하지만 final 메서드는 CGLIB가 조용히 스킵→@Transactional 무음 사망 / V3 컴포넌트 스캔엔 못 끼움→빈 후처리기(7장) / 프록시 폭발→동적 프록시(5장)](./java/design/proxy-decorator-pattern.md)
+- [ ] [프록시 패턴/데코레이터 패턴 - 같은 인터페이스 대리인(대체 가능성)→원본·클라이언트 수정 0 / 구조는 동일, **의도**로 구분(접근제어=프록시·기능추가=데코레이터) / 접근제어 3종(권한차단·캐싱·지연로딩)=@PreAuthorize·@Cacheable·getReference의 정체 / 클래스 기반 제약 3종(super(null)·final 클래스·final 메서드) (생성자 제약은 Objenesis로 사라지고 final 2종만 남음) ⚠️final 클래스는 기동시 시끄럽게 실패하지만 final 메서드는 target에 위임 안 됨→부가 기능 누락·null 필드 NPE(Spring 7.0+ WARN 로그) / V3 컴포넌트 스캔엔 못 끼움→빈 후처리기(7장) / 프록시 폭발→동적 프록시(5장)](./java/design/proxy-decorator-pattern.md)
 - [ ] [동적 프록시 - 프록시 클래스를 런타임에 자동 생성→핸들러 1개로 대상 전부 / JDK(implements·InvocationHandler·Proxy.newProxyInstance) vs CGLIB(extends·MethodInterceptor·Enhancer) / Method는 메서드가 아니라 **메타정보 객체**—이게 파라미터라서 클래스 폭발이 풀림 / ⚠️ **`@Transactional`·`@Cacheable`이 바로 이 기술** — 자기호출 시 `this`는 프록시가 아니라 **target**이라 무음 실패 / ⚠️ Spring Boot 2.0+는 인터페이스가 있어도 **CGLIB이 기본** / Objenesis로 기본 생성자 제약은 사라짐 / equals·hashCode·toString도 invoke()로 들어옴 / invoke vs invokeSuper 무한루프](./java/design/dynamic-proxy.md)
-- [ ] [ProxyFactory - 동적 프록시 추상화(인터페이스 있으면 JDK·없으면 CGLIB 자동 선택) / **내부에서 Advice를 호출하는 전용 InvocationHandler·MethodInterceptor를 자동 생성**—개발자는 Advice 하나만 / **Advisor = Pointcut + Advice**(짝을 보장하는 단위) / Pointcut = ClassFilter + MethodMatcher 둘 다 true여야 적용 / ⚠️ MethodInterceptor 이름 충돌(aopalliance vs cglib) / ⚠️ Advisor N개라도 **프록시는 1개**—Ch.4 데코레이터 체이닝(프록시 N개)과 대비 / addAdvisor 등록 순서=실행 순서 / Spring Boot는 proxyTargetClass=true 기본→항상 CGLIB / 남은 문제=설정 지옥·컴포넌트 스캔→빈 후처리기(Ch.7)](./java/design/proxy-factory.md)
-- [ ] [빈 후처리기(BeanPostProcessor) - 빈 저장소 등록 **직전**에 가로채 다른 객체로 바꿔치기→설정 지옥·컴포넌트 스캔 둘 다 해결(드디어 V3 적용) / ⚠️ **Before/After는 "빈 등록" 기준이 아니라 `@PostConstruct` 기준** — 둘 다 등록 *전*에 실행 / 프록시 바꿔치기를 After에서 하는 이유=초기화된 완성품을 감싸야 안전 / **`@PostConstruct`도 `CommonAnnotationBeanPostProcessor`가 Before에서 호출하는 것**—스프링 내부도 같은 메커니즘 / ⚠️ **BPP에는 `@Order`가 안 먹힌다**(`Ordered` 인터페이스만) · order 값보다 그룹(PriorityOrdered>Ordered>나머지)이 우선 / **포인트컷이 두 번 쓰인다**—①클래스 단위=프록시 생성 여부 ②메서드 단위=어드바이스 적용 여부 / ⚠️ Advisor N개라도 프록시 1개이고 **각 Advisor의 포인트컷은 독립 판단**—전부 적용/미적용이 아님 / 이름만 보는 포인트컷은 스프링 내부 빈에 오폭→AspectJ 표현식 / "객체 생성+DI" ≠ "빈 저장소 등록"·순환 참조는 Boot 2.6부터 기본 금지](./java/design/bean-post-processor.md)
+- [ ] [ProxyFactory - 동적 프록시 추상화(인터페이스 있으면 JDK·없으면 CGLIB 자동 선택) / **내부에서 Advice를 호출하는 전용 InvocationHandler·MethodInterceptor를 자동 생성**—개발자는 Advice 하나만 / **Advisor = Pointcut + Advice**(짝을 보장하는 단위) / Pointcut = ClassFilter + MethodMatcher 둘 다 true여야 적용 / ⚠️ MethodInterceptor 이름 충돌(aopalliance vs cglib) / ⚠️ Advisor N개라도 **프록시는 1개**—Ch.4 데코레이터 체이닝(프록시 N개)과 대비 / addAdvisor 등록 순서=실행 순서 / Spring Boot의 proxyTargetClass=true 기본값은 자동 프록시(AOP)에만 적용—ProxyFactory를 직접 쓰면 인터페이스 있으면 JDK / 남은 문제=설정 지옥·컴포넌트 스캔→빈 후처리기(Ch.7)](./java/design/proxy-factory.md)
+- [ ] [빈 후처리기(BeanPostProcessor) - 빈 저장소 등록 **직전**에 가로채 다른 객체로 바꿔치기→설정 지옥·컴포넌트 스캔 둘 다 해결(드디어 V3 적용) / ⚠️ **Before/After는 "빈 등록" 기준이 아니라 `@PostConstruct` 기준** — 둘 다 등록 *전*에 실행 / 프록시 바꿔치기를 After에서 하는 이유=초기화된 완성품을 감싸야 안전 / **`@PostConstruct`도 `CommonAnnotationBeanPostProcessor`가 Before에서 호출하는 것**—스프링 내부도 같은 메커니즘 / ⚠️ **BPP에는 `@Order`가 안 먹힌다**(`Ordered` 인터페이스만) · order 값보다 그룹(PriorityOrdered>Ordered>나머지)이 우선 · 단 `@PostConstruct` 처리기는 internal로 맨 뒤 재등록→커스텀 BPP의 Before가 `@PostConstruct`보다 먼저 / **포인트컷이 두 번 쓰인다**—①클래스 단위=프록시 생성 여부 ②메서드 단위=어드바이스 적용 여부 / ⚠️ Advisor N개라도 프록시 1개이고 **각 Advisor의 포인트컷은 독립 판단**—전부 적용/미적용이 아님 / 이름만 보는 포인트컷은 스프링 내부 빈에 오폭→AspectJ 표현식 / "객체 생성+DI" ≠ "빈 저장소 등록"·순환 참조는 Boot 2.6부터 기본 금지](./java/design/bean-post-processor.md)
 - [ ] [AOP 개념 - 횡단 관심사(cross-cutting concerns)를 애스펙트로 모듈화 / 위빙 3방식(컴파일·클래스 로딩·런타임) / 스프링=프록시 방식(런타임)→메서드 실행 제한 / 용어 체계(조인포인트·포인트컷·타깃·위빙) / AspectJ 문법 차용≠직접 사용 / ⚠️프록시 제약의 근본=메서드 오버라이딩](./java/design/aop-concepts.md)
-- [ ] [@Aspect AOP - `@Around` 표현식=Pointcut·메서드 본문=Advice→**Advisor로 자동 변환**(Ch.6 수동 조립과 1:1 대응) / 핵심은 **`AnnotationAwareAspectJAutoProxyCreator` 2가지 역할**—①@Aspect→Advisor 변환·캐싱(`BeanFactoryAspectJAdvisorsBuilder`) ②프록시 생성(Ch.7) / `findCandidateAdvisors()`에서 @Bean Advisor와 @Aspect 변환분이 **한 리스트로 합류** / ⚠️ **ProceedingJoinPoint ≠ Pointcut** — Ch.6 `MethodInvocation`에 대응하는 호출 핸들(Join Point/Pointcut/PJP 3층 구분) / ⚠️ **빈 등록 안 하면 예외없이 조용히 무시**(조회 대상이 아니면 변환 자체가 안 일어남) / ⚠️ `proceed()` 빠뜨리면 target 미실행+null 반환 / ⚠️ **@Aspect 클래스 자신은 프록시 제외**(`isInfrastructureClass`)→안에 @Transactional 안 먹힘 / ⚠️ **@Order는 BPP에는 안 먹고 @Aspect에는 먹는다**—단 클래스 단위만·같은 aspect 내 타입 우선순위는 정의되고 같은 타입끼리만 미보장 / 자기호출 함정은 그대로 / Advice 5종·횡단 관심사·Ch.4~8 발전사](./java/design/aspect-aop.md)
+- [ ] [@Aspect AOP - `@Around` 표현식=Pointcut·메서드 본문=Advice→**Advisor로 자동 변환**(Ch.6 수동 조립과 1:1 대응) / 핵심은 **`AnnotationAwareAspectJAutoProxyCreator` 2가지 역할**—①@Aspect→Advisor 변환·캐싱(`BeanFactoryAspectJAdvisorsBuilder`) ②프록시 생성(Ch.7) / `findCandidateAdvisors()`에서 @Bean Advisor와 @Aspect 변환분이 **한 리스트로 합류** / ⚠️ **ProceedingJoinPoint ≠ Pointcut** — Ch.6 `MethodInvocation`에 대응하는 호출 핸들(Join Point/Pointcut/PJP 3층 구분) / ⚠️ **빈 등록 안 하면 예외없이 조용히 무시**(조회 대상이 아니면 변환 자체가 안 일어남) / ⚠️ `proceed()` 빠뜨리면 target 미실행+null 반환 / ⚠️ **@Aspect 클래스 자신은 프록시 제외**(`isInfrastructureClass`)→안에 @Transactional 안 먹힘 / ⚠️ **@Order는 BPP에는 안 먹고 @Aspect에는 먹는다**—단 클래스 단위만·같은 aspect 내 타입 우선순위는 정의되고 같은 타입끼리만 미보장 / 자기호출 함정은 그대로 / Ch.4~8 발전사 (Advice 5종·횡단 관심사는 AOP 구현·AOP 개념 노트로 링크)](./java/design/aspect-aop.md)
 - [ ] [스프링 AOP 구현 - `@Pointcut` 분리(void·빈 바디)·`&&` 조합·외부 `Pointcuts` 클래스 공용화(FQCN 참조·public 필수) / ⚠️ **`@Order`는 클래스 단위**—메서드에 붙이면 무음 무시→aspect를 static class로 쪼개야 순서 제어 / 값 작을수록 우선·바깥쪽 껍질 / Advice 5종(`@Around`만 `ProceedingJoinPoint`+`proceed()` 필수, 나머지는 `JoinPoint`) / ⚠️ `returning`·`throwing`은 **이름 매칭 + 타입 필터** 2역할—타입 좁으면 타겟은 정상 실행되고 **advice만 조용히 스킵** / ⚠️ `@AfterReturning`은 반환값 읽기만 가능·교체 불가(바꾸려면 `@Around`) / `@After`=finally의미라 `@AfterReturning` **뒤**에 호출 / ⚠️ `@Pointcut` 파라미터는 금지가 아니라 **바인딩 기능** / 무음 실패 4종 → `AopUtils.isAopProxy()`부터 4단계 진단](./java/design/aop-implementation.md)
 - [ ] [스프링 AOP 포인트컷 - 지시자 10종을 **판단 축 3개**로 정리: ①정적(선언된 시그니처) vs 동적(런타임 실제 객체) ②프록시 vs 타깃 ③인스턴스의 클래스 vs 메서드 선언 클래스 / `execution`은 부모 타입 허용·`within`은 정확한 타입만 / ⚠️ 부모 타입 선언 시 **부모에 없는 메서드는 조용히 빠짐** / ⚠️ `.`과 `..` 하나 차이로 AOP 무음 미적용 / **`execution(* *(Object))` 실패 vs `args(Object)` 성공**—시그니처 vs `instanceof` / 🔴 **`@target`은 인스턴스 클래스·`@within`은 선언 클래스**—프록시 이야기가 아니다(this/target과 혼동 주의) / 🔴 **this vs target 8칸표—X는 딱 한 칸**(JDK 동적 프록시에서 `this(구체클래스)` 지정) / ⚠️ `args`·`@args`·`@target` **단독 사용 금지**—동적 판단→프록시 필요→로딩 시점 판단 불가→전체 빈에 프록시 시도→final 내부 빈에서 기동 실패 / 파라미터 바인딩(`@annotation(annotation)`+`.value()`가 실무 표준) / 공식 원칙 **kinded+scoping 최소 2종 포함** / `AspectJExpressionPointcut`으로 표현식 학습 테스트](./java/design/aop-pointcut.md)
 
@@ -185,7 +185,7 @@
 - [ ] [비밀번호 - PasswordEncoder(단방향 해시) vs AttributeConverter(양방향 암호화) / 복호화 여부가 갈림길](./java/security/password-encoding.md)
 - [ ] [HMAC과 해시 - 암호화·난수 토큰과 차이 / 소유자 식별·payload·fingerprint의 목적 / 같은 입력 바이트·키·용도와 해시 안정성](./java/security/hmac-and-hashing.md)
 - [ ] [메서드 보안 - @PreAuthorize·@EnableMethodSecurity / SpEL(#param·hasRole 접두사 자동) / 활성화 안 하면 조용히 무시·프록시 자기호출 / URL=경로 관문·메서드=개별 규칙](./java/security/method-security.md)
-- [ ] [Spring Security 도입 - 로그인 없는 앱에 먼저 들일 때 / 직접 체인 정의 시 Boot 기본 체인은 빠지고 CSRF·헤더·요청 캐시는 남음 / 1단계=동작 안 바꾸는 체인, 2단계=CSRF 토큰 전환 / ⚠️기본 CSRF로 POST 전부 403·필터 이중 실행(FilterRegistrationBean)·요청 캐시가 익명 세션 생성·헤더 중복·CORS를 "Origin 기능"으로 켜지 말 것](./java/security/spring-security-filter-chain.md)
+- [ ] [Spring Security 도입 - 로그인 없는 앱에 먼저 들일 때 / 직접 체인 정의 시 Boot 기본 체인은 빠지고 CSRF·헤더·요청 캐시는 남음(formLogin·httpBasic은 원래 꺼짐) / 1단계=동작 안 바꾸는 체인, 2단계=CSRF 토큰 전환 / ⚠️기본 CSRF로 POST 전부 403·필터 이중 실행(FilterRegistrationBean)·요청 캐시가 익명 세션 생성·헤더 중복·CORS를 "Origin 기능"으로 켜지 말 것](./java/security/spring-security-filter-chain.md)
 
 ### Annotation (어노테이션)
 - [ ] [커스텀 어노테이션 - @interface·메타 어노테이션(@Retention 기본=CLASS⚠️) / 처리기 3방식(리플렉션·AOP·컴파일타임) / SpEL 동적 값·@Order 순서·프록시 함정](./java/annotation/custom-annotation.md)
@@ -202,16 +202,17 @@
 - [ ] [NULL 비교와 IS DISTINCT FROM - `!=`는 NULL이면 unknown→행이 조용히 사라짐 / NULL 안전 비교 / NOT IN 서브쿼리 NULL 함정(결과 0건) / COUNT·GROUP BY·UNIQUE의 NULL 취급 / 이종 테이블 COALESCE 병합 패턴](./database/null-comparison-is-distinct-from.md)
 - [ ] [LEFT JOIN 자식 조건 ON vs WHERE - ON=매칭 규칙(부모 안전)·WHERE=생존 규칙(부모도 죽음) / NULL 비교로 조용히 INNER化 / soft delete 조건이 단골 사고](./database/left-join-on-vs-where.md)
 - [ ] [SELECT FOR UPDATE - row 락으로 read-then-act 직렬화 / OF=JOIN 락 범위 지정 / 락 해제 후 재평가는 "잠긴 row가 변경된 경우만" → 잠근 row≠바뀌는 row 함정 / NOWAIT·SKIP LOCKED](./database/select-for-update.md)
-- [ ] [PostgreSQL Advisory Lock - 행이 아니라 정수에 거는 락 → "아직 없는 행"의 check-then-act 직렬화(멱등 생성) / xact(자동 해제) vs 세션(풀 커넥션에 남음) / (owner,key)→SHA-256→bigint / ⚠️JDBC·JPA 같은 커넥션 전제 / ⚠️REPEATABLE READ면 락 기다리며 굳은 스냅샷이 커밋을 못 봄 / unique 제약·ON CONFLICT·행 락·Redis와 비교](./database/postgres-advisory-lock.md)
+- [ ] [PostgreSQL Advisory Lock - 행이 아니라 정수에 거는 락 → "아직 없는 행"의 check-then-act 직렬화(멱등 생성) / xact(자동 해제) vs 세션(풀 커넥션에 남음) / (owner,key)→SHA-256→bigint / ⚠️JDBC·JPA 같은 커넥션 전제 / ⚠️REPEATABLE READ면 락 기다리며 굳은 스냅샷이 커밋을 못 봄(FOR UPDATE·ON CONFLICT도 동일) / unique 제약·ON CONFLICT·행 락·Redis와 비교](./database/postgres-advisory-lock.md)
 
 ## Infra / 분산 환경
-- [ ] [스케일 아웃 & 배포 모델 - 1 JVM/인스턴스 복제/로드밸런서 vs 오토스케일러/무상태](./infra/scaling.md)
+- [ ] [스케일 아웃 & 배포 모델 - 1 JVM/인스턴스 복제/로드밸런서 vs 오토스케일러/무상태 / ⚠️@Scheduled는 인스턴스 수만큼 실행](./infra/scaling.md)
 - [ ] [Rate Limiting - 주체×시간 창 카운터 / 세마포어와 차이(자리가 안 돌아옴) / 세션·IP 두 축 × 시간·일 두 창 = 버킷 전부 통과 / 초과 시 묶음 롤백으로 카운트도 복원 / 멱등 재전송·검증 실패는 안 셈 / 고정 창 경계 버스트·슬라이딩·토큰 버킷 / ⚠️프록시 뒤 IP 공유·UTC 자정 리셋 / "식별자를 버리는 비용"으로 축 결정](./infra/rate-limiting.md)
+- [ ] [DB를 작업 큐로 - 워커·lease·reaper·상태 기계 / claim(짧은 tx)→tx 밖 실행→조건부 complete / 정리 책임 3층(롤백·catch·reaper) / DB 큐 vs @Async 메모리 큐 vs MQ / 💡할 일의 진실은 DB 행, 알람은 갈아 끼울 수 있게](./infra/db-job-queue.md)
 
 ### Redis
 - [ ] [Redis 기초 - "자료구조 공용 메모리 서버" / 명령어로 대화 / TTL / RedisTemplate opsFor* 매핑](./infra/redis/redis-basics.md)
 - [ ] [Redis Pub/Sub - 저장 없는 방송(유실=스펙) / 구독=연결 열어두기 / Spring 3부품(convertAndSend·ListenerContainer·onMessage) / 스케일아웃 SSE](./infra/redis/redis-pubsub.md)
-- [ ] [Redisson 분산 락 내부 동작 - 락="먼저 키 쓴 쪽이 주인" 관례(SETNX) / hash+Lua(재진입·주인식별) / pub/sub 대기(블로킹, true=즉시·false=waitTime 소진) / leaseTime 만료=보호 소멸⚠️ / DB 제약 이중 방어](./infra/redis/redisson-distributed-lock.md)
+- [ ] [Redisson 분산 락 내부 동작 - 락="먼저 키 쓴 쪽이 주인" 관례(SET NX PX) / hash+Lua(재진입·주인식별) / pub/sub 대기(블로킹, true=즉시·false=waitTime 소진) / leaseTime 만료=보호 소멸⚠️ / fencing token / DB 제약 이중 방어](./infra/redis/redisson-distributed-lock.md)
 
 ### 네트워크 (Network)
 - [ ] [세션과 쿠키 기초 - HTTP 무상태·Set-Cookie/Cookie 흐름·세션 ID와 서버 데이터·만료(쿠키 vs 서버, 비활성 vs 절대) / 쿠키 옵션(Domain·Path 기본값·SameSite 3값·삭제·__Host-)·범위는 origin이 아님(포트 무시) / remember-me 분리 / 세션 고정·HttpOnly vs CSRF / CORS 자격증명 3조건 / 서버 세션 vs 토큰 비교](./infra/network/sessions-and-cookies.md)
@@ -219,12 +220,12 @@
 - [ ] [웹 공격 지도 - 쿠키=출입 카드 / 세션 탈취(훔침)·CSRF(속여서 대신 보내게)·XSS(안에 숨어듦)·클릭재킹(덮어서 누르게)·남용(계속 두드림) / 공격별 막는 장치 한 장 요약 / ⚠️CORS는 공격 아님·장치는 서로 대체 불가·로그인 토큰≠CSRF 토큰 / 새 기능에 던질 다섯 질문](./infra/network/web-attacks-map.md)
 - [ ] [XSS와 CSP - 저장형·반사형·DOM 기반 / 1차 방어=HTML 만드는 곳의 출력 이스케이프(React {} 안전·dangerouslySetInnerHTML 위험) / 백엔드는 입력 규칙·nosniff로 표면 축소 / CSP=실행 허용 목록 헤더(nonce·strict-dynamic·frame-ancestors) / Next.js nonce는 동적 렌더링 필요 / ⚠️unsafe-inline·CSP는 HTML 응답에·AI 출력도 신뢰하지 않는 입력](./infra/network/xss-and-csp.md)
 - [ ] [실시간 통신 기법 비교 - Polling/Long Polling/SSE/WebSocket 진화 / relay(중계) 패턴 / "양방향 필요한가"가 갈림길](./infra/network/realtime-communication.md)
-- [ ] [SSE - text/event-stream 포맷 / EventSource(GET 전용·자동 재연결) vs POST fetch 스트리밍 / heartbeat·프록시 버퍼링·UTF-8 함정](./infra/network/sse.md)
+- [ ] [SSE - text/event-stream 포맷 / EventSource(GET 전용·네트워크 오류만 자동 재연결, 비-200이면 종료) vs POST fetch 스트리밍 / heartbeat·프록시 버퍼링·UTF-8 함정](./infra/network/sse.md)
 - [ ] [WebSocket - Upgrade 핸드셰이크(101) / STOMP / 재연결·스케일아웃 세션 공유가 내 숙제](./infra/network/websocket.md)
 
 ## Algorithm (코딩테스트)
 - [ ] [코테 로드맵 - 프로그래머스 STEP 1~7 문제 목록 · 체크박스로 진행 추적 · 복습 큐(3일 뒤 재풀이)](./algorithm/roadmap.md)
-- [ ] [자료구조 선택 - "신호 → 도구" 매핑 (누적 문서) / 풀이가 아닌 **신호**를 남긴다 / 개수=Map·존재=Set·최단거리=BFS](./algorithm/data-structure-selection.md)
+- [ ] [자료구조 선택 - "신호 → 도구" 매핑 (누적 문서) / 풀이가 아닌 **신호**를 남긴다 / 개수=Map·존재=Set·비용 없는 최단거리=BFS(비용 있으면 다익스트라)](./algorithm/data-structure-selection.md)
 - [ ] [Big-O와 입력 크기 - 풀기 전에 N 제약으로 복잡도 **역산**하기 / "N=10만이면 이중 for 불가" / 스트림 vs for는 상수 차이일 뿐](./algorithm/big-o-and-input-size.md)
 
 ---

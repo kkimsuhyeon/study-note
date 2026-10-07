@@ -17,7 +17,7 @@
 SELECT * FROM orders WHERE YEAR(created_at) = 2024;   -- 함수로 연도 추출
 SELECT * FROM orders WHERE created_at LIKE '2024%';   -- 문자열로 비교
 ```
-둘 다 **결과는 맞아 보여도 실무에선 나쁜 쿼리**다.
+MySQL에선 둘 다 **결과는 맞아 보여도 실무에선 나쁜 쿼리**다. (PostgreSQL에선 둘 다 아예 에러 — 아래 🐘 메모)
 
 ### ✅ 정석 — 범위 조건 (반열린 구간)
 ```sql
@@ -56,7 +56,7 @@ LocalDate end   = start.plusYears(1);         // 2025-01-01
 ```xml
 <select id="findByYear" resultType="Order">
   SELECT * FROM orders
-  WHERE created_at &gt;= #{start}   <!-- XML이라 < > 는 이스케이프 -->
+  WHERE created_at &gt;= #{start}   <!-- XML에서 < 는 필수 이스케이프, > 는 선택 -->
     AND created_at &lt;  #{end}
 </select>
 ```
@@ -76,7 +76,7 @@ WHERE created_at >= make_date(#{year}::int, 1, 1)
 
 > "datetime과 `'2024-01-01'` 비교 자체가 되나?" → PostgreSQL은 문자열을 timestamp로 **자동 캐스팅**해서 `created_at >= '2024-01-01'`이 작동한다. 단 `#{}` 바인딩은 `::timestamp`/`::date`를 명시하거나 위처럼 `to_date`/`make_date`로 타입을 확실히 하는 게 안전.
 
-> ⚠️ **MyBatis XML 함정**: `<`, `>`, `&`는 XML 특수문자라 `&lt;`, `&gt;`로 쓰거나 `<![CDATA[ ... ]]>`로 감싸야 한다. (`created_at < #{end}`를 그대로 쓰면 파싱 에러)
+> ⚠️ **MyBatis XML 함정**: XML에서 `<`와 `&`는 반드시 `&lt;`·`&amp;`로 쓰거나 `<![CDATA[ ... ]]>`로 감싸야 한다. (`created_at < #{end}`를 그대로 쓰면 파싱 에러) `>`는 이스케이프하지 않아도 되지만 짝을 맞추려고 `&gt;`로 쓰는 경우가 많다.
 
 ### 실무에선 보통 방법 A — "필터는 자바, 집계는 SQL"
 
@@ -90,9 +90,10 @@ WHERE created_at >= make_date(#{year}::int, 1, 1)
 
 > 갈림: **필터(WHERE) = 자바에서 날짜 만들어 범위 비교 / 집계(GROUP BY·SELECT) = SQL에서 `date_trunc`·`EXTRACT`.** 날짜 함수 상세는 [PostgreSQL 날짜 함수](./postgresql-date-functions.md).
 
-### 🐘 PostgreSQL 메모 (이 케이스의 실제 환경)
-- 범위 조건(`>= ... AND < ...`)은 PostgreSQL에서도 **그대로 최선**. 문자열 `'2024-01-01'`은 자동으로 timestamp로 캐스팅된다.
-- ⚠️ **PostgreSQL엔 `YEAR()` 함수가 없다.** MySQL식 `YEAR(created_at)`을 쓰면 *function does not exist* 에러. 연도 추출은 `EXTRACT(YEAR FROM created_at)` 또는 `date_trunc('year', created_at)`. — 단 이것들도 **컬럼 가공이라 인덱스를 못 탄다** → 결국 범위가 답.
+### 🐘 PostgreSQL 메모
+- 범위 조건(`>= ... AND < ...`)은 PostgreSQL에서도 **그대로 최선**.
+- ⚠️ **PostgreSQL엔 `YEAR()` 함수가 없다.** MySQL식 `YEAR(created_at)`을 쓰면 *function does not exist* 에러. 연도 추출은 `EXTRACT(YEAR FROM created_at)` 또는 `date_trunc('year', created_at)` — 단 이것들도 컬럼 가공이다.
+- ⚠️ **`created_at LIKE '2024%'`도 에러다.** timestamp에는 `LIKE` 연산자가 없어 *operator does not exist: timestamp with time zone ~~ unknown* (PG17 확인). MySQL처럼 문자열로 암묵 변환해 주지 않는다.
 - ⚠️ **`timestamp` vs `timestamptz` 타임존 함정**: 컬럼이 `timestamptz`(타임존 포함)면, 경계값 `'2024-01-01'`은 **세션 타임존**(`SHOW TimeZone;`) 기준으로 해석된다. 한국 시각 데이터인데 세션이 UTC면 9시간 어긋나 경계가 틀어진다. 필요하면 명시적으로 `'2024-01-01 00:00:00+09'`처럼 오프셋을 박거나 세션 타임존을 확인.
 - `created_at::date`로 캐스팅해 비교하는 것도 컬럼 가공 → 인덱스 못 탐(범위가 최선).
 
@@ -103,14 +104,19 @@ WHERE created_at >= make_date(#{year}::int, 1, 1)
 | PostgreSQL | `EXTRACT(YEAR FROM col)` |
 | Oracle | `EXTRACT(YEAR FROM col)`, `TO_CHAR(col,'YYYY')` |
 
-> 어느 DB든 **결론은 동일**: 함수로 연도를 뽑지 말고 **범위 조건**으로 푼다.
+---
+
+## 💡 판단 기준
+
+`'2024'` 하나를 받아 DATETIME 컬럼에서 그해 데이터를 뽑으려다 `YEAR()`·`LIKE`부터 떠올렸다 → **WHERE에서는 "컬럼은 맨몸, 가공은 값 쪽"이 먼저다.** 경계값은 앱(`LocalDate`)에서 만들어 반열린 범위 `[start, end)`로 바인딩하고, 날짜 함수(`date_trunc`·`EXTRACT`)는 집계(GROUP BY·SELECT)에만 쓴다. 이 기준은 날짜뿐 아니라 `UPPER(email)`·`SUBSTRING(name)` 같은 모든 컬럼 가공에 그대로 적용된다 — 가공이 꼭 필요하면 식 인덱스([인덱스와 실행 계획](./index-explain.md) §7)를 검토한다.
 
 ---
 
 ## 참고
 - [Use The Index, Luke! - WHERE 절과 인덱스](https://use-the-index-luke.com/sql/where-clause)
+- [W3C XML 1.0 §2.4 Character Data — `<`·`&`만 필수 이스케이프](https://www.w3.org/TR/xml/#syntax)
 
 ---
 
-**학습 날짜**: 2026-06-04
+**학습 날짜**: 2026-06-04 (2026-10-02 PostgreSQL LIKE 에러·XML 이스케이프 정정, 💡 추가)
 **계기**: MyBatis + PostgreSQL 환경에서 DATETIME 컬럼의 2024년 데이터를 뽑으려다, 문자열("2024")이나 함수로 접근하는 것 외에 정석(범위 조건/인덱스)을 몰라 정리. SQL 문법보다 "상황별 해법"이 필요해 쿡북 형식으로 시작.

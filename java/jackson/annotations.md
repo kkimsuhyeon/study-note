@@ -2,6 +2,8 @@
 
 > Jackson은 Java 객체 ↔ JSON 변환 라이브러리. Spring Boot에서 `@RequestBody`, `@ResponseBody`(=`@RestController`) 동작 시 내부적으로 사용됨.
 
+> **버전 기준**: 따로 표시하지 않은 절은 **Jackson 2.x(`com.fasterxml.jackson.databind`) + Spring Boot 2·3** 기준이다. Jackson 3(`tools.jackson`, Spring Boot 4)에서 이름이 바뀌는 곳은 `Jackson 3:` 줄로 단다. 어노테이션 패키지(`com.fasterxml.jackson.annotation`)는 Jackson 3에서도 그대로다.
+
 ## 목차
 1. [기본 개념](#1-기본-개념)
 2. [@JsonProperty - 필드명 매핑](#2-jsonproperty)
@@ -101,7 +103,7 @@ public class User { ... }
 public class User { ... }
 ```
 
-> `ignoreUnknown = true`는 외부 API 응답을 받을 때 매우 자주 사용. 키가 추가되어도 역직렬화 깨지지 않음.
+> `ignoreUnknown = true`는 외부 API 응답을 받을 때 매우 자주 사용. 키가 추가되어도 역직렬화 깨지지 않음. 단 Spring Boot가 구성한 mapper와 Jackson 3는 이미 "모르는 키 무시"가 기본이다(→ 함정 4).
 
 ---
 
@@ -146,6 +148,7 @@ public class JacksonConfig {
     }
 }
 ```
+Jackson 3 / Boot 4: 커스터마이저가 `JsonMapperBuilderCustomizer`로 바뀐다(§5 예시). `Jackson2ObjectMapperBuilderCustomizer`는 Boot 4에서 deprecated된 Jackson 2 지원 모듈(`spring-boot-jackson2`) 쪽 경로다.
 
 ---
 
@@ -156,11 +159,12 @@ public class JacksonConfig {
 ### 날짜 포맷
 ```java
 public class Event {
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Seoul")
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime startAt;
 }
 // → "startAt": "2026-05-25 14:30:00"
 ```
+⚠️ `timezone` 옵션은 `Date`·`Instant`·`ZonedDateTime`처럼 **순간을 가진 타입**을 지역 시각으로 바꿀 때 쓰인다. `LocalDateTime`은 시간대가 없어서 `timezone = "Asia/Seoul"`을 붙여도 값이 바뀌지 않는다 — Jackson은 포매터에 `withZone`만 걸고, `DateTimeFormatter`는 순간이 없는 값을 변환하지 않는다. "서울 시각으로 내보낸다"는 착각을 만드니 붙이지 않는다(→ [Clock·Instant·LocalDateTime](../basics/java-time-clock-instant-localdatetime.md)).
 
 ### LocalTime을 요청에서 직접 받기 — Jackson 3.1.5 기준
 
@@ -290,13 +294,14 @@ public class UserId {
 public class Money {
     private final long amount;
 
-    @JsonCreator
-    public Money(long amount) {  // @JsonProperty 없음 → 단일 값으로 받음
+    @JsonCreator(mode = JsonCreator.Mode.DELEGATING)  // "값 하나 통째로"를 명시
+    public Money(long amount) {
         this.amount = amount;
     }
 }
 // JSON: 1000 → Money(1000)
 ```
+⚠️ 인자 하나짜리 `@JsonCreator`에서 `mode`를 생략하면 Jackson이 휴리스틱으로 delegating(`1000`)과 properties(`{"amount":1000}`) 중 하나를 고른다. 파라미터 이름 정보(`-parameters` 컴파일 + ParameterNamesModule, Spring Boot 기본)가 있으면 properties로 해석될 수 있으니 `mode`를 명시한다 (버전별 휴리스틱 세부는 확인 필요).
 
 > **Java record**와 함께 쓰면 Jackson 2.12+에서는 자동 인식 (어노테이션 없이도 동작).
 
@@ -441,6 +446,8 @@ public class Order {
 
 **용례**: 도메인 값 객체(VO)를 외부 표현으로 변환할 때, 암호화/복호화, 마스킹 등.
 
+Jackson 3: `JsonSerializer`→`ValueSerializer`, `JsonDeserializer`→`ValueDeserializer`, `SerializerProvider`→`SerializationContext`. 예외도 전부 unchecked(`JacksonException`)라 `throws IOException`이 빠진다.
+
 ---
 
 ## 11. @JsonTypeInfo / @JsonSubTypes
@@ -526,7 +533,7 @@ public class UserResponse {
     private Long id;
     private String userName;
 
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Seoul")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")  // LocalDateTime엔 timezone 효과 없음(§5)
     private LocalDateTime createdAt;
 
     @JsonIgnore
@@ -540,19 +547,21 @@ public class UserResponse {
 
 ### 1. 기본 생성자 누락
 ```
-JsonMappingException: No default constructor found
+InvalidDefinitionException: Cannot construct instance of `User` (no Creators, like default constructor, exist)
 ```
-→ `@JsonCreator` 사용하거나 기본 생성자 추가.
+→ `@JsonCreator` 사용하거나 기본 생성자 추가. (오래된 글의 "No default constructor found"는 옛 버전 메시지)
+Jackson 3: 매핑 예외의 상위 타입이 `JsonMappingException`→`DatabindException`.
 
 ### 2. Lombok과 충돌
 `@Builder`만 있고 `@NoArgsConstructor`가 없으면 역직렬화 실패.
-→ `@NoArgsConstructor` + `@AllArgsConstructor` 같이 쓰거나 `@JsonCreator` 적용.
+→ `@NoArgsConstructor` + `@AllArgsConstructor` 같이 쓰거나 `@JsonCreator` 적용. Lombok 1.18.14+면 `@Builder` + **`@Jacksonized`**로 빌더를 역직렬화에 그대로 쓰는 게 가장 깔끔하다(불변 유지).
 
 ### 3. LocalDateTime 직렬화 에러
 ```
 InvalidDefinitionException: Java 8 date/time type not supported
 ```
 → `jackson-datatype-jsr310` 의존성 추가 (Spring Boot는 기본 포함).
+Jackson 3: `java.time` 지원이 databind에 내장돼 별도 모듈이 필요 없다.
 
 ### 4. 알 수 없는 키 에러
 ```
@@ -565,6 +574,15 @@ spring:
     deserialization:
       fail-on-unknown-properties: false
 ```
+⚠️ 이 에러는 주로 **`new ObjectMapper()`를 직접 만든 Jackson 2 코드**에서 난다. Spring의 `Jackson2ObjectMapperBuilder`(Boot가 구성하는 mapper)는 `FAIL_ON_UNKNOWN_PROPERTIES`를 기본으로 끄고, Jackson 3.0은 기본값 자체가 꺼짐이다. 반대로 오타 난 키가 조용히 무시되는 위험이 있으니, 외부 계약을 엄격히 지켜야 하는 요청 DTO는 켜는 것도 선택지다.
+
+---
+
+## 💡 판단 기준
+
+- **한 DTO만 다르면 어노테이션, 모든 API 공통이면 전역 설정.** 전역 설정(`spring.jackson.*`·커스터마이저)은 다른 응답 형식까지 바꾸니 영향 범위를 먼저 확인한다(§5 enum 예시와 같은 판단).
+- **불변 DTO는 `record` 먼저**(2.12+ 자동 인식), 클래스면 `@JsonCreator`(인자 하나면 `mode` 명시), Lombok 빌더면 `@Jacksonized`.
+- **Jackson 어노테이션은 web DTO에 붙이고 도메인 객체엔 되도록 붙이지 않는다** — JSON 표기는 화면·외부 계약 사정이라, 도메인에 붙이면 계약 변경이 도메인을 흔든다([변환 계층 §5-1](../design/transform-layers.md)).
 
 ---
 
@@ -572,8 +590,12 @@ spring:
 - [Jackson Annotations 공식 GitHub](https://github.com/FasterXML/jackson-annotations)
 - [Baeldung - Jackson Annotation Examples](https://www.baeldung.com/jackson-annotations)
 - [Jackson Databind 공식 문서](https://github.com/FasterXML/jackson-databind)
+- [Migrating to Jackson 3](https://github.com/FasterXML/jackson/blob/main/jackson3/MIGRATING_TO_JACKSON_3.md) — 패키지·클래스 이름 변경, unchecked 예외, 기본값 변경(`FAIL_ON_UNKNOWN_PROPERTIES` 꺼짐)
+- [Spring `Jackson2ObjectMapperBuilder` Javadoc](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/http/converter/json/Jackson2ObjectMapperBuilder.html) — 기본으로 끄는 기능 목록 · [Spring Boot — JSON (Jackson 3 / Jackson 2 지원)](https://docs.spring.io/spring-boot/reference/features/json.html)
+- [Lombok `@Jacksonized`](https://projectlombok.org/features/experimental/Jacksonized) · [`DateTimeFormatter.withZone`](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/time/format/DateTimeFormatter.html#withZone(java.time.ZoneId)) (순간이 없는 값은 날짜·시각을 바꾸지 않음)
 
 ---
 
 **학습 날짜**: 2026-05-25
 **계기**: 예전에 정리했다가 잃어버린 Jackson 어노테이션 노트를 study-note 레포에서 영구 보관
+**보강(2026-10-02)**: Jackson 2 기준 표기와 절마다 Jackson 3 대응 이름 추가, `LocalDateTime`의 `timezone` 무효, 인자 하나 `@JsonCreator`의 `mode` 명시, `@Jacksonized`, Spring·Jackson 3의 모르는 키 기본값, 💡 판단 기준 추가.

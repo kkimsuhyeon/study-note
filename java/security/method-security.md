@@ -4,13 +4,13 @@
 
 ## 언제 쓰나
 
-URL 레벨 보안(`antMatchers("/api/**").hasAnyAuthority(...)`)은 "**이 경로에 누가** 들어올 수 있나"만 표현할 수 있다. 아래처럼 **파라미터·반환값·도메인 상태**가 판정에 필요하면 메서드 보안이 필요하다:
+URL 레벨 보안(`requestMatchers("/api/**").hasAnyAuthority(...)` — 5.x의 `antMatchers`는 6.0에서 제거)은 "**이 경로에 누가** 들어올 수 있나"만 표현할 수 있다. 아래처럼 **파라미터·반환값·도메인 상태**가 판정에 필요하면 메서드 보안이 필요하다:
 
 - "이 API는 **백오피스 서버 호출자만**" (호출자 종류 구분 — 경로로는 구분 불가)
 - "**본인 데이터만** 조회/수정 가능" (`#userId == principal.id`)
 - "조회 **결과가 본인 소유일 때만** 응답" (`returnObject.ownerId == ...`)
 
-비유: `antMatchers`가 건물 입구의 경비라면, `@PreAuthorize`는 각 방 문마다 붙는 세부 조건 잠금장치.
+비유: URL 보안이 건물 입구의 경비라면, `@PreAuthorize`는 각 방 문마다 붙는 세부 조건 잠금장치.
 
 ## 켜는 법 (활성화 어노테이션)
 
@@ -18,7 +18,7 @@ URL 레벨 보안(`antMatchers("/api/**").hasAnyAuthority(...)`)은 "**이 경�
 
 | | 구식 `@EnableGlobalMethodSecurity` | 신식 `@EnableMethodSecurity` |
 |---|---|---|
-| 도입/상태 | Spring Security 초기~, **5.6부터 deprecated** | 5.6 도입, 6.x 표준 |
+| 도입/상태 | Spring Security 3.2~, **5.8부터 deprecated**, 7.0 문서는 계속 쓰려면 `spring-security-access` 모듈을 추가하라고 안내 | 5.6 도입, 6.x·7.x 표준 |
 | `prePostEnabled` 기본값 | **false** (명시적으로 켜야 함) | **true** (붙이기만 하면 됨) |
 | 내부 구조 | metadata source + AccessDecisionManager/Voter | `AuthorizationManager` 기반, 네이티브 Spring AOP |
 | 커스터마이즈 | `GlobalMethodSecurityConfiguration` 상속 | 빈 등록 방식 |
@@ -91,20 +91,23 @@ public Document getDocument(Long id) { ... }  // 남의 문서면 응답 직전�
 
 ## ⚠️ 함정 / 메커니즘
 
-1. **활성화 안 하면 조용히 무시**. `@EnableMethodSecurity`(구식은 `prePostEnabled=true`) 없이 `@PreAuthorize`를 붙이면 컴파일도 되고 에러도 없이 **그냥 통과**한다. 보안 코드가 무음으로 죽는 최악의 패턴 — 팀에서 "AT 프로젝트에서 이렇게 했다"는 예시가 나왔을 때 첫 질문이 "`@EnableGlobalMethodSecurity` 켰어요?"였던 이유. (같은 패턴: `@EnableCaching` 없는 `@Cacheable` → [spring-cache.md](../spring/spring-cache.md))
+1. **활성화 안 하면 조용히 무시**. `@EnableMethodSecurity`(구식은 `prePostEnabled=true`) 없이 `@PreAuthorize`를 붙이면 컴파일도 되고 에러도 없이 **그냥 통과**한다. 보안 코드가 무음으로 죽는 최악의 패턴 — 다른 프로젝트의 `@PreAuthorize` 예시를 가져올 때 첫 질문이 "활성화 어노테이션도 켰나?"여야 하는 이유. (같은 패턴: `@EnableCaching` 없는 `@Cacheable` → [spring-cache.md](../spring/spring-cache.md))
 2. **AOP 프록시 기반** → `@Transactional`과 동일한 프록시 함정을 공유한다 ([transactional.md](../spring/transactional.md)):
    - **자기 호출(self-invocation)은 검사를 우회**한다 — 같은 클래스 안에서 `this.securedMethod()` 호출 시 프록시를 안 거침.
    - **스프링 빈에만** 동작. `new`로 만든 객체엔 무효.
    - `private` 메서드엔 못 붙인다 (프록시가 가로챌 수 없음).
-3. **`hasRole`은 `ROLE_` 접두사를 자동으로 붙인다.** `hasRole('ROLE_ADMIN')`이라고 쓰면 `ROLE_ROLE_ADMIN`을 찾는 이중 접두사 사고. DB에 저장된 권한 문자열에 접두사가 없다면 `hasAuthority`를 쓰는 게 안전.
+3. **`hasRole`은 `ROLE_` 접두사를 자동으로 붙인다 — 위치마다 처리가 다르다.**
+   - SpEL(`@PreAuthorize("hasRole('ROLE_ADMIN')")`): 이미 `ROLE_`로 시작하면 접두사를 이중으로 붙이지 않는다(소스 주석: "hasRole('ROLE_A')를 허용하던 옛 동작 호환"). `ROLE_ROLE_ADMIN` 사고는 생기지 않는다.
+   - URL 보안(`requestMatchers(...).hasRole("ROLE_ADMIN")`): `AuthorityAuthorizationManager.hasRole`이 "should not start with ROLE_" 예외를 던진다 — 기동 시 실패.
+   - 진짜 사고는 반대쪽이다: DB 권한 문자열이 `ADMIN`처럼 접두사 없이 저장돼 있는데 `hasRole('ADMIN')`을 쓰면 `ROLE_ADMIN`을 찾아 **조용히 거부**된다. 저장값에 접두사가 없다면 `hasAuthority`를 쓴다.
 4. **`#paramName` 참조는 컴파일 시 파라미터 이름 보존이 전제.** `-parameters` 컴파일 옵션이 필요하다. Spring Framework **6.1부터는 바이트코드 파싱 폴백(`LocalVariableTableParameterNameDiscoverer`)이 아예 제거**되어 이 옵션이 사실상 필수 (Spring Boot 플러그인 빌드는 기본으로 켜줌). 이름을 못 찾으면 `@P("authUser")`로 명시하는 우회로가 있다.
-5. **`@PostAuthorize`는 메서드가 이미 실행된 후에 거부한다.** 쓰기 작업에 쓰면 부수효과(외부 API 호출, 이벤트 발행 등)는 이미 발생한 상태. `AccessDeniedException`이 RuntimeException이라 트랜잭션 내 DB 변경은 롤백되지만, **트랜잭션 밖 부수효과는 안 돌아온다**. 조회 전용으로만.
+5. **`@PostAuthorize`는 메서드가 이미 실행된 후에 거부한다.** 쓰기 작업에 쓰면 부수효과(외부 API 호출, 이벤트 발행 등)는 이미 발생한 상태다. **같은 메서드에 `@Transactional`이 있으면 DB 변경도 롤백되지 않는다** — 기본 순서에서 메서드 보안 인터셉터가 트랜잭션 인터셉터보다 바깥이라, 커밋이 끝난 뒤에 `AccessDeniedException`이 난다. 공식 문서도 이 조합을 비권장하고, 꼭 필요하면 `@EnableTransactionManagement`가 `@EnableMethodSecurity`보다 바깥에 오도록 순서를 바꾸라고 안내한다. 롤백되는 건 바깥 호출자가 연 트랜잭션 안에서 불렸을 때뿐이다. 조회 전용으로만.
 6. **실행 시점이 URL 보안과 다르다.** URL 보안은 서블릿 **필터 체인**에서(컨트롤러 진입 전), 메서드 보안은 **빈 메서드 호출 시점**(AOP)에서 평가된다. 인증 필터(JWT 필터 등)가 SecurityContext를 먼저 세팅해줘야 `principal`/`#authUser`가 의미를 가진다.
 7. **표현식은 문자열이라 컴파일 검증이 없다.** 오타(`isBackOffce()`)는 런타임에 해당 메서드가 호출될 때야 터진다. 표현식을 쓰는 메서드는 거부 케이스 테스트를 같이 두는 게 안전.
 
 ## 💡 판단 기준
 
-**구체 케이스**: 파로스 탈퇴 API는 백오피스 서버에서만 호출 가능해야 하는데, URL 보안이 `/api/** → 권한 목록` 방식뿐이라 일반 사용자 JWT로도 호출되는 상태였다. "호출자 종류" 구분 장치가 필요 → 팀에서 커스텀 어노테이션(`@AllowedCallers` + 자작 AOP, → [custom-annotation.md](../annotation/custom-annotation.md)) vs 기본 제공 `@PreAuthorize` 논의 → **`@PreAuthorize("#authUser != null and #authUser.isBackOffice()")` 채택**.
+**구체 케이스**: 회원 탈퇴 API는 백오피스 서버에서만 호출 가능해야 하는데, URL 보안이 `/api/** → 권한 목록` 방식뿐이라 일반 사용자 JWT로도 호출되는 상태였다. "호출자 종류" 구분 장치가 필요 → 팀에서 커스텀 어노테이션(`@AllowedCallers` + 자작 AOP, → [custom-annotation.md](../annotation/custom-annotation.md)) vs 기본 제공 `@PreAuthorize` 논의 → **`@PreAuthorize("#authUser != null and #authUser.isBackOffice()")` 채택**.
 
 - **프레임워크 기본 제공으로 표현 가능하면 자작보다 기본 제공 먼저.** 커스텀 어노테이션+AOP는 인터셉터·예외 변환·테스트를 전부 직접 유지보수해야 하지만, `@PreAuthorize`는 이미 검증된 인프라에 표현식 한 줄이다. 자작이 정당해지는 건 기본 제공의 표현력을 벗어날 때(예: 어노테이션 속성으로 선언적 메타데이터를 줘야 할 때)뿐.
 - **URL vs 메서드 보안 분담**: "이 **경로**에 누가 들어오나" = URL 보안(공통 관문), "이 **동작**을 어떤 조건에서 허용하나" = 메서드 보안(개별 규칙). 전자로 다 막고, 전자가 표현 못 하는 것만 후자로.
@@ -116,5 +119,6 @@ public Document getDocument(Long id) { ... }  // 남의 문서면 응답 직전�
 - [EnableMethodSecurity API 문서](https://docs.spring.io/spring-security/site/docs/current/api/org/springframework/security/config/annotation/method/configuration/EnableMethodSecurity.html) — `prePostEnabled` 기본 true
 - [Baeldung — Spring @EnableMethodSecurity](https://www.baeldung.com/spring-enablemethodsecurity) — 구식→신식 마이그레이션
 - [Spring Framework 6.1 Release Notes](https://github.com/spring-projects/spring-framework/wiki/Spring-Framework-6.1-Release-Notes) — `-parameters` 필수화 배경
-- 학습 날짜: 2026-08-04
-- 계기: 서버 to 서버 API(탈퇴) 호출자 제한 논의 — 커스텀 어노테이션 명칭 추천으로 시작해서 "기본 제공(`@PreAuthorize`) 쓰자"로 결론 난 팀 대화. 현재 프로젝트는 URL 보안만 켜져 있어 `@EnableGlobalMethodSecurity` 추가가 선행 작업.
+- [Spring Security 소스 — SecurityExpressionRoot.hasRole (ROLE_ 접두사 처리)](https://github.com/spring-projects/spring-security/blob/main/core/src/main/java/org/springframework/security/access/expression/SecurityExpressionRoot.java) · [AuthorityAuthorizationManager.hasRole](https://github.com/spring-projects/spring-security/blob/main/core/src/main/java/org/springframework/security/authorization/AuthorityAuthorizationManager.java)
+- 학습 날짜: 2026-08-04 (2026-10-02 hasRole 접두사·@PostAuthorize 롤백·deprecated 버전 정정)
+- 계기: 서버 to 서버 API(탈퇴) 호출자 제한 논의 — 커스텀 어노테이션 명칭 추천으로 시작해서 "기본 제공(`@PreAuthorize`) 쓰자"로 결론 났다. URL 보안만 켜진 프로젝트라면 활성화 어노테이션 추가가 선행 작업이다.

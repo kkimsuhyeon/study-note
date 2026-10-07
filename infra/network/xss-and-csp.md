@@ -12,7 +12,7 @@
 
 | 종류 | 공격 경로 | 예 |
 | --- | --- | --- |
-| 저장형(stored) | DB에 저장된 값이 나중에 화면에 출력 | 공유 페이지에 보이는 이름·AI 해석 글에 `<img src=x onerror=...>` |
+| 저장형(stored) | DB에 저장된 값이 나중에 화면에 출력 | 공유 페이지에 보이는 이름·AI가 생성한 글에 `<img src=x onerror=...>` |
 | 반사형(reflected) | 요청 값이 응답에 그대로 다시 출력 | 검색 결과 페이지 "`<검색어>`에 대한 결과" |
 | DOM 기반 | 프론트 코드가 URL·입력을 DOM에 직접 넣음 | `element.innerHTML = location.hash` |
 
@@ -65,7 +65,7 @@ Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-r4nd0m' 's
 
 ## ⚠️ 함정
 
-- **`'unsafe-inline'`을 넣으면 XSS 방어 효과가 거의 사라진다.** "일단 화면이 깨지니까" 넣는 순간 공격자의 인라인 스크립트도 허락된다.
+- **nonce·hash 없이 `'unsafe-inline'`만 넣으면 XSS 방어 효과가 거의 사라진다.** "일단 화면이 깨지니까" 넣는 순간 공격자의 인라인 스크립트도 허락된다. 반대로 nonce나 hash가 있는 정책에서는 CSP2 이상 브라우저가 `'unsafe-inline'`을 **무시**하고, `'strict-dynamic'`이 있으면 `'self'`·호스트 허용 목록도 무시한다. 그래서 MDN은 구형 브라우저 호환용으로 `script-src 'unsafe-inline' https: 'nonce-…' 'strict-dynamic'` 조합을 예로 든다 — 같은 `'unsafe-inline'`이라도 옆에 무엇이 있느냐로 의미가 바뀐다.
 - **CSP는 HTML 문서 응답에 걸어야 의미가 있다.** JSON API 응답에만 걸면 페이지는 보호되지 않는다. 프론트와 API가 다른 서버라면 프론트(또는 앞단 프록시) 쪽 설정이다.
 - **입력 검증은 XSS 방어의 대체가 아니다.** 허용 문자를 제한하면 표면은 줄지만, 다른 경로(AI 출력, 외부 API, 나중에 규칙이 느슨해진 필드)로 들어온 값은 막지 못한다. 출력 시 이스케이프는 값의 출처와 상관없이 항상 한다.
 - **AI 출력도 신뢰하지 않는 입력이다.** 사용자 입력이 프롬프트에 섞이면(프롬프트 인젝션) AI가 HTML·스크립트 조각을 그대로 내보낼 수 있다.
@@ -78,5 +78,6 @@ Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-r4nd0m' 's
 
 - [OWASP — Cross Site Scripting Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html)
 - [MDN — Content Security Policy (CSP)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CSP)
+- [MDN — script-src (`'strict-dynamic'`이 `'unsafe-inline'`·`'self'`를 무시, 하위 호환 예시)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/script-src)
 - [Next.js — Content Security Policy guide](https://nextjs.org/docs/app/guides/content-security-policy)
-- 학습일: 2026-10-01. 계기: CSRF 방어를 정리하다 "XSS가 뚫리면 CSRF 방어가 무력"이라는 점에서 "XSS는 프론트에서 막나? CSP는 뭐야?"라는 질문. Next.js의 nonce·동적 렌더링 조건은 공식 문서로 확인했고 예시 코드는 실행하지 않았다.
+- 학습일: 2026-10-01 (2026-10-02 `'unsafe-inline'` 조건 정정). 계기: CSRF 방어를 정리하다 "XSS가 뚫리면 CSRF 방어가 무력"이라는 점에서 "XSS는 프론트에서 막나? CSP는 뭐야?"라는 질문. Next.js의 nonce·동적 렌더링 조건은 공식 문서로 확인했고 예시 코드는 실행하지 않았다.

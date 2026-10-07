@@ -73,6 +73,8 @@ T2: UPDATE id=1 → X(1) 필요 → T1의 S(1) 대기 ⏳   → 순환 대기 �
 | T1·T2 둘 다 1읽고 1수정 (같은 행 업그레이드) | **데드락** (위 사례 2) |
 | T1: 1읽고 **2**수정 / T2: 2읽고 **1**수정 (엇갈림) | **데드락** (사례 1 구조) |
 
+> ⚠️ **"없는 행"으로도 순환 대기가 생긴다 (MySQL InnoDB, REPEATABLE READ).** `FOR UPDATE`가 빈 범위를 잡으면 행이 아니라 **갭 락**이 걸리고, 갭 락끼리는 서로 호환이라 두 트랜잭션이 같은 빈 범위를 동시에 잠글 수 있다. 그다음 둘 다 그 범위에 INSERT하면 각자의 삽입이 **상대의 갭 락**에 막혀 데드락 — "없으면 만들기"(check-then-insert) 코드의 단골 사고. 해법은 유니크 제약 + 중복 예외 처리, 또는 READ COMMITTED(갭 락 대부분 비활성). (격리 수준별 동작 → [트랜잭션 격리](../jpa/transaction-isolation.md))
+
 > 그래서 "읽고 곧 수정할 거면 처음부터 `FOR UPDATE`(배타락)를 써라"가 정설. → 읽기 단계에서 이미 배타락으로 진입하면 S락 공존이 없어 업그레이드 충돌이 사라지고, **락 획득 순서까지 통일**하면 엇갈림(순환 대기)도 막힌다.
 
 ### 사례 3 — JVM 락 (ReentrantLock / synchronized)
@@ -95,6 +97,20 @@ T1: lock(A) → lock(B)   ┐ 둘 다 A를 먼저 잡으니
 T2: lock(A) → lock(B)   ┘ 원형이 생기지 않음 ✅
 ```
 
+**순서는 "목록을 만든 순서"가 아니라 "키"에 묶는다.** 여러 행을 한 트랜잭션에서 잠글 때 잠글 대상을 **키(복합 키면 전체 키)로 정렬**한 뒤 차례로 잠근다.
+
+```java
+buckets.stream()
+       .sorted(Comparator.comparing(Bucket::subject)     // 복합 기본 키 (subject, start, kind) 전체로 정렬
+               .thenComparing(Bucket::start)              // → 어떤 두 키도 순서가 하나로 정해짐(전순서)
+               .thenComparing(Bucket::kind))
+       .forEach(this::lockAndConsume);
+```
+
+- 코드를 짠 순서(`List.of(세션 시간, 세션 일, IP 시간, IP 일)`)가 우연히 모든 요청에서 같다면 정렬 없이도 지금은 안전할 수 있다. 하지만 그 보장은 **목록을 만드는 코드 한 곳**에 기대고 있어서, 다른 코드 경로(예: 재시도 API가 IP 버킷부터 만들기)나 버킷 종류 추가 한 번에 조용히 깨진다. 키로 정렬하면 순서가 **데이터의 성질**이 되어 어느 코드 경로에서 잠가도 같다.
+- 정렬 기준은 오름차순·내림차순 무엇이든 상관없다. **모든 곳이 같은 기준**이기만 하면 된다.
+- DB는 데드락을 감지해 한쪽을 에러로 끝내 준다(PostgreSQL은 기본 1초 대기 후 검사). 그 에러가 사용자에게는 원인 모를 5xx로 보이므로, "감지되니 괜찮다"가 아니라 순서 통일로 **애초에 안 생기게** 한다.
+
 ### 그 외
 | 방법 | 깨는 조건 | 설명 |
 |------|-----------|------|
@@ -104,11 +120,15 @@ T2: lock(A) → lock(B)   ┘ 원형이 생기지 않음 ✅
 | 트랜잭션 짧게 유지 | - | 락 보유 시간이 짧으면 충돌·교착 확률 감소 |
 
 ```java
-// 타임아웃 예시 (JPA)
+// 타임아웃 예시 (JPA) — ⚠️ 방언에 따라 무시된다 (아래)
 @Lock(LockModeType.PESSIMISTIC_WRITE)
 @QueryHints({@QueryHint(name = "jakarta.persistence.lock.timeout", value = "3000")})
 Optional<UserPoint> findByUserIdForUpdate(@Param("userId") Long userId);
 ```
+> ⚠️ **`jakarta.persistence.lock.timeout`의 ms 값은 DB·Hibernate 버전에 따라 그냥 무시된다.**
+> - **Hibernate 6.x + MySQL/PostgreSQL**: 두 DB 모두 `FOR UPDATE`에 "N초 대기" 문법이 없어 방언이 ms 값을 버린다. 반영되는 건 `0`(→ `NOWAIT`)과 `-2`(→ `SKIP LOCKED`)뿐. 위 3000은 효과 없음.
+> - **Hibernate 7(7.1+)**: `ConnectionLockTimeoutStrategy`로 커넥션 단위 lock timeout 설정을 지원한다(incubating API).
+> - 그래서 실제로 걸리는 건 **DB 기본값**: MySQL `innodb_lock_wait_timeout` = **50초**(무한 대기는 아님), PostgreSQL `lock_timeout` = **0(무제한)**. 짧게 끊으려면 DB/세션 설정(`SET lock_timeout = '3s'` 등)으로 건다.
 ```java
 // 타임아웃 예시 (ReentrantLock)
 if (lock.tryLock(3, TimeUnit.SECONDS)) {
@@ -127,19 +147,25 @@ if (lock.tryLock(3, TimeUnit.SECONDS)) {
 ```
 순환 대기 감지 → 한 트랜잭션 강제 롤백 (나머지는 진행)
 → 롤백당한 쪽은 예외를 받음
-   - MySQL: "Deadlock found when trying to get lock"
-   - Spring: DeadlockLoserDataAccessException / CannotAcquireLockException
+   - MySQL: "Deadlock found when trying to get lock" (에러 1213)
+   - Spring(+Hibernate): PessimisticLockingFailureException 계열 (CannotAcquireLockException 등 — 변환 경로에 따라 다름)
+     ※ DeadlockLoserDataAccessException은 Spring 6.0.3부터 deprecated
 → 보통 재시도로 처리 (낙관적 락 재시도와 유사한 패턴)
 ```
 
 > 즉 영원히 멈추진 않고 한 명이 희생되고 나머지는 진행된다. 단, **희생된 트랜잭션의 재시도 처리는 개발자 몫**이다.
+
+> ⚠️ **JVM 데드락은 아무도 풀어주지 않는다.** DB와 달리 JVM은 `synchronized`/`ReentrantLock` 순환 대기를 감지해 희생자를 고르지 않는다 — 스레드들이 **영원히** 멈추고, 그 스레드를 쓰던 요청·풀 슬롯도 같이 묶인다. 감지는 사후에 사람이: `jstack <pid>`(스레드 덤프 끝에 "Found one Java-level deadlock")나 `ThreadMXBean.findDeadlockedThreads()`로 찾고, 복구는 사실상 재시작. 그래서 JVM 쪽은 **예방(순서 통일)과 `tryLock` 타임아웃**이 DB보다 더 중요하다.
 
 ### 데드락 vs 락 타임아웃 (헷갈리기 쉬움)
 | | 데드락 | 락 타임아웃 |
 |---|---|---|
 | 원인 | 순환 대기 (서로 물림) | 단순히 오래 기다림 (락 못 잡음) |
 | 감지 주체 | DB가 자동 감지 후 victim 롤백 | 설정한 시간 초과 시 예외 |
-| 예외 | DeadlockLoserDataAccessException 등 | LockTimeoutException |
+| DB 쪽 원인 | MySQL 1213 | MySQL 1205 (`innodb_lock_wait_timeout`) / PG `lock_timeout` |
+| 앱이 받는 예외 (Spring+Hibernate) | `PessimisticLockingFailureException` 계열 | 같은 계열 — JPA `LockTimeoutException`은 Spring이 `CannotAcquireLockException`(그 하위)으로 변환 |
+
+> 💡 예외 타입으로 둘을 정확히 가르기는 어렵다(DB·드라이버·Hibernate 버전마다 매핑이 다름) → 재시도 정책은 **`PessimisticLockingFailureException` 계열을 한 번에** 잡아 걸고, 원인 구분이 필요하면 원본 SQL 에러 코드를 본다.
 
 ---
 
@@ -148,13 +174,18 @@ if (lock.tryLock(3, TimeUnit.SECONDS)) {
 - 데드락 = **서로가 가진 자원을 기다리며 멈춘 상태** (OS 고전 개념과 동일).
 - **4조건(상호배제·점유와대기·비선점·순환대기)** 이 모두 성립할 때만 발생 → 하나만 깨면 예방.
 - 실무 1순위 예방책: **락 획득 순서 통일**(순환 대기 제거) + **타임아웃** + **트랜잭션 짧게**.
-- DB는 자동 감지해 한쪽을 롤백 → 개발자는 **재시도**로 대응.
+- DB는 자동 감지해 한쪽을 롤백 → 개발자는 **재시도**로 대응. JVM은 감지·해소가 없다 → 예방과 `tryLock` 타임아웃이 전부.
+
+> 💡 **판단 기준: "누가 풀어주나"로 대비 수준을 정한다.** DB 데드락은 DB가 victim을 골라 풀어주니 "재시도 가능한 예외"로 설계하면 되고, JVM 데드락은 아무도 안 풀어주니 "애초에 순환이 생기지 않는 순서 규칙 + 기다림의 상한"으로 설계한다.
 
 ---
 
 ## 7. 참고
 - [Coffman conditions - Wikipedia](https://en.wikipedia.org/wiki/Deadlock#Necessary_conditions)
-- [MySQL - Deadlocks in InnoDB](https://dev.mysql.com/doc/refman/8.0/en/innodb-deadlocks.html)
+- [MySQL - Deadlocks in InnoDB](https://dev.mysql.com/doc/refman/8.0/en/innodb-deadlocks.html) · [InnoDB Locking (갭 락·삽입 의도 락)](https://dev.mysql.com/doc/refman/8.0/en/innodb-locking.html)
+- [Hibernate User Guide - Locking (11.4)](https://docs.jboss.org/hibernate/orm/6.6/userguide/html_single/Hibernate_User_Guide.html#locking) · [Hibernate 6.6 MySQLDialect 소스](https://github.com/hibernate/hibernate-orm/blob/6.6/hibernate-core/src/main/java/org/hibernate/dialect/MySQLDialect.java) — lock timeout은 NOWAIT/SKIP LOCKED만 SQL에 반영
+- [MySQL - innodb_lock_wait_timeout (기본 50초)](https://dev.mysql.com/doc/refman/8.4/en/innodb-parameters.html#sysvar_innodb_lock_wait_timeout) · [PostgreSQL - lock_timeout (기본 0)](https://www.postgresql.org/docs/current/runtime-config-client.html#GUC-LOCK-TIMEOUT)
+- [Spring - DeadlockLoserDataAccessException (6.0.3 deprecated)](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/dao/DeadlockLoserDataAccessException.html)
 - 관련 노트: [락 개념 종합](./locks.md) · [JPA @Lock](../jpa/lock.md)
 
 ---

@@ -39,7 +39,7 @@ UPDATE product SET stock = 9, version = 2
 WHERE id = 1 AND version = 1;   -- version 안 맞으면 0건 → 충돌 감지
 ```
 
-- 장점: 락 비용 없음 → 처리량 높음, 데드락 없음
+- 장점: 읽는 동안 락 비용·대기 없음 → 처리량 높음, 대기로 인한 교착이 거의 없음 (⚠️ "데드락 0"은 아니다 — `UPDATE … WHERE version=?`도 commit까지 행 X락을 잡으므로, 여러 행을 서로 반대 순서로 flush하면 [데드락](./deadlock.md)이 날 수 있다)
 - 단점: 충돌 잦으면 재시도 폭증 → 오히려 비효율
 - 적합: 읽기 많고 쓰기 충돌이 드문 경우 (게시글 수정, 프로필 변경)
 
@@ -98,11 +98,11 @@ User u = repository.findByIdForUpdate(id).get();  // SELECT … FOR UPDATE (명�
 
 ### ⭐ 전략은 "엔티티"가 아니라 "연산(유스케이스)" 단위로 고른다 → 한 엔티티에 공존 가능
 판단 기준 = **충돌 빈도 + 충돌 비용**. 돈(잔액)처럼 잦고 치명적이면 비관적, 프로필 수정처럼 드물고 가벼우면 낙관적.
-→ `@Version`으로 **낙관적을 바닥에 깔고**, 잔액 같은 고가치·고충돌 경로만 `PESSIMISTIC_WRITE`로 **오버라이드**하는 게 자연스러운 조합. (이 프로젝트 `UserEntity`가 정확히 이 상태 — `@Version` + `findByIdForUpdate(PESSIMISTIC_WRITE)`. "중복"이 아니라 "낙관 베이스 + 비관 오버라이드".)
+→ `@Version`으로 **낙관적을 바닥에 깔고**, 잔액 같은 고가치·고충돌 경로만 `PESSIMISTIC_WRITE`로 **오버라이드**하는 게 자연스러운 조합. (예: 사용자 엔티티에 `@Version` + 잔액 경로용 `findByIdForUpdate(PESSIMISTIC_WRITE)`가 같이 있는 것 — "중복"이 아니라 "낙관 베이스 + 비관 오버라이드".)
 
 > ⚠️ **낙관락이 "실제로 충돌을 잡으려면" 비관락 없는 쓰기 경로가 있어야 한다.** `@Version`은 기능으로 *항상 켜져 있지만*, 모든 쓰기가 `findByIdForUpdate`(비관)로만 가면 행이 이미 잠겨 **버전 충돌이 날 일이 없다**(version은 묻어 증가만). 낙관락이 "안 켜진" 게 아니라 **발동시킬 유스케이스(비관락 없이 읽고 쓰는 경로)가 없는 것.** 잔액만 있고 프로필 수정 경로가 없으면 낙관락은 묻어가는 상태.
 
-> ⚠️ **비관 경로에서도 `@Version`은 체크·증가된다**(무해). 그 경로의 실제 보호는 비관락이 하고 version 증가는 묻어감 → "두 전략이 싸우는" 게 아니다.
+> ⚠️ **비관 경로에서도 `@Version`은 체크·증가된다**(무해). 그 경로의 실제 보호는 비관락이 하고 version 증가는 묻어감 → "두 전략이 싸우는" 게 아니다. (상세: [@Lock 심화 §4](../jpa/lock-concepts.md))
 
 > 한 줄: **낙관 = `@Version` 선언만으로 자동(모든 update). 비관 = 조회 함수에서 `@Lock` 명시.** "낙관용 repo 함수"는 없다 — 필요한 건 "비관락 없이 읽고 쓰는 연산"뿐. 락은 엔티티가 아니라 연산별로 고른다. (read-modify-write 경계 → [읽기-수정-쓰기](../jpa/read-modify-write.md))
 
@@ -152,12 +152,13 @@ User u = repository.findByIdForUpdate(id).get();  // SELECT … FOR UPDATE (명�
 > 각 도구의 정확한 동작·API·차이는 [JVM 동시성 도구 종합](./jvm-concurrency-tools.md) 참고.
 
 ```java
-// hhplus 프로젝트에서 쓰던 방식: userId별 ReentrantLock
+// 단일 서버에서 흔한 방식: userId별 ReentrantLock
 private final Map<Long, ReentrantLock> userLocks = new ConcurrentHashMap<>();
 ReentrantLock lock = userLocks.computeIfAbsent(userId, k -> new ReentrantLock());
 lock.lock();
 try { /* 포인트 충전 */ } finally { lock.unlock(); }
 ```
+> ⚠️ **키별 락 맵은 지워지지 않는다** — 한 번 등장한 userId의 락이 맵에 영원히 남아 사용자 수만큼 메모리가 계속 는다(누수). 그렇다고 unlock 뒤 `remove`하면 "다른 스레드가 방금 꺼낸 락"을 지워 같은 키에 락이 둘 생길 수 있다. 실무 대안: 고정 개수 락 배열에 `hash(userId) % N`으로 매핑(**lock striping** — 메모리 고정, 대신 다른 키끼리 가끔 같이 기다림), 또는 약한 참조 기반 맵(Guava `Striped.lazyWeakLock` 등).
 
 ### (2) DB 락 — DB를 공유하는 모든 서버에서 유효
 DB가 락을 관리하므로 서버가 여러 대여도 안전. (JPA `@Lock`이 여기에 해당)
@@ -176,7 +177,7 @@ DB가 락을 관리하므로 서버가 여러 대여도 안전. (JPA `@Lock`이 
 
 | 구현 | 설명 |
 |------|------|
-| **Redis** (Redisson, SETNX) | 가장 흔함. 빠르고 TTL로 자동 해제. Redlock 알고리즘 |
+| **Redis** (Redisson, SETNX) | 가장 흔함. 빠르고 TTL로 자동 해제. (다중 마스터 Redlock은 안전성 논쟁이 있고 Redisson `RedLock`은 deprecated) |
 | **Zookeeper** | 임시 노드(ephemeral) 기반. 강한 일관성, 순서 보장 |
 | **etcd** | 쿠버네티스 생태계. lease 기반 |
 | **DB 기반** (네임드 락, 비관적 락) | 인프라 추가 없이 가능하나 DB 부하 |
@@ -184,7 +185,7 @@ DB가 락을 관리하므로 서버가 여러 대여도 안전. (JPA `@Lock`이 
 ```java
 // Redisson 분산락 예시
 RLock lock = redissonClient.getLock("point:lock:" + userId);
-boolean acquired = lock.tryLock(5, 3, TimeUnit.SECONDS); // 대기5초, 점유3초
+boolean acquired = lock.tryLock(5, 3, TimeUnit.SECONDS); // 대기5초, 점유(leaseTime)3초 — leaseTime을 주면 watchdog 꺼짐
 if (acquired) {
     try { /* 포인트 충전 */ } finally { lock.unlock(); }
 }
@@ -214,9 +215,10 @@ if (acquired) {
 
 ### 분산락 사용 시 주의점
 1. **TTL(만료 시간) 필수** — 락 잡은 서버가 죽으면 영원히 안 풀림 → 데드락. TTL로 자동 해제.
-2. **TTL < 작업 시간이면 위험** — 작업이 TTL보다 길어지면 락이 먼저 풀려 다른 서버가 침입. (Redisson의 watchdog가 자동 연장으로 완화)
+2. **TTL < 작업 시간이면 위험** — 작업이 TTL보다 길어지면 락이 먼저 풀려 다른 서버가 침입. Redisson watchdog가 자동 연장해주지만 **leaseTime을 지정하지 않았을 때만**이다(위 예제처럼 leaseTime을 주면 연장 없음 — "자동 연장 vs 예측 가능한 상한" 트레이드오프, 상세 → [Redisson 분산 락](../../infra/redis/redisson-distributed-lock.md)).
 3. **락 해제는 본인만** — 내가 건 락을 남이 풀면 안 됨 (토큰/소유자 검증).
-4. **네트워크 분할(split-brain)** — Redis 단일 노드 장애 대비 Redlock, 또는 강한 일관성이 필요하면 Zookeeper.
+4. **장애 조치(failover)** — 락을 쓴 직후 마스터가 죽어 복제가 안 된 채 승격되면 락이 사라진다. 다중 마스터 Redlock은 안전성 논쟁(Kleppmann)이 있고 Redisson의 `RedLock`은 deprecated — 현재 Redisson은 `RLock` + 복제 동기화 확인(기본 켜짐)을 쓰고, 강한 일관성이 필요하면 Zookeeper/etcd.
+5. **TTL·watchdog로도 못 막는 구멍 → fencing token** — 락 보유자가 GC 정지·네트워크 지연으로 멈춘 사이 lease가 만료되면, 다른 서버가 락을 잡은 뒤에 원래 보유자가 깨어나 "아직 내 락"이라 믿고 쓴다. 락만으로는 못 막고, **보호 대상이 검사해야** 한다: 획득할 때마다 단조 증가 토큰을 받고(Redisson `RFencedLock`), 쓰기 쪽(DB)이 "본 것 중 가장 큰 토큰보다 작으면 거부"한다. 보호 대상이 DB 데이터라면 `@Version`·조건부 UPDATE가 같은 역할 — 그래서 **분산락은 1차 방어, DB 제약이 최종 방어**로 둔다.
 
 ---
 
@@ -260,6 +262,8 @@ DB 부하가 부담되는가?
 | 멀티 서버, 고성능, DB 부하 회피 | Redis 분산락 (Redisson) |
 | 강한 일관성/순서 보장 필요 | Zookeeper |
 
+> 💡 **보호할 데이터가 DB에 산다면 Redis 락만으로 끝내지 않는다.** DB 부하를 피하려 분산락을 앞에 두더라도, 최종 쓰기는 `@Version`·조건부 UPDATE·유니크 제약으로 한 번 더 막는다(§3-5 fencing). 판단 기준 "데이터가 어디 사느냐" → [JVM 동시성 도구 §0-1](./jvm-concurrency-tools.md).
+
 ---
 
 ## 6. 정리 (한눈에)
@@ -274,6 +278,7 @@ DB 부하가 부담되는가?
 ## 7. 참고
 - [Martin Kleppmann - How to do distributed locking](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html)
 - [Redis 공식 - Distributed Locks (Redlock)](https://redis.io/docs/latest/develop/use/patterns/distributed-locks/)
+- [Redisson - Locks and Synchronizers](https://redisson.pro/docs/data-and-services/locks-and-synchronizers/) — watchdog(leaseTime 미지정 시만 연장)·`RedLock` deprecated·`RFencedLock`
 - [Baeldung - Java Concurrency Locks](https://www.baeldung.com/java-concurrent-locks)
 - 관련 노트: [JPA @Lock 어노테이션](../jpa/lock.md)
 

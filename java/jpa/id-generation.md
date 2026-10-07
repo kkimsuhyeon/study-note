@@ -26,7 +26,7 @@ private Long id;
 | **IDENTITY** | 기본 키 생성을 DB에 위임 (AUTO_INCREMENT) | MySQL, PostgreSQL(serial) |
 | **SEQUENCE** | DB 시퀀스 오브젝트에서 번호 채번 | Oracle, PostgreSQL, H2 |
 | TABLE | 키 생성 전용 테이블 흉내 | 모든 DB (성능↓, 잘 안 씀) |
-| AUTO | 방언(dialect)에 따라 위 셋 중 자동 선택 (기본값) | — |
+| AUTO | 기본값. 숫자 id면 Hibernate가 **SEQUENCE를, 시퀀스 미지원 DB면 테이블 기반 생성**을 고른다 (IDENTITY는 고르지 않음, UUID 타입이면 UUID 생성) | — |
 
 ## 3. ⚠️ IDENTITY는 persist 즉시 INSERT — 쓰기 지연 무력화
 
@@ -51,8 +51,19 @@ em.persist(member);   // IDENTITY: 이 순간 INSERT 즉시 실행! (식별자�
 51번째: 다시 시퀀스 호출해 51~100 확보
 ```
 
-- ⚠️ **DB 시퀀스가 "1씩 증가"로 만들어져 있으면 `allocationSize=1`로 맞춰야 한다** — 안 맞으면 충돌/점프. (반대로 allocationSize=50을 쓰려면 DB 시퀀스도 `INCREMENT BY 50`)
+- ⚠️ **DB 시퀀스가 "1씩 증가"로 만들어져 있으면 `allocationSize=1`로 맞춰야 한다** — 안 맞으면 충돌/점프. (반대로 allocationSize=50을 쓰려면 DB 시퀀스도 `INCREMENT BY 50`) Hibernate 5.4+는 시퀀스 메타데이터를 읽을 수 있으면 이 불일치를 **기동 시점에 예외**로 알려준다(`hibernate.id.sequence.increment_size_mismatch_strategy` 기본 `EXCEPTION`).
 - 서버 여러 대여도 안전 — 각자 자기 범위를 확보하므로 겹치지 않는다 (번호에 구멍은 생길 수 있음 — 정상).
+
+## 4-1. ⚠️ MySQL에서 `@GeneratedValue`만 쓰면 IDENTITY가 아니다
+
+`strategy`를 생략하면 AUTO인데, Hibernate의 AUTO는 숫자 id에 대해 `SequenceStyleGenerator`를 쓴다 — 시퀀스가 있는 DB면 SEQUENCE, **MySQL처럼 시퀀스가 없으면 시퀀스를 흉내 내는 테이블**(Hibernate 6 기본 이름 `테이블명_seq`)에서 번호를 받는다. AUTO_INCREMENT 컬럼을 기대했다면 엉뚱한 채번 테이블이 생기고(ddl-auto가 꺼져 있으면 테이블이 없다는 에러), 번호 범위를 받을 때마다 그 테이블을 읽고 갱신하는 비용·경합이 붙는다.
+
+```java
+@Id @GeneratedValue                                        // ❌ MySQL: 테이블 기반 채번
+@Id @GeneratedValue(strategy = GenerationType.IDENTITY)    // ✅ MySQL: AUTO_INCREMENT
+```
+
+→ **MySQL 계열은 `IDENTITY`를 명시**한다. (Hibernate 5.0 이전에는 MySQL AUTO가 IDENTITY로 갔다 — 오래된 예제를 그대로 옮기면 여기서 어긋난다. 5.x의 `hibernate.id.new_generator_mappings`와 관련, 세부는 확인 필요)
 
 ## 5. 💡 판단 기준 — 식별자는 무엇으로?
 
@@ -60,17 +71,19 @@ em.persist(member);   // IDENTITY: 이 순간 INSERT 즉시 실행! (식별자�
 
 | 상황 | 선택 |
 |---|---|
-| MySQL 계열 | IDENTITY (persist 즉시 INSERT 감수) |
+| MySQL 계열 | **IDENTITY 명시** (persist 즉시 INSERT 감수, AUTO로 두면 테이블 채번 — §4-1) |
 | 시퀀스 지원 DB + 대량 INSERT/배치 필요 | SEQUENCE + allocationSize |
-| DB를 못 정하는 라이브러리성 코드 | AUTO |
+| DB를 못 정하는 라이브러리성 코드 | AUTO — 단 시퀀스 없는 DB에선 테이블 채번이 된다는 걸 알고 쓴다 |
 
 ---
 
 ## 6. 참고
 - [Hibernate User Guide - Identifier generation](https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators)
+- [Hibernate ORM 6.6 User Guide - Interpreting AUTO (숫자 id → SEQUENCE, 미지원 시 테이블)](https://docs.hibernate.org/orm/6.6/userguide/html_single/#identifiers-generators-auto)
+- [Hibernate ORM 6.6 User Guide - `hibernate.id.sequence.increment_size_mismatch_strategy`](https://docs.hibernate.org/orm/6.6/userguide/html_single/#settings-hibernate.id.sequence.increment_size_mismatch_strategy)
 - 관련 노트: [영속성 컨텍스트](./persistence-context.md)
 
 ---
 
 **학습 날짜**: 2026-08-13
-**계기**: 김영한 JPA 기본편 04장 — "쓰기 지연" 원칙의 유일한 예외가 IDENTITY(식별자를 DB가 만들어서 persist 즉시 INSERT)라는 것과, allocationSize의 정체(시퀀스 호출 묶기)를 정리.
+**계기**: 김영한 JPA 기본편 04장 — "쓰기 지연" 원칙의 유일한 예외가 IDENTITY(식별자를 DB가 만들어서 persist 즉시 INSERT)라는 것과, allocationSize의 정체(시퀀스 호출 묶기)를 정리. (2026-10-02 AUTO 해석 보정·MySQL IDENTITY 명시 함정 추가)

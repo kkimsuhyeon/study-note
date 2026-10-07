@@ -53,6 +53,8 @@ merge의 내부 동작:
 ③ 커밋 시 변경 감지로 UPDATE
 ```
 
+> ⚠️ ①에서 **DB에 행이 없으면?** 예전엔 새로 INSERT했지만, **Hibernate 6.6부터는 "분명히 준영속인데 행이 없다"고 판단되면 `OptimisticLockException`**을 던진다(생성 전략 `@Id`이거나 non-primitive `@Version`이 있을 때). 다른 트랜잭션이 지운 행을 merge가 몰래 되살리던 동작을 막은 것.
+
 ### ⚠️ 핵심 함정 — 없는 필드는 null로 덮어쓴다
 
 **merge는 부분 수정이 아니라 전체 교체다.** 수정 폼에 `price`가 없어서 준영속 객체의 price가 null이면 — **DB의 price가 null로 UPDATE된다.** "폼에 안 넣은 필드가 사라졌어요"류 사고의 정체. 변경 감지는 바꾼 필드만 반영하므로 이 위험이 없다.
@@ -67,6 +69,8 @@ else                        em.merge(entity);      // 식별자 있음 = merge!
 ```
 
 `@GeneratedValue` 전제의 관례 — **"save = 저장"이 아니라 "식별자 있으면 merge"**라서, 수정 의도로 save를 부르면 위의 null 덮어쓰기 함정을 그대로 밟는다. (식별자를 직접 할당하는 엔티티면 이 분기 자체가 어긋난다)
+
+- 정확히는 위 코드보다 한 단계가 더 있다: 엔티티에 **non-primitive `@Version`이 있으면 version이 null인지로 먼저** 신규를 판정하고, 없을 때만 id가 null인지 본다. 직접 할당 id라면 `Persistable.isNew()`를 구현해 판정을 넘긴다 (Spring Data JPA "Entity State-detection Strategies").
 
 ## 4. 💡 권장 패턴 — 컨트롤러에서 엔티티를 만들지 마라
 
@@ -85,9 +89,11 @@ itemService.updateItem(id, form.getName(), form.getPrice(), form.getStockQuantit
 
 ## 5. 참고
 - 김영한, 실전! 스프링 부트와 JPA 활용1 — 7장 "변경 감지와 병합(merge)"
+- [Hibernate ORM 6.6 Migration Guide - Merge versioned entity when row is deleted](https://docs.hibernate.org/orm/6.6/migration-guide/#merge-versioned-deleted)
+- [Spring Data JPA - Entity State-detection Strategies (save()의 신규 판정)](https://docs.spring.io/spring-data/jpa/reference/jpa/entity-persistence.html)
 - 관련 노트: [영속성 컨텍스트](./persistence-context.md) (준영속·더티 체킹 메커니즘)
 
 ---
 
 **학습 날짜**: 2026-08-13
-**계기**: 활용1 7장 — "폼에 없는 필드가 null로 저장되는" 사고의 원인이 merge의 전체 교체 동작임을 이해하고, save()가 내부적으로 merge 분기라는 것까지 연결해서 정리.
+**계기**: 활용1 7장 — "폼에 없는 필드가 null로 저장되는" 사고의 원인이 merge의 전체 교체 동작임을 이해하고, save()가 내부적으로 merge 분기라는 것까지 연결해서 정리. (2026-10-02 Hibernate 6.6 merge 동작 변경·save() 신규 판정 보강)

@@ -59,7 +59,7 @@ public class Member extends BaseEntity { ... }   // 컬럼만 물려받음
 - **테이블과 매핑되지 않는다** — 자식 엔티티에 **매핑 정보(컬럼)만 물려주는** 용도. 등록일/수정일/등록자처럼 전 엔티티 공통 필드에 쓴다.
 - 엔티티가 아니다 → `em.find(BaseEntity.class, ...)` **불가**, 조회·검색 대상 아님.
 - 직접 생성할 일이 없으므로 **추상 클래스 권장**.
-- ⚠️ `@Entity` 클래스는 **@Entity 또는 @MappedSuperclass가 붙은 클래스만** 상속할 수 있다 — 아무 POJO나 부모로 못 쓴다.
+- ⚠️ `@Entity`는 아무 일반 클래스(POJO)도 상속할 **수는 있다**. 다만 그 부모의 필드는 **영속되지 않는다**(행동만 물려받음, 스펙상 매핑 어노테이션도 무시). 부모의 필드를 컬럼으로 물려받으려면 부모가 `@Entity`(상속 매핑)이거나 `@MappedSuperclass`여야 한다 — 그래서 BaseEntity에 `@MappedSuperclass`를 붙이는 것.
 
 ### 상속 매핑 vs @MappedSuperclass (혼동 주의)
 
@@ -77,9 +77,10 @@ public class Member extends BaseEntity { ... }   // 컬럼만 물려받음
 
 ## 5. 참고
 - [Hibernate User Guide - Inheritance](https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#entity-inheritance)
+- [Jakarta Persistence 3.2 스펙 §2.13.3 Non-Entity Classes in the Entity Inheritance Hierarchy](https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2)
 - 관련 노트: [엔티티 설계 실무 규칙](./entity-design-rules.md)
 
 ---
 
 **학습 날짜**: 2026-08-13
-**계기**: 김영한 JPA 기본편 07장 — 상속 매핑 3전략의 트레이드오프와, BaseEntity(@MappedSuperclass)가 상속 매핑과 전혀 다른 도구라는 것을 정리.
+**계기**: 김영한 JPA 기본편 07장 — 상속 매핑 3전략의 트레이드오프와, BaseEntity(@MappedSuperclass)가 상속 매핑과 전혀 다른 도구라는 것을 정리. (2026-10-02 일반 클래스 상속 규칙을 스펙 기준으로 보정)

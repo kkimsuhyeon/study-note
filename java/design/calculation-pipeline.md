@@ -6,11 +6,11 @@
 
 이런 신호가 **겹칠 때** 꺼내는 구조다 (하나만으로는 부족):
 
-- 계산이 **3단계 이상**이고 단계 사이에 **순서 의존**이 있다 (예: 금액 확정 → 과세 분해 → 세금 → 보험 → 합계)
-- 단계 일부를 **조건부로 켜고 꺼야** 한다 (예: "근태 반영해서 계산" 옵션, "간이 계산" 모드)
+- 계산이 **3단계 이상**이고 단계 사이에 **순서 의존**이 있다 (예: 금액 확정 → 할인 → 배송비 → 세금 → 합계)
+- 단계 일부를 **조건부로 켜고 꺼야** 한다 (예: "프로모션 반영해서 계산" 옵션, "간이 견적" 모드)
 - 입력을 만들기 위한 **조회가 무겁고 다양**해서, 조회(I/O)와 계산(순수 로직)을 분리하고 싶다
 - 각 단계를 **DB/Mock 없이 단위 테스트**하고 싶다
-- 입력 종류에 따라 **계산 방식 자체가 갈린다** (예: 급여/상여, 회원/비회원)
+- 입력 종류에 따라 **계산 방식 자체가 갈린다** (예: 일반/정기구독 주문, 회원/비회원)
 
 반대로 단계가 1~2개고 옵션 분기도 없다면 이 구조는 과잉이다 — 그냥 메서드 2개로 충분.
 
@@ -36,12 +36,12 @@ DB 조회를 전부 끝내고               Executor  ← 진입점
 | 부품 | 역할 | 패턴 이름 |
 |---|---|---|
 | Factor | 계산에 필요한 **모든** 입력을 담은 불변 객체. `withXxx()` 복사 메서드로만 변형 | Parameter Object + 불변 값 객체 |
-| Policy | 입력 종류(지급구분 등)별로 factor를 변환, 어떤 계산유형을 실행할지 결정 | Strategy (+ Finder가 목록에서 `supports()`로 선택) |
-| Pipeline | calculator들을 **고정 순서**로 실행 | Pipes and Filters (POSA) |
+| Policy | 입력 종류(주문 유형 등)별로 factor를 변환, 어떤 계산유형을 실행할지 결정 | Strategy (+ Finder가 목록에서 `supports()`로 선택) |
+| Pipeline | calculator들을 **고정 순서**로 실행 | Pipes and Filters (POSA)의 변형 — 원형은 상태를 공유하지 않는 필터를 데이터 흐름으로 잇는다. 여기선 공유 Context를 쓴다 |
 | AbstractCalculator | `calculate()`를 `final`로 잠그고 "지원 검사 → `doCalculate()` 위임" 골격 정의 | Template Method (GoF) + supports-execute 관용구 |
 | Context | 모든 단계가 돌려 쓰며 결과를 누적하는 가변 중간 상태 | Collecting Parameter (Kent Beck, *Smalltalk Best Practice Patterns*) |
 
-⚠️ **Chain of Responsibility가 아니다**: CoR은 "체인을 따라가다 **누군가 하나가 처리하면 멈추는**" 구조(예: 예외 핸들러 선택). 여기는 **모든 단계가 순서대로 전부 실행**되고 각자 자기 몫만 계산한다 → Pipes and Filters.
+⚠️ **Chain of Responsibility가 아니다**: CoR은 "체인을 따라가다 **누군가 하나가 처리하면 멈추는**" 구조(예: 예외 핸들러 선택). 여기는 **모든 단계가 순서대로 전부 실행**되고 각자 자기 몫만 계산한다 → Pipes and Filters 쪽. 단 단계들이 Context를 공유한다는 점이 원형과 다르고, 아래 "숨은 순서 의존"이 그 대가다.
 
 ## 사용 예시 — 주문 정산 계산
 
@@ -50,7 +50,8 @@ DB 조회를 전부 끝내고               Executor  ← 진입점
 public enum CalculationType {
     DISCOUNT, SHIPPING, TAX;
 
-    public static final Set<CalculationType> DEFAULT_TYPES = EnumSet.of(SHIPPING, TAX);
+    public static final Set<CalculationType> DEFAULT_TYPES =
+            Collections.unmodifiableSet(EnumSet.of(SHIPPING, TAX));   // 공유 상수 Set은 수정 불가로
     // 프로모션 적용 주문만 DISCOUNT를 추가로 켠다
 }
 
@@ -117,8 +118,8 @@ public class DiscountCalculator extends AbstractOrderCalculator {
 
     @Override
     protected void doCalculate(OrderCalculationFactor factor, OrderCalculationContext ctx) {
-        // 등급 할인율 적용 — DB 접근 없음, factor와 ctx만 사용
-        long discount = Math.round(ctx.totalItemAmt() * factor.getGrade().discountRate());
+        // 등급 할인율(%) 적용 — DB 접근 없음, factor와 ctx만 사용. 원 단위 버림, 금액에 double을 섞지 않는다
+        long discount = ctx.totalItemAmt() * factor.getGrade().discountPercent() / 100;
         ctx.setDiscountAmt(discount);
     }
 }
@@ -170,13 +171,15 @@ void 할인_유형이_없으면_금액을_건드리지_않는다() {
 - **단계 간 의존이 Context 뒤에 숨는다.** B단계가 A단계가 써둔 값을 읽는데, 시그니처엔 안 드러난다. 순서를 바꾸면 컴파일은 되고 **값만 조용히 틀어진다.** → 순서를 Pipeline 클래스 한 곳에만 두고, "왜 이 순서인지"를 주석/커밋에 남긴다.
 - **supports 스킵은 무음(無音)이다.** 유형 플래그가 빠지면 계산기가 아무 일도 안 하고 통과하는데, 에러가 없으니 "왜 금액이 안 바뀌지?"로 디버깅하게 된다. → "유형이 없으면 건드리지 않는다"는 가드 동작 자체를 테스트로 박아둔다.
 - **Context는 스레드 안전하지 않다.** 요청당 1회용으로 만들고 버릴 것. 공유 빈에 담으면 안 된다.
+- **`@Value` Factor는 얕은 불변이다.** 필드를 `final`로 만들 뿐 `Set`·`List` 필드의 내용은 못 막는다. 호출부가 넘긴 가변 Set을 그대로 들고 있으면 계산 중에 바뀔 수 있다 → `of()`에서 `Set.copyOf`(Java 10+)로 복사한다(`EnumSet.copyOf`는 빈 일반 컬렉션을 받으면 예외라 주의). 공유 상수 Set(`DEFAULT_TYPES`)도 수정 불가로 감싼다.
+- **금액에 `double`을 섞지 않는다.** 할인율·세율 곱셈은 정수 비율(%)이나 `BigDecimal`로 → [BigDecimal](../bigdecimal/bigdecimal.md).
 - **Factor 필드 증식.** 입력을 다 담다 보면 `of(...)` 인자가 15개까지 가고, `withXxx()` 복사 메서드마다 전체 필드를 나열하게 된다. Lombok `@With`나 필드 그룹화(하위 값 객체로 묶기)로 완화.
 - **조회를 계산 안으로 들이는 순간 무너진다.** 계산기 안에서 mapper/repository를 부르기 시작하면 "순수 계산 + 단위 테스트 가능"이라는 존재 이유가 사라진다. 부족한 입력은 Factor에 추가하는 게 맞다.
-- **enum 스위치의 case 누락.** 유형별 `switch`에서 새 enum 값의 case를 빠뜨리면 default로 떨어져 조용히 0/무시가 된다. 컴파일러가 못 잡아주는 자리(👉 default에서 예외를 던지거나, 유형별 테스트를 enum 전수로).
+- **enum 스위치의 case 누락.** 유형별 switch **문**(`case X:`)은 새 enum 값의 case를 빠뜨려도 컴파일되고 조용히 0/무시가 된다. → 결과를 내는 매핑은 **switch 식 + default 없음**으로 쓰면 누락이 컴파일 에러가 된다. default를 넣으면 그 안전망이 꺼진다 → [switch 식과 exhaustiveness](../basics/switch-expression-exhaustiveness.md).
 
 ## 💡 판단 기준 (관점)
 
-구체 케이스: 급여 계산 로직 V1은 mutable DTO 하나를 서비스와 유틸 빈들이 setter로 돌려쓰고, 계산 도중에도 DB를 조회했다 → 단계 순서가 코드 곳곳에 암묵적으로 흩어지고, 단위 테스트가 사실상 불가능했다. V2에서 이 구조(불변 Factor + 정책 + 파이프라인 + Context)로 재작성하니 계산기마다 순수 단위 테스트가 붙고, "근태 반영" 같은 옵션이 유형 Set 하나로 표현됐다.
+구체 케이스: 다단계 금액 계산 로직 V1은 mutable DTO 하나를 서비스와 유틸 빈들이 setter로 돌려쓰고, 계산 도중에도 DB를 조회했다 → 단계 순서가 코드 곳곳에 암묵적으로 흩어지고, 단위 테스트가 사실상 불가능했다. V2에서 이 구조(불변 Factor + 정책 + 파이프라인 + Context)로 재작성하니 계산기마다 순수 단위 테스트가 붙고, "프로모션 반영" 같은 옵션이 유형 Set 하나로 표현됐다.
 
 - **도입 신호**: "계산 단계 3개 이상 + 순서 의존 + 일부 단계가 옵션 + 조회가 무겁다"가 겹치면 이 구조. 하나라도 빠지면 통합 서비스 메서드부터.
 - **핵심 규율은 구조보다 경계**: "조회는 서비스에서 다 끝내고, 계산 코어에는 I/O를 들이지 않는다." 이 경계만 지켜도 절반은 성공 — 파이프라인/정책은 그 다음 문제다.
@@ -194,4 +197,5 @@ void 할인_유형이_없으면_금액을_건드리지_않는다() {
 
 ---
 학습 날짜: 2026-08-04
-계기: 회사 급여 계산 V2 모듈 코드 파악 중 "이 구조를 뭐라고 부르나" 정리. V1(mutable DTO + 서비스 계산) → V2(불변 Factor + 파이프라인) 재작성 비교에서 도입 신호를 뽑음.
+계기: 실무의 다단계 계산 모듈(V1→V2 재작성) 코드 파악 중 "이 구조를 뭐라고 부르나" 정리. V1(mutable DTO + 서비스 계산) → V2(불변 Factor + 파이프라인) 재작성 비교에서 도입 신호를 뽑음.
+보강: 2026-10-02 — enum case 누락은 switch 식으로 컴파일러가 잡게(switch 노트와 정합), 금액 double 제거, 얕은 불변 Factor·가변 공유 상수 함정, Pipes and Filters 원형과의 차이 표시. 예시 도메인 일반화.

@@ -2,7 +2,7 @@
 
 > **한 줄 요약**: `@DataJpaTest`는 JPA 관련 빈만 부팅하는 **슬라이스 테스트** + 각 테스트를 **트랜잭션으로 감싸 롤백** + `TestEntityManager`·Spring Data 레포·임베디드 DB를 자동 구성한다. 핵심 함정은 **persist ≠ INSERT**(flush 전엔 SQL 안 나감) — `em.flush()`/`em.clear()`로 실제 왕복을 강제한다.
 
-관련 노트: [영속성 컨텍스트·flush](../jpa/persistence-context.md) · [테스트 픽스처](./test-fixtures.md) · [JUnit 5 라이프사이클](./junit-lifecycle.md) · [Criteria·Specification·Pageable·Page](../jpa/spring-data-query.md) · [@Lock 실무 패턴(동시성 테스트)](../jpa/lock-practical.md)
+관련 노트: [영속성 컨텍스트·flush](../jpa/persistence-context.md) · [테스트 픽스처](./test-fixtures.md) · [JUnit 5 라이프사이클](./junit-lifecycle.md) · [Criteria·Specification·Pageable·Page](../jpa/spring-data-query.md) · [동시성 테스트](./concurrency-test.md)
 
 ---
 
@@ -31,7 +31,7 @@ class UserRepositoryAdapterTest {
 | **DB** | 기본적으로 인메모리 임베디드 DB로 **교체**(H2/HSQLDB/Derby 클래스패스 필요) |
 | **트랜잭션** | 각 테스트 메서드를 트랜잭션으로 감싸고 **끝나면 롤백** (테스트 간 격리) |
 | **제공 빈** | `TestEntityManager`, `EntityManager`, `DataSource`, Hibernate, Spring Data 레포 |
-| **SQL 로그** | `spring.jpa.show-sql` 켜면 실행 SQL 확인 가능 |
+| **SQL 로그** | **기본으로 켜져 있다**(`spring.jpa.show-sql=true`). 끄려면 `@DataJpaTest(showSql = false)` |
 
 > 어댑터(`@Repository` 컴포넌트)는 슬라이스 스캔 대상이 아니므로 **`@Import`로 직접 등록**해야 주입된다.
 
@@ -47,7 +47,7 @@ class UserRepositoryAdapterTest {
 | `Replace.AUTO_CONFIGURED` | 자동 구성된 datasource만 교체 |
 | **`Replace.NONE`** | **교체 안 함** → `application.yml`의 datasource(H2/MySQL) 그대로 사용 |
 
-> 이 프로젝트는 테스트 `application.yml`에 H2를 직접 설정 → **`Replace.NONE`** 으로 그 H2를 쓴다. Testcontainers MySQL을 붙일 때도 `NONE`(교체를 꺼야 컨테이너 DB로 연결됨).
+> 테스트 `application.yml`에 H2(또는 다른 DB)를 직접 설정했다면 **`Replace.NONE`** 이어야 그 설정을 쓴다(기본 `ANY`면 내 설정을 버리고 임베디드로 교체). Testcontainers는 버전에 따라 다르다 — **Boot 3.4+는 `@ServiceConnection` 컨테이너 DB를 감지해 교체하지 않으므로 `NONE` 생략 가능**, 그 전 버전이나 `@DynamicPropertySource` 방식은 `NONE` 필요. (예전 동작으로 되돌리려면 `Replace.AUTO_CONFIGURED`)
 
 ---
 
@@ -169,7 +169,7 @@ H2로 안 되는 것(`FOR UPDATE` 락 시맨틱·MySQL 방언·동시성)만 실
 
 ```java
 @DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)  // Boot 3.4+면 생략 가능(§3)
 @Testcontainers                                  // ① JUnit5 확장 — 컨테이너 생명주기 관리
 @Import(UserRepositoryAdapter.class)
 class UserLockRepositoryTest {
@@ -179,12 +179,15 @@ class UserLockRepositoryTest {
     static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
 }
 ```
+> Testcontainers 2.x는 모듈 아티팩트가 `testcontainers-mysql`로 바뀌었고 공식 예제가 제네릭 없이 `new MySQLContainer("mysql:8.0.36")`이다(패키지 이동 여부는 확인 필요). 위는 1.x 문법.
 
 | 어노테이션 | 역할 |
 |---|---|
 | `@Testcontainers` | 컨테이너 start/stop을 JUnit 생명주기에 연결 |
 | `@Container` | **static 필드** → 클래스당 1번 기동(공유, 빠름) / **인스턴스 필드** → 테스트마다 기동(느림) |
 | `@ServiceConnection` | 컨테이너의 url/username/password를 스프링에 자동 연결 |
+
+> ⚠️ **static `@Container` × 스프링 컨텍스트 캐시**: JUnit 확장은 클래스가 끝나면 컨테이너를 **멈추는데**, 스프링은 같은 설정의 컨텍스트를 캐시해 **다음 테스트 클래스에서 재사용**한다 → 재사용된 컨텍스트가 이미 멈춘 컨테이너를 가리켜 연결 실패. 여러 클래스가 컨테이너를 공유하면 `@TestConfiguration`의 `@Bean @ServiceConnection`으로 **컨테이너를 빈으로** 두거나(컨텍스트와 수명이 같아짐), 인터페이스의 static 필드 + `@ImportTestcontainers`로 선언을 공유한다. (Spring Boot 문서 "Lifecycle of Managed Containers")
 
 ### `@ServiceConnection` 없이 (구버전·수동)
 
@@ -217,7 +220,8 @@ static void props(DynamicPropertyRegistry registry) {
 - **persist≠INSERT** → flush 직접 호출 (§5).
 - **`clear()` 누락** → 캐시라 SELECT 검증 안 됨 (§6).
 - **unique 컬럼 여러 건** → email `@Column(unique=true)`인데 같은 값 2건 적재 시 flush에서 위반. 픽스처를 `withEmail(email)`로 다르게. → [테스트 픽스처](./test-fixtures.md)
-- **테스트 파일 위치** → 대상 클래스와 **같은 패키지**(표준). 어댑터가 `adapter.out.persistence`면 테스트도 거기.
+- **테스트 파일 위치** → 대상 클래스와 **같은 패키지**(표준, `src/test/java` 아래 같은 경로). package-private 멤버도 테스트에서 보인다.
+- **id를 앱이 미리 채우는 엔티티의 `save()`** → Spring Data `save()`는 `isNew()`면 `persist`, 아니면 `merge`. `isNew()` 기본 판정은 "id가 null인가"(`@Version`이 있으면 "version이 null인가")라, 도메인에서 UUID를 미리 넣은 엔티티는 **새 엔티티인데도 merge** → INSERT 전에 SELECT가 하나 더 나간다. `@GeneratedValue`로 맡기거나, `Persistable.isNew()` 구현 또는 `@Version`(wrapper 타입)으로 신규 판정을 바로잡는다. (§5의 "persist ≠ INSERT"는 `@GeneratedValue(strategy = UUID)`처럼 id가 persist 시점에 생기는 경우)
 - **Specification이 없는 컬럼 참조** → `likeIgnoreCase("name", ...)`인데 엔티티에 `name` 없으면 쿼리 빌드 시 `IllegalArgumentException`. (Specification/Pageable 개념 자체 → [Criteria·Specification·Pageable·Page](../jpa/spring-data-query.md))
 - **필터 테스트는 "부분집합"으로 (차별화)** → 검색어가 seed를 **전부 매칭**하면(예: `a@test.com`·`b@test.com` 둘 다 있는데 `"test"`로 검색) 필터가 일을 안 해도(조건 누락 버그여도) 통과한다 + "전체 조회" 케이스와 결과가 겹침. **`"a@"`처럼 일부만 걸리는** 검색어로 "걸릴 건 걸리고 안 걸릴 건 빠진다"를 보여야 진짜 검증.
 
@@ -225,6 +229,9 @@ static void props(DynamicPropertyRegistry registry) {
 
 ## 10. 참고
 - [Spring Boot - TestEntityManager](https://docs.spring.io/spring-boot/api/java/org/springframework/boot/test/autoconfigure/orm/jpa/TestEntityManager.html)
+- [Spring Boot - Testing Spring Boot Applications](https://docs.spring.io/spring-boot/reference/testing/spring-boot-applications.html) — `@DataJpaTest` SQL 로그 기본값
+- [Spring Boot 3.4 Release Notes - @AutoConfigureTestDatabase with Containers](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.4-Release-Notes)
+- [Spring Boot - Testcontainers (Lifecycle of Managed Containers)](https://docs.spring.io/spring-boot/reference/testing/testcontainers.html)
 - [Testcontainers for Java - MySQL](https://java.testcontainers.org/modules/databases/mysql/)
 - 관련 노트: [영속성 컨텍스트·flush](../jpa/persistence-context.md) · [테스트 픽스처](./test-fixtures.md) · [Criteria·Specification·Pageable·Page](../jpa/spring-data-query.md)
 

@@ -20,9 +20,11 @@
 
 > 엔티티를 보관·관리하는 **JPA의 1차 캐시 같은 메모리 공간.** 트랜잭션 동안 "관리 대상(영속 상태)" 엔티티들이 여기 올라가 있다.
 
-- 생명주기 ≈ **트랜잭션 범위** (보통 `@Transactional` 메서드 시작~끝).
+- 생명주기 ≈ **트랜잭션 범위** (보통 `@Transactional` 메서드 시작~끝). 단 스프링 부트 기본값인 OSIV가 켜져 있으면 **요청이 끝날 때까지** 산다 → [OSIV](./osiv.md).
 - `find`/JPQL로 조회하면 엔티티가 여기에 **올라가면서 그 순간의 값을 스냅샷으로 같이 저장**한다.
 - 한 번 올라온 엔티티는 **JPA가 계속 감시**한다.
+
+> ⚠️ **1차 캐시가 SQL을 아껴 주는 건 id 조회(`em.find`/`findById`)뿐이다.** JPQL·파생 쿼리는 **항상 SQL을 실행**하고, 결과 행 중 이미 영속성 컨텍스트에 있는 엔티티는 **DB에서 읽은 값을 버리고 기존 인스턴스를 돌려준다**(같은 트랜잭션 안 `==` 동일성 보장). 그래서 트랜잭션 도중 남이 커밋한 최신 값이 필요하면 쿼리를 다시 날리는 게 아니라 `em.refresh(entity)`나 처음부터 락 조회가 필요하다 ([@Lock 실무 패턴 §3](./lock-practical.md)).
 
 ```
 [엔티티 상태]
@@ -47,9 +49,18 @@ void charge(Long id) {
 }                                            // ③ 메서드 끝 → commit → 이제서야 UPDATE 발사
 ```
 
-- `setStock(9)`는 그냥 **자바 객체의 필드를 바꾼 것**일 뿐, `UPDATE` SQL이 나가지 않는다.
-- 변경 내용은 영속성 컨텍스트의 **쓰기 지연 SQL 저장소**에 쌓인다.
-- 모아둔 SQL은 **flush 시점에** 한꺼번에 DB로 나간다.
+- `setStock(9)`는 그냥 **자바 객체의 필드를 바꾼 것**일 뿐, `UPDATE` SQL이 나가지 않는다. 이 순간엔 **아무것도 예약되지 않는다** — UPDATE는 flush 때 더티 체킹이 스냅샷과 비교해 **그때 만든다**(§4).
+- 반면 `em.persist()`/`em.remove()`는 호출 시점에 INSERT/DELETE 작업이 영속성 컨텍스트의 **쓰기 지연 저장소**(Hibernate의 ActionQueue)에 쌓인다 (IDENTITY 전략 INSERT는 예외 → [키 생성 전략](./id-generation.md)).
+- 모아둔 SQL은 **flush 시점에** 한꺼번에 DB로 나간다. (단, `SELECT`는 미뤄지지 않고 호출 즉시 나간다 — `FOR UPDATE` 락 조회 포함)
+- **`@Query`로 직접 쓴 쿼리는 쓰기 지연 대상이 아니다.** `@Modifying` 벌크 UPDATE·DELETE·네이티브 INSERT는 호출하는 순간 `executeUpdate()`로 바로 나간다(직전에 flush 한 번). 쓰기 지연은 "엔티티 객체를 통한 변경"에만 적용되는 장치이고, 직접 쓴 쿼리는 영속성 컨텍스트를 거치지 않기 때문이다. 결과(영향받은 행 수)를 지금 돌려줘야 하니 미룰 수도 없다.
+- 헷갈리지 말 것: **"SQL이 DB에 도착하는 시점"과 "확정(커밋)되는 시점"은 다르다.** 즉시 나간 네이티브 INSERT도, 나중에 flush된 UPDATE도 **커밋은 트랜잭션 끝에 같이** 된다. 롤백되면 둘 다 사라지고, 커밋 전에는 둘 다 다른 트랜잭션에 보이지 않는다.
+
+| 코드 | SQL이 나가는 시점 | 확정 |
+| --- | --- | --- |
+| 엔티티 필드 변경(더티 체킹) | flush 때 | 커밋 때 |
+| `persist`·`save`(새 엔티티) | flush 때 (IDENTITY 키 전략이면 즉시) | 커밋 때 |
+| `@Query` 조회(JPQL·네이티브) | 호출 즉시 (직전 자동 flush) | — |
+| `@Modifying @Query` 변경 | 호출 즉시 (직전 flush) | 커밋 때 |
 
 > 그래서 `save()`를 명시적으로 안 불러도 값이 반영된다(= dirty checking). 반대로, UPDATE가 "언제" 나가는지는 내 코드 줄이 아니라 **flush 타이밍**이 결정한다.
 
@@ -61,7 +72,7 @@ flush = 영속성 컨텍스트의 변경 내용을 DB에 동기화(SQL 발사). 
 
 **flush가 일어나는 시점 (3가지)**
 1. **트랜잭션 commit 직전** ← 가장 흔함. "커밋 시점"이라는 말의 정체.
-2. **JPQL/쿼리 실행 직전** (조회 결과 정합성을 위해, AUTO 모드 기본)
+2. **JPQL/HQL 실행 직전** (조회 결과 정합성을 위해, AUTO 모드 기본) — 단 Hibernate는 그 쿼리가 **대기 중인 변경과 테이블이 겹칠 때만** flush한다. 무관한 테이블 조회면 flush하지 않는다. 네이티브 SQL은 동기화 대상(쿼리 공간)을 등록하지 않았으면 항상 flush.
 3. **`em.flush()` 직접 호출**
 
 ```
@@ -81,6 +92,19 @@ commit = 트랜잭션을 확정 (flush 포함 → 되돌릴 수 없음)
 - **스프링 `@Transactional`의 commit = DB의 commit = 여기서 말하는 commit** — 다른 게 아니라 같은 것. 선언적 트랜잭션은 결국 commit/rollback 한 번을 호출하는 추상화 껍데기다.
 - **한 트랜잭션은 commit(또는 rollback) 1회로 끝난다.** 한 트랜잭션 안에 commit이 여러 번 있는 게 아니다 — 여러 번인 건 flush다.
 - 예외처럼 보이는 `REQUIRES_NEW`(전파)는 **별도 트랜잭션**이 새로 생기는 것이라, "한 트랜잭션 안 여러 commit"이 아니라 "트랜잭션이 여러 개(각자 commit 1번)"인 경우다.
+
+### ⚠️ flush 전이면 누가 옛값을 읽지 않나?
+
+엔티티 값을 바꾼 뒤 flush 전까지 DB에는 옛값이 있다. 그래도 문제가 되지 않는 이유는 **읽는 쪽이 누구냐**에 따라 다르다.
+
+| 읽는 쪽 | 무엇을 보나 | 왜 안전한가 |
+| --- | --- | --- |
+| 같은 트랜잭션의 `em.find`·`findById` | 1차 캐시의 **메모리 객체** | DB까지 가지 않고 바뀐 값 그대로를 돌려준다 |
+| 같은 트랜잭션의 JPQL | flush 후의 DB | 실행 직전 자동 flush(테이블이 겹칠 때) — 결과도 1차 캐시의 객체로 맞춰진다 |
+| 같은 트랜잭션의 네이티브 SQL | flush 후의 DB | 실행 직전 전체 flush(쿼리 공간 미등록 시). `@Modifying(flushAutomatically = true)`로 명시하기도 한다 |
+| **다른 트랜잭션** | 커밋된 값만 | flush돼도 **커밋 전이면 안 보인다**(READ COMMITTED). 같은 행을 `FOR UPDATE`로 읽으려 하면 내 커밋까지 **기다렸다가** 최신 커밋값을 읽는다 |
+
+정리하면 "flush 전이라 옛값을 읽는" 일은 같은 트랜잭션에서는 위 장치들 때문에 생기지 않고, 다른 트랜잭션은 원래 커밋된 값만 본다. 다른 트랜잭션이 **락 없이** 읽고 그 값으로 판단·쓰기를 하면 그건 flush가 아니라 [Read-Modify-Write](./read-modify-write.md) 경쟁의 문제다.
 
 ---
 
@@ -134,11 +158,13 @@ void x() {
     Product p = em.find(Product.class, 1L);   // version=1 기억
     p.setStock(9);                             // UPDATE 아직 안 나감
 
-    em.createQuery("select o from Order o ...").getResultList();
-    //  ↑ JPQL 실행 직전 auto-flush → 모아둔 UPDATE 먼저 발사
+    em.createQuery("select p from Product p where ...").getResultList();
+    //  ↑ Product 테이블과 겹치는 JPQL → 실행 직전 auto-flush → 모아둔 UPDATE 먼저 발사
     //    WHERE version=1 인데 DB가 이미 2 → 0건 → 여기서 예외 💥 (commit 전)
 }                                              // commit 때 flush되면 → 그때 예외
 ```
+
+> ⚠️ 위 쿼리가 `select o from Order o`처럼 **무관한 테이블**이면 auto-flush가 일어나지 않아, 예외는 commit 때 난다 (Hibernate User Guide의 AUTO flush 예제).
 
 | flush 시점 | 에러가 나는 위치 |
 |------------|------------------|
@@ -156,7 +182,7 @@ void x() {
 @Transactional 시작
  │  영속성 컨텍스트 생성
  ├─ find/JPQL 조회   → 엔티티 영속화 + 스냅샷 저장 (version 기억)
- ├─ setter로 값 변경 → 자바 객체만 변경 (쓰기 지연 저장소에 예약)
+ ├─ setter로 값 변경 → 자바 객체만 변경 (아무것도 예약 안 됨 — flush 때 감지)
  │
  └─ 메서드 정상 종료 → COMMIT
         └─ flush (이 순간!)
@@ -166,7 +192,7 @@ void x() {
              └─ DB 트랜잭션 확정
 ```
 
-- 영속성 컨텍스트 = **트랜잭션 단위로 생성·소멸**.
+- 영속성 컨텍스트 = **트랜잭션 단위로 생성·소멸** (OSIV off 기준. OSIV on이면 요청 단위로 살고 트랜잭션은 그 안에서 열고 닫힌다 → [OSIV](./osiv.md)).
 - 롤백되면 모아둔 SQL은 안 나간 셈(또는 되돌림). flush 했어도 commit 전이면 롤백 가능.
 - **트랜잭션을 짧게 유지**하라는 락 조언도 결국 이것 때문 — 영속성 컨텍스트가 길게 열려 있으면 락·충돌 구간이 길어진다.
 
@@ -183,13 +209,14 @@ void x() {
 
 | | 락 획득 / version 체크가 일어나는 시점 | 락 해제 |
 |---|---|---|
-| **JPA** | **flush 때** (SQL이 그때 나가므로) | **commit/rollback** |
+| **JPA — `@Lock(PESSIMISTIC_*)` 조회** | **조회 호출 즉시** (SELECT는 쓰기 지연 대상이 아님) | **commit/rollback** |
+| **JPA — 더티 체킹 UPDATE** (행 락·version 체크) | **flush 때** (UPDATE가 그때 나가므로) | **commit/rollback** |
 | **MyBatis** | **mapper 호출 즉시** (SQL이 바로 나가므로) | **commit/rollback** |
 
 - **락 해제(= 트랜잭션 종료)는 commit/rollback이 기준** — ORM이든 MyBatis든 **DB의 보편 규칙**으로 동일. `FOR UPDATE`로 잡은 row 락은 commit/rollback 전까지 안 풀린다.
-- **락 획득(= 락 거는 행위 / 충돌 감지)은 "SQL이 DB에서 실행되는 순간"** 이 기준. JPA는 flush로 미뤄지고, MyBatis는 즉시.
+- **락 획득(= 락 거는 행위 / 충돌 감지)은 "SQL이 DB에서 실행되는 순간"** 이 기준. JPA는 INSERT/UPDATE/DELETE만 flush로 미뤄지고, SELECT(`FOR UPDATE` 포함)는 MyBatis처럼 즉시.
 
-> JPA에서 "커밋 시점"이 자꾸 등장한 건, **JPA가 SQL을 commit 직전 flush로 미루기 때문**에 "락 거는 시점 ≈ 커밋 시점"이 됐던 것. MyBatis는 그 미룸이 없으니 락은 **호출 즉시** 걸리고, 해제만 commit 때 된다.
+> JPA에서 "커밋 시점"이 자꾸 등장한 건, **더티 체킹 UPDATE(와 거기 얹힌 version 체크)가 commit 직전 flush로 미뤄지기 때문**이다. 명시적 비관 락은 조회한 그 줄에서 바로 걸린다. MyBatis는 미룸 자체가 없으니 모든 SQL이 **호출 즉시** 실행되고, 해제만 commit 때 된다.
 
 ```java
 // MyBatis 낙관적 락 — 호출한 그 줄에서 바로 판가름
@@ -219,25 +246,32 @@ MyBatis에서 SQL이 "즉시" 나가도, `@Transactional`이 `autocommit=false`�
   update(C) → 💥 예외 → rollback → A·B도 전부 취소
 ```
 
-> ⚠️ **스프링 롤백 함정**: 스프링은 기본적으로 **`RuntimeException`/`Error`(unchecked)만 자동 롤백**한다. `checked exception`(`IOException` 등)은 던져도 **롤백하지 않고 commit**된다. 롤백시키려면 `@Transactional(rollbackFor = Exception.class)`를 명시해야 한다. → "하나라도 에러나면 다 롤백"이 항상 참은 아니다.
+> ⚠️ "하나라도 에러나면 다 롤백"이 항상 참은 아니다 — 스프링은 기본적으로 unchecked 예외만 롤백한다 → [@Transactional §5 롤백 규칙](../spring/transactional.md).
 
 ---
 
 ## 7. 정리
 
 - **"커밋 시점" = 트랜잭션 commit이 트리거하는 flush 시점.** 이때 모아둔 SQL이 DB로 나간다.
-- JPA는 `setter`로 즉시 UPDATE를 안 날리고 **모아뒀다가(쓰기 지연) flush 때** 발사한다.
+- JPA는 `setter`로 즉시 UPDATE를 안 날리고 **flush 때 변경을 감지해** 발사한다(쓰기 지연). persist/remove는 호출 시 쌓아뒀다가 flush 때 발사.
 - **더티 체킹**이 변경을 감지해 UPDATE를 만들고, **version 체크**는 그 UPDATE의 `WHERE`에 얹혀 함께 나간다 → 그래서 "수정할 때 체크"가 맞고, "조회 시점엔 안 함".
 - 이 모든 게 **트랜잭션(영속성 컨텍스트) 위에서** 돌아간다. 락은 이 기반 위에 올라탄 것.
+
+### 💡 판단 기준
+
+- **"UPDATE·예외가 언제 나나?"는 코드 줄이 아니라 flush 트리거(commit·겹치는 JPQL·`em.flush()`)를 찾아서 답한다.** setter 옆에 둔 `try-catch`가 `OptimisticLockException`을 못 잡는 건 그 줄에서 SQL이 안 나가기 때문이다(§5).
+- **같은 트랜잭션에서 "방금 커밋된 최신 값"이 필요하면 1차 캐시를 먼저 의심한다.** 쿼리를 다시 날려도 이미 올라온 엔티티는 옛 상태다 → `em.refresh()`, 또는 처음부터 락 조회(§1).
+- **값을 바꿨는데 반영이 안 되면 "이 엔티티가 지금 영속 상태인가(트랜잭션 안·같은 컨텍스트인가)"부터 본다** → [준영속 수정: merge 함정](./merge-vs-dirty-checking.md) · [OSIV](./osiv.md).
 
 ---
 
 ## 8. 참고
+- [Hibernate ORM 6.6 User Guide - Flushing (AUTO flush는 겹치는 쿼리만)](https://docs.hibernate.org/orm/6.6/userguide/html_single/#flushing-auto)
 - [Hibernate User Guide - Flushing](https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#flushing)
 - [Baeldung - JPA Persistence Context](https://www.baeldung.com/jpa-hibernate-persistence-context)
-- 관련 노트: [JPA @Lock](./lock.md) · [락 개념 종합](../concurrency/locks.md)
+- 관련 노트: [JPA @Lock](./lock.md) · [락 개념 종합](../concurrency/locks.md) · [OSIV](./osiv.md)
 
 ---
 
 **학습 날짜**: 2026-05-26
-**계기**: 낙관적 락의 "커밋 시점에 version 체크"가 더티체킹과 같은 건지, 트랜잭션과 무슨 관계인지 헷갈려서 그 기반인 영속성 컨텍스트/flush를 정리
+**계기**: 낙관적 락의 "커밋 시점에 version 체크"가 더티체킹과 같은 건지, 트랜잭션과 무슨 관계인지 헷갈려서 그 기반인 영속성 컨텍스트/flush를 정리 (2026-10-02 auto-flush 조건·락 획득 시점·1차 캐시 함정 보정, 💡 추가)

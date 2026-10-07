@@ -56,7 +56,7 @@ ConcertEntity concert = entityManager.find(
 );
 ```
 
-> **`@Lock` + `JOIN FETCH` 주의**: 락은 주 엔티티에만 걸린다. fetch join으로 가져온 연관 엔티티에는 락이 안 걸리므로, 자식에도 락이 필요하면 별도 처리해야 함.
+> **`@Lock` + `JOIN FETCH` 주의**: 어느 테이블 행까지 잠기는지는 **DB·방언·Hibernate 버전마다 다르다.** `OF` 없는 `FOR UPDATE`로 나가면 조인된 연관 테이블 행까지 잠기고(공유 코드 테이블 같은 행까지 잠가 경합이 커질 수 있음), `FOR UPDATE OF 별칭`이 붙으면 지정한 테이블만 잠긴다. "주 엔티티만 잠기겠지"라고 가정하지 말고 **실제 SQL을 로그로 확인**할 것. (`OF` 동작 → [SELECT FOR UPDATE](../../database/select-for-update.md))
 
 ---
 
@@ -112,8 +112,10 @@ public interface SeatRepository {
 }
 ```
 
-### 트랜잭션 안에서는 1차 캐시 활용
-같은 트랜잭션 안에서 한 번 락 걸고 조회한 엔티티는 **1차 캐시**에 있으므로, 이후 다시 조회해도 DB를 안 친다. 즉 **락은 처음 한 번만** 걸면 된다.
+### 트랜잭션 안에서는 1차 캐시 — 락은 "처음 읽을 때" 건다
+한 번 락 걸고 조회한 엔티티는 커밋까지 행 락이 유지되므로 **락은 처음 한 번만** 걸면 된다. 단 1차 캐시가 SQL을 아껴 주는 건 `findById`(id 조회)뿐이고, JPQL·파생 쿼리는 **항상 SQL을 실행**한 뒤 이미 영속성 컨텍스트에 있는 엔티티는 DB 값을 버리고 기존 인스턴스를 돌려준다 ([영속성 컨텍스트 §1](./persistence-context.md)).
+
+> ⚠️ 그래서 **락 없이 먼저 읽은 엔티티를 나중에 `findByIdForUpdate`로 다시 읽으면** 행은 잠기지만 객체 상태는 처음 읽은 옛 값 그대로다. `@Version`이 있으면 Hibernate가 락을 올리는 순간 version을 검사해 잡아내지만([@Lock 심화 §4](./lock-concepts.md)), 없으면 옛 값으로 계산해 조용히 lost update가 난다. → 수정할 엔티티는 **처음부터 락 메서드로** 읽는다.
 
 ### CQRS로 자연스럽게 분리
 조회 전용 Service와 명령 Service를 나누면 락 필요 여부가 저절로 갈린다.
@@ -143,49 +145,12 @@ verify(seatService, never()).getSeat(any());          // 일반 조회 안 썼�
 ```
 
 ### 레벨 2·3 — 동시성 통합 테스트 (가장 중요): "정확히 1개만 성공하는가"
-`ExecutorService` + `CountDownLatch`로 N개 스레드를 **동시에 출발**시켜, 같은 좌석 예약 시 하나만 성공하는지 검증. (실제 DB 필요 → Testcontainers)
+`@SpringBootTest` + 실제 DB(Testcontainers)에서 N개 스레드를 `CountDownLatch`로 **동시에 출발**시켜 결과로 락 동작을 역추적한다. 테스트 골격(latch 3개·`finally`의 countDown·테스트에 `@Transactional` 금지·셋업 commit)은 정본인 [동시성 테스트 작성법](../test/concurrency-test.md)을 따른다. 락 노트에서 챙길 검증 포인트만:
 
-```java
-@SpringBootTest
-@Import(TestcontainersConfiguration.class)
-class ReservationConcurrencyTest {
-    @Test
-    void 동시_예약_시_한_명만_성공() throws InterruptedException {
-        int threadCount = 10;
-        ExecutorService pool = Executors.newFixedThreadPool(threadCount);
-        CountDownLatch startLatch = new CountDownLatch(1);          // 동시 출발 신호
-        CountDownLatch endLatch = new CountDownLatch(threadCount);  // 전원 종료 대기
-        AtomicInteger success = new AtomicInteger();
-        AtomicInteger fail = new AtomicInteger();
-
-        for (int i = 0; i < threadCount; i++) {
-            pool.submit(() -> {
-                try {
-                    startLatch.await();   // 모든 스레드가 여기서 대기하다 동시에 출발
-                    reservationUseCase.execute(command);
-                    success.incrementAndGet();
-                } catch (BusinessException e) {
-                    fail.incrementAndGet();   // 이미 예약됨
-                } finally {
-                    endLatch.countDown();
-                }
-            });
-        }
-        Thread.sleep(100);          // 전 스레드가 대기 상태 들어갈 시간
-        startLatch.countDown();     // 동시 출발!
-        endLatch.await(30, TimeUnit.SECONDS);
-
-        assertThat(success.get()).isEqualTo(1);                 // 딱 1명 성공
-        assertThat(fail.get()).isEqualTo(threadCount - 1);      // 나머지 실패
-    }
-}
-```
-
-**핵심 포인트**
-- `CountDownLatch startLatch`로 모든 스레드를 **같은 순간 출발**시켜야 진짜 동시성 재현
-- 락이 없으면 이 테스트는 success가 2 이상 나오며 **실패**한다 (→ 락이 필요함을 증명)
-- 서로 다른 좌석이면 둘 다 성공해야 정상 (락이 과하게 안 걸리는지 확인)
-- Testcontainers라 **Docker 실행 필수**, 락 대기로 실행 시간이 길어질 수 있음
+- **같은 자원(같은 좌석) 동시 요청 → 성공 정확히 1, 나머지 N-1은 업무 예외**("이미 예약됨"). 비관 락 + 합계형이면 최종 합계로 검증(결정적), 낙관 락이면 1성공/N충돌(타이밍 의존).
+- **다른 자원(다른 좌석) 동시 요청 → 전부 성공** — 락이 과하게(테이블 단위로) 걸리지 않는지 확인. 조건 컬럼에 인덱스가 없으면 다른 좌석끼리도 서로 기다려(직렬화) 이 테스트가 느려지거나 타임아웃으로 드러난다(§9).
+- **락을 빼면 이 테스트가 실패하는지** 한 번 확인해야 테스트가 락을 증명한다.
+- Testcontainers라 Docker 실행 필수, 락 대기만큼 실행 시간이 늘어난다.
 
 ---
 
@@ -200,7 +165,7 @@ T2: UPDATE ... WHERE id=1                   → 대기 ⏳
 T2: SELECT ... FOR UPDATE WHERE id=1        → 대기 ⏳
 ```
 
-> 즉 "아무도 읽지 못하게 한다"가 아니라, **"다른 트랜잭션이 같은 row를 수정하거나 락을 잡지 못하게 한다"**에 가깝다. (격리 수준과 별개로 MVCC 스냅샷 읽기 때문)
+> 즉 "아무도 읽지 못하게 한다"가 아니라, **"다른 트랜잭션이 같은 row를 수정하거나 락을 잡지 못하게 한다"**에 가깝다. (MVCC 스냅샷 읽기 때문. 예외: MySQL `SERIALIZABLE`은 autocommit이 꺼져 있으면 일반 SELECT를 `FOR SHARE`로 바꾸므로 이때는 막힌다)
 
 ### "일반 SELECT 허용"의 정확한 의미 — 안 막히지만 "미커밋 값"은 못 본다
 
@@ -212,16 +177,13 @@ T1: SELECT ... FOR UPDATE   (stock=10 읽고 배타 락) 🔒
 T1: UPDATE stock = 5        (변경했지만 아직 COMMIT 전!)
 T2: SELECT stock ...        → 즉시 읽힘 ✅  but 값은 10 ❗ (커밋 전 스냅샷, 5 아님)
 T1: COMMIT                  (이제 stock=5 확정)
-T2: SELECT stock ...        → 이번엔 5 (커밋 후 최신 스냅샷)
+T2: SELECT stock ...        → READ COMMITTED면 5 (문장마다 새 스냅샷)
+                              REPEATABLE READ(MySQL 기본)면 여전히 10 (첫 읽기 스냅샷 유지)
 ```
 
-| 읽는 방식 | 배타락 걸린 row를... |
-|---|---|
-| 일반 `SELECT` | **안 막힘.** 단 커밋된 스냅샷을 읽음 (수정 중 값 못 봄) |
-| `SELECT ... FOR UPDATE` | **막힘(대기).** 락 경쟁에 참여 |
-| `UPDATE` / `DELETE` | **막힘(대기).** |
+> 일반 SELECT / `FOR SHARE` / `FOR UPDATE` / `UPDATE`가 상대 락에 막히는지 한눈에 보는 표 → [@Lock 심화 §2 호환성 표](./lock-concepts.md).
 
-> 핵심: 배타락은 **"읽기를 막는 락"이 아니라 "쓰기·락 획득을 막는 락"**이다. 따라서 "내가 읽은 값으로 정확히 판단하고 수정"하려면 읽는 쪽도 반드시 `FOR UPDATE`로 읽어 **같은 락 경쟁에 참여**해야 한다. 일반 SELECT로 읽으면 락의 보호를 못 받는다. (→ 비관적 락에서 조회 메서드를 `findById` / `findByIdForUpdate`로 분리하는 이유. 공유락까지 포함한 전체 락 호환성 표 → [@Lock 심화 §2](./lock-concepts.md))
+> 핵심: 배타락은 **"읽기를 막는 락"이 아니라 "쓰기·락 획득을 막는 락"**이다. 따라서 "내가 읽은 값으로 정확히 판단하고 수정"하려면 읽는 쪽도 반드시 `FOR UPDATE`로 읽어 **같은 락 경쟁에 참여**해야 한다. 일반 SELECT로 읽으면 락의 보호를 못 받는다. (→ 비관적 락에서 조회 메서드를 `findById` / `findByIdForUpdate`로 분리하는 이유)
 
 ---
 
@@ -229,7 +191,7 @@ T2: SELECT stock ...        → 이번엔 5 (커밋 후 최신 스냅샷)
 
 흔한 실수: `@Transactional` 안에서 `catch` 후 그대로 재시도. 두 가지 이유로 안 된다.
 
-1. **예외는 메서드 안이 아니라 commit 때 터진다.** 더티 체킹 UPDATE의 version 검증은 메서드 본문이 아니라 **메서드 종료 후 프록시가 commit(flush)하는 시점**에 일어난다. 그래서 본문 안에 `try-catch`를 둬도 **그 catch엔 안 잡힌다**(예외는 본문 바깥에서 발생). ([flush/commit 타이밍](./persistence-context.md))
+1. **예외는 보통 메서드 안이 아니라 commit 때 터진다.** 더티 체킹 UPDATE의 version 검증은 **UPDATE가 실제로 나가는 flush 시점**에 일어나고, 중간 flush가 없으면 그건 **메서드 종료 후 프록시가 commit하는 순간**이다. 그래서 본문 안에 `try-catch`를 둬도 **그 catch엔 안 잡힌다**. (본문에서 `em.flush()`·`saveAndFlush()`나 같은 테이블을 조회하는 JPQL이 auto-flush를 일으키면 그 줄에서 터진다 → [영속성 컨텍스트 §5](./persistence-context.md))
 2. **잡혀도 rollback-only라 재사용 불가.** 충돌 난 트랜잭션은 이미 **rollback-only**로 마킹돼, 같은 트랜잭션을 이어 쓰면 영속성 컨텍스트가 꼬이거나 커밋이 실패한다.
 
 ```java
@@ -259,7 +221,8 @@ public void decreaseStock(Long productId, int qty) {
 ```
 
 **주의점**
-- 예외 타입: JPA의 `OptimisticLockException`은 Spring 데이터 환경에서 `ObjectOptimisticLockingFailureException`으로 변환되어 올라온다. `@Retryable`에는 후자를 잡는 게 안전.
+- 위 코드는 **Spring Retry**(`org.springframework.retry`, `@EnableRetry` 필요) 기준이다. Spring Framework 7부터는 코어에 `@Retryable`(`org.springframework.resilience.annotation`, `@EnableResilientMethods`로 활성화)이 따로 생겼다 — 속성 이름(`maxRetries` 등)이 다르고, `@Transactional`과의 적용 순서는 확인 필요.
+- 예외 타입: JPA의 `OptimisticLockException`은 Spring 데이터 환경에서 `ObjectOptimisticLockingFailureException`으로 변환되어 올라온다. `@Retryable`에는 후자(또는 상위 `OptimisticLockingFailureException`)를 잡는 게 안전.
 - `@Retryable`이 `@Transactional`보다 **바깥쪽**에서 동작해야(재시도마다 새 트랜잭션) 의미가 있다.
 - **self-invocation 금지**: 같은 클래스 내부 메서드 호출은 프록시를 안 타서 재시도/트랜잭션이 적용되지 않는다.
 
@@ -298,7 +261,7 @@ T1: UPDATE ... version=3 WHERE version=2  → 성공 ✅
 | 상황 | 충돌 시 대응 |
 |------|-------------|
 | **서버 내 read-modify-write** (예: 재고 차감) | **자동 retry** — 다시 읽어 재계산해도 결과가 같으니 안전 |
-| **2-요청 편집** (GET으로 폼 → POST로 저장) | **사용자에게 통지** — 사용자가 **낡은 화면 값** 기준으로 입력했으므로 몰래 retry하면 안 됨. "다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도" |
+| **2-요청 편집** (GET으로 폼 → POST로 저장) | **사용자에게 통지** — 사용자가 **낡은 화면 값** 기준으로 입력했으므로 몰래 retry하면 안 됨. "다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도". ⚠️ 이 충돌은 GET에서 받은 version을 클라이언트가 들고 와 비교해야 감지된다(POST에서 새로 읽은 version끼리는 항상 일치) → [Optimistic Offline Lock](../concurrency/locks.md) |
 
 > retry는 "기계가 다시 읽어 자동 처리해도 안전할 때"만. 사람의 판단이 낡은 값에 묶여 있으면 retry가 아니라 **충돌 통지**가 맞다.
 >
@@ -370,10 +333,22 @@ Optional<UserPoint> findByUserIdForUpdate(@Param("userId") Long userId);
 
 ---
 
-## 참고
-- [Spring Data JPA - Locking 공식 문서](https://docs.spring.io/spring-data/jpa/reference/jpa/locking.html)
-- 관련 노트: [@Lock 기본](./lock.md) · [@Lock 심화 개념](./lock-concepts.md) · [영속성 컨텍스트](./persistence-context.md) · [데드락](../concurrency/deadlock.md)
+## 10. 💡 판단 기준
+
+- **차감 한 줄로 끝나면 조건부 UPDATE, 읽고 여러 검증을 거쳐야 하면 `FOR UPDATE`** (§8). 재고 1 차감은 `WHERE stock >= 1` 한 방, "회원 등급·쿠폰·한도를 보고 차감"은 락 조회 후 엔티티 메서드.
+- **충돌 시 자동 재시도는 "기계가 다시 읽어 다시 계산해도 같은 의도"일 때만**, 사람이 낡은 화면을 보고 입력한 경우는 통지 (§6). 재시도 경로에 이메일·외부 API가 있으면 멱등성부터.
+- **락 조회와 일반 조회는 메서드를 나누고, 수정할 엔티티는 처음부터 락 메서드로 읽는다** (§3). 나중에 락으로 다시 읽어도 1차 캐시의 옛 상태는 안 바뀐다.
+- **`FOR UPDATE`를 붙였으면 SQL 로그로 잠기는 범위(조인 테이블·인덱스)를 확인한다** (§1, §9). "다른 좌석 동시 요청이 기다림 없이 둘 다 성공"하는 테스트가 그 확인을 대신한다 (§4).
 
 ---
 
-**학습 날짜**: 2026-05-25 (2026-05-26 lock.md에서 실무 패턴만 분리)
+## 참고
+- [Spring Data JPA - Locking 공식 문서](https://docs.spring.io/spring-data/jpa/reference/jpa/locking.html)
+- [MySQL 8.0 - Consistent Nonlocking Reads (RR은 첫 읽기 스냅샷 유지)](https://dev.mysql.com/doc/refman/8.0/en/innodb-consistent-read.html)
+- [MySQL 8.0 - Transaction Isolation Levels (SERIALIZABLE은 일반 SELECT를 FOR SHARE로)](https://dev.mysql.com/doc/refman/8.0/en/innodb-transaction-isolation-levels.html)
+- [Spring Framework 7 - Resilience Features (`@Retryable`)](https://docs.spring.io/spring-framework/reference/core/resilience.html)
+- 관련 노트: [@Lock 기본](./lock.md) · [@Lock 심화 개념](./lock-concepts.md) · [영속성 컨텍스트](./persistence-context.md) · [데드락](../concurrency/deadlock.md) · [동시성 테스트 작성법](../test/concurrency-test.md)
+
+---
+
+**학습 날짜**: 2026-05-25 (2026-05-26 lock.md에서 실무 패턴만 분리, 2026-10-02 사실 보정·§4 요약화·💡 추가)

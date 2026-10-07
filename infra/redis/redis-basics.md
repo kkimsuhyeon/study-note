@@ -38,7 +38,7 @@ OK
 
 자주 보는 패턴 명령:
 - `INCR key` — 원자적 +1. 동시에 몰려도 정확 → 카운터, rate limiting
-- `SETNX key val` (= `SET key val NX`) — **없을 때만** 저장 → 분산 락의 기본 재료 (스케줄러 중복 실행 방지)
+- `SET key val NX PX 30000` — **없을 때만** 저장 + 만료를 **한 명령으로** → 분산 락의 기본 재료 (스케줄러 중복 실행 방지). 옛 `SETNX`는 Redis 2.6.12부터 deprecated다 — TTL을 같이 못 걸어서 `SETNX` 후 `EXPIRE` 사이에 프로세스가 죽으면 만료 없는 락이 영원히 남는다.
 
 ## Spring에서: RedisTemplate = 만능 리모컨
 
@@ -55,10 +55,11 @@ OK
 제네릭(`RedisTemplate<String, String>`)과 직렬화기 설정이 "Java 객체 ↔ Redis 바이트" 변환을 결정한다. 실무에선 키=String, 값=String(JSON 직접 직렬화) 조합이 흔하다 — 값 직렬화를 라이브러리에 맡기면 클래스 패키지가 페이로드에 박히는(JdkSerialization) 등 호환성 문제가 생기기 쉬워서.
 
 ## ⚠️ 함정
-1. **메모리가 본체다.** 데이터셋이 메모리에 다 올라간다. 스냅샷(RDB)·로그(AOF)로 디스크 영속화가 가능하지만 기본 감각은 "꺼지면 없어도 되는 데이터/재생성 가능한 데이터"를 두는 곳. source of truth는 RDB(관계형 DB)에.
+1. **메모리가 본체다.** 데이터셋이 메모리에 다 올라간다. 스냅샷(RDB)·로그(AOF)로 디스크 영속화가 가능하지만 기본 감각은 "꺼지면 없어도 되는 데이터/재생성 가능한 데이터"를 두는 곳. source of truth는 관계형 DB에.
+   - **가득 차면 무슨 일이 나는지 정해 둔다.** `maxmemory` 기본값 0은 64비트에서 "한도 없음"이라 OS 메모리까지 커진다. 한도를 정하면 `maxmemory-policy`가 동작을 정한다 — `noeviction`은 새 데이터 쓰기를 **에러**로 거절하고, 캐시 전용이면 `allkeys-lru`(오래 안 쓴 키부터 삭제), TTL 있는 키만 지우려면 `volatile-*`(TTL 키가 없으면 noeviction처럼 동작). 락·세션처럼 사라지면 안 되는 키와 캐시를 한 인스턴스에 섞으면 정책을 고를 수 없게 된다.
 2. **명령 실행이 (거의) 단일 스레드.** 명령 하나가 오래 걸리면 전체가 밀린다 — 운영에서 `KEYS *` 금지(`SCAN` 사용), 거대한 컬렉션 통째 조회 주의.
 3. **TTL 갱신은 명시적으로.** `GET` 한다고 수명이 연장되지 않는다. 슬라이딩 만료를 원하면 조회 후 `EXPIRE`를 다시 걸어야 함 (토큰 캐시에서 조회 시 3시간 재설정하는 식).
-4. `SETNX` 락은 **해제 실패(장애로 DEL 못 함) 대비 TTL 필수**, 그리고 "내가 건 락인지" 확인 후 해제해야 한다 — 제대로 하려면 Redisson 같은 라이브러리로.
+4. `SET NX` 락은 **해제 실패(장애로 DEL 못 함) 대비 TTL 필수**(같은 명령의 `PX`로), 그리고 "내가 건 락인지" 확인 후 해제해야 한다 — 제대로 하려면 Redisson 같은 라이브러리로 → [Redisson 분산 락](./redisson-distributed-lock.md).
 
 ## 💡 판단 기준
 - **"이 데이터, Redis가 죽으면 복구 못 해도 되나?"** — Yes(캐시·토큰·랭킹)면 Redis, No(주문·결제)면 RDB. Redis는 성능·공유 계층이지 저장소의 대체가 아니다.
@@ -67,9 +68,11 @@ OK
 ## 참고
 - Redis 자료구조 공식 문서: https://redis.io/docs/latest/develop/data-types/
 - 명령어 레퍼런스: https://redis.io/docs/latest/commands/
+- SETNX (deprecated, SET NX로 대체): https://redis.io/docs/latest/commands/setnx/
+- Key eviction (maxmemory·maxmemory-policy): https://redis.io/docs/latest/develop/reference/eviction/
 - Spring Data Redis: https://docs.spring.io/spring-data/redis/reference/redis/template.html
 - 관련 노트: [Redis pub/sub](./redis-pubsub.md) · [분산 락 개념](../../java/concurrency/locks.md) · [스케일 아웃](../scaling.md)
 
 ---
-학습 날짜: 2026-07-08
+학습 날짜: 2026-07-08 (2026-10-02 SET NX PX·eviction 보강)
 계기: SSE 알림 파이프라인 분석 중 Redis가 토큰 캐시(TTL)와 서버 간 방송(pub/sub) 두 용도로 쓰이는 걸 보고, "Redis = 키-값 저장소"라는 인식을 "자료구조 공용 메모리 서버"로 교정하며 정리.

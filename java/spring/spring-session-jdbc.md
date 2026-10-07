@@ -75,68 +75,19 @@ Spring Session이 감싼 request
 
 이 때문에 업무 코드가 `JdbcIndexedSessionRepository`를 직접 주입받을 필요가 없다. `HttpSession`이라는 동일한 사용법 뒤에서 저장소 연동이 일어난다.
 
-### 저장 한 번, 조회 한 번을 끝까지 따라가기
+### 조회만 하는 GET도 DB에 쓴다
 
-**요청 A — 언어 저장**
+요청 흐름 자체(첫 요청에서 생성 → 쿠키 발급 → 다음 요청에서 조회)는 [HttpSession §7](./http-session.md)과 같고, 다른 점은 저장 위치뿐이다. 하나만 주의한다 — 다음 요청에서 `getSession(false)`로 세션을 찾으면 저장된 바이트를 Java 값으로 복원하고, **세션에 접근했으므로 마지막 접근 시각도 갱신**해 요청 끝에 저장소에 반영한다. **`getSession(false)`를 쓴 GET이라고 세션 DB에 SELECT만 일어난다고 가정하면 안 된다.** 생성 여부와 기존 세션의 접근 시각 갱신은 다른 일이다.
 
-1. 쿠키가 없는 요청이 필터를 통과한다. 필터를 통과했다는 이유만으로 새 세션을 만들지는 않는다.
-2. Controller가 `request.getSession()`을 호출하면 새 세션을 만든다.
-3. `setAttribute("preferredLanguage", "ko")`로 이번 요청에서 다루는 세션 상태를 변경한다.
-4. 응답이 커밋되기 전 또는 요청 마무리 과정에서 저장소에 반영하고 쿠키를 작성한다.
-5. 브라우저가 응답의 `SESSION` 쿠키를 저장한다.
-
-**요청 B — 언어 조회**
-
-1. 브라우저가 같은 쿠키를 보낸다.
-2. Controller에서 `getSession(false)`를 호출하면 ID에 해당하는 DB 세션을 찾는다.
-3. 유효하면 세션 속성을 사용할 수 있다. 저장된 바이트는 Java 값으로 복원된다.
-4. `getAttribute("preferredLanguage")`로 `"ko"`를 읽는다.
-5. 세션에 접근했으므로 마지막 접근 시각 같은 메타데이터도 갱신될 수 있다.
-
-따라서 **`getSession(false)`를 사용한 GET이라고 해서 세션 DB에도 SELECT만 일어난다고 가정하면 안 된다.** 생성 여부와 기존 세션의 접근 시각 갱신은 다른 일이다.
-
-### HttpSessionIdResolver도 우리가 만드는 기능인가?
-
-`org.springframework.session.web.http.HttpSessionIdResolver`는 **Spring Session이 제공하는 인터페이스**다. 세션 ID를 HTTP 요청에서 읽고 응답으로 전달하는 역할이며, 세션 내용을 DB에서 읽는 저장소와는 다르다.
-
-| 메서드 | 쿠키 방식 구현체의 동작 |
-| --- | --- |
-| `resolveSessionIds(request)` | 요청 쿠키에서 세션 ID 후보를 읽음 |
-| `setSessionId(request, response, id)` | 응답에 세션 ID 쿠키를 작성 |
-| `expireSession(request, response)` | 클라이언트 쿠키를 만료시키는 응답 작성 |
-
-쿠키를 만료시키는 메서드와 DB 세션을 삭제하는 것은 별도 책임이다. 업무 코드에서 로그아웃 등으로 실제 세션을 무효화할 때는 `session.invalidate()` 흐름을 사용한다.
-
-기본 쿠키 구현체인 `CookieHttpSessionIdResolver` 외에 헤더 기반 구현도 있다. 예를 들어 다음과 같이 등록하면 인터페이스 타입의 생성자 매개변수에 이 객체를 주입할 수 있다.
-
-```java
-@Bean
-public CookieHttpSessionIdResolver httpSessionIdResolver(
-        CookieSerializer cookieSerializer
-) {
-    CookieHttpSessionIdResolver resolver = new CookieHttpSessionIdResolver();
-    resolver.setCookieSerializer(cookieSerializer);
-    return resolver;
-}
-```
-
-이는 설정 클래스에 두는 메서드이며 `CookieSerializer` 빈이 준비됐다는 가정이다. 세 타입의 import는 `org.springframework.session.web.http`다.
-
-```java
-private final HttpSessionIdResolver sessionIdResolver;
-```
-
-이 필드는 인터페이스지만 실제 주입 객체는 위 쿠키 구현체가 될 수 있다. [빈 등록과 타입 기준 주입](./bean-registration-and-injection.md)
-
-**일반적인 업무 코드에서는 이 객체를 직접 주입하지 않아도 된다.** `request.getSession()`으로 세션을 만들고 속성을 저장하면 Spring Session 필터가 저장과 쿠키 전달을 조정한다. 직접 `setSessionId()`를 호출하는 것은 쿠키 재발급 등 별도 목적이 있는 선택이며, 기본 세션 사용의 필수 단계는 아니다.
+### 이름에 Session이 들어간 세 부품
 
 ```text
-HttpSessionIdResolver: 쿠키 등에서 세션 ID 전달·해석
-SessionRepository: 그 ID의 세션을 저장소에서 읽고 저장
-HttpSession: 업무 코드가 세션 속성을 다루는 인터페이스
+HttpSessionIdResolver: 쿠키(기본 CookieHttpSessionIdResolver)·헤더에서 세션 ID를 읽고 응답에 실어 보냄
+SessionRepository:     그 ID의 세션을 저장소(JdbcIndexedSessionRepository)에서 읽고 저장
+HttpSession:           업무 코드가 세션 속성을 다루는 인터페이스
 ```
 
-Spring Session 4.1.1의 인터페이스 소스를 확인했다. **Resolver는 ID를 전달하고, Repository는 세션 데이터를 저장한다.** 이름에 모두 Session이 들어가도 담당하는 부분이 다르다.
+셋 다 Spring Session(또는 Servlet)이 제공하는 것이라 **업무 코드가 Resolver를 직접 주입·호출할 필요는 없다.** `request.getSession()`으로 세션을 만들고 속성을 저장하면 필터가 저장과 쿠키 전달을 조정한다. Resolver의 `expireSession()`은 클라이언트 쿠키만 만료시키고 DB 세션은 지우지 않는다 — 로그아웃은 `session.invalidate()` 흐름으로 한다.
 
 ## 4. Spring Boot 4.1 설정 예시
 
@@ -169,10 +120,9 @@ server:
         secure: true
         same-site: lax
         path: /
-        max-age: 7d
 ```
 
-이 예시는 **서버의 비활성 만료 30분**, **브라우저 쿠키 보관 7일**을 의도적으로 다르게 설정했다. 서비스 정책에 맞게 조정한다. 로컬 HTTP 개발에서는 `secure` 설정도 별도로 맞춘다.
+`max-age`를 두지 않아 SESSION 쿠키는 브라우저를 닫으면 사라지는 세션 쿠키가 된다(OWASP 권장). 서버 비활성 만료(30분)와 쿠키 수명은 별개이고, "로그인 유지"는 쿠키 `max-age`를 늘려서가 아니라 remember-me로 푼다 → [세션·쿠키 기초 §4](../../infra/network/sessions-and-cookies.md). 로컬 HTTP 개발에서는 `secure` 설정도 별도로 맞춘다.
 
 **`secure`를 명시하지 않으면 `request.isSecure()`로 결정된다.** Tomcat의 세션 쿠키와 Spring Session의 `DefaultCookieSerializer` 모두 그렇다. 로드밸런서가 TLS를 벗기고 앱에는 HTTP로 넘기면 앱은 요청을 HTTP로 보므로 Secure가 안 붙고, 요청 스킴으로 만든 리다이렉트도 `http://`로 나간다. `SameSite=None`을 쓰는 쿠키라면 Secure가 빠진 순간 브라우저가 쿠키 자체를 거부한다. 두 가지를 같이 한다: 위처럼 `secure: true`를 **명시**하고, `server.forward-headers-strategy=native`(Tomcat `RemoteIpValve`) 또는 `framework`(`ForwardedHeaderFilter`)로 `X-Forwarded-Proto`를 신뢰하게 한다. [Spring Boot — 프록시 뒤에서 실행](https://docs.spring.io/spring-boot/how-to/webserver.html#howto.webserver.use-behind-a-proxy-server)
 
@@ -208,7 +158,7 @@ PostgreSQL에서 따옴표 없이 생성한 이름은 보통 `spring_session`처
 | --- | --- | --- |
 | 서버 비활성 만료 | `EXPIRY_TIME = LAST_ACCESS_TIME + MAX_INACTIVE_INTERVAL`. 세션을 건드리는 요청마다 다시 계산 → **마지막 접근 후 N** | `SPRING_SESSION` 행, `spring.session.timeout` |
 | 만료 행 물리 삭제 | `EXPIRY_TIME`이 지난 행을 지우는 스케줄. Boot 기본 **1분마다** | `spring.session.jdbc.cleanup-cron` (기본 `0 * * * * *`). FK cascade로 속성 행도 함께 삭제 |
-| 브라우저 쿠키 만료 | `Set-Cookie`를 내린 시점 기준 `Max-Age` | 브라우저. 서버 행과 **독립** |
+| 브라우저 쿠키 만료 | `Max-Age` 없으면 브라우저 종료 시, 있으면 `Set-Cookie`를 내린 시점 기준 | 브라우저. 서버 행과 **독립** |
 
 PostgreSQL에는 Redis의 TTL 같은 자동 만료가 없다. `EXPIRY_TIME`은 epoch 밀리초 **숫자**일 뿐이고, 비교(조회 시 Java에서)와 삭제(정리 작업의 `DELETE ... WHERE EXPIRY_TIME < ?`)는 전부 Spring Session이 한다. 그래서 행은 "유효 / **만료됐지만 정리 전** / 삭제됨" 세 상태를 거치며, 가운데 상태의 행을 들고 와도 세션으로 인정되지 않는다. "행이 있다 → 유효"가 아니라 "행에 적힌 시각이 안 지났다 → 유효"다. 직접 확인:
 
@@ -220,7 +170,7 @@ SELECT session_id,
 FROM spring_session;
 ```
 
-쿠키만 먼저 사라지면 서버 행은 정리 전까지 아무도 못 찾는 고아가 되고, 서버 행만 먼저 만료되면 브라우저가 계속 보내는 ID를 서버가 무시한다. 두 만료의 개념 구분은 [세션과 쿠키](../../infra/network/sessions-and-cookies.md) 4절, 세션에 묶인 업무 자원의 수명을 세션 수명 이하로 맞추는 판단은 [HMAC과 해시](../security/hmac-and-hashing.md) 6절 💡 참고.
+쿠키만 먼저 사라지면 서버 행은 정리 전까지 아무도 못 찾는 고아가 되고, 서버 행만 먼저 만료되면 브라우저가 계속 보내는 ID를 서버가 무시한다(두 만료의 개념은 [세션과 쿠키](../../infra/network/sessions-and-cookies.md) 4절). 세션에 묶인 업무 자원의 수명을 세션 수명 이하로 맞추는 판단은 [HMAC과 해시](../security/hmac-and-hashing.md) 6절 💡 참고.
 
 ### 두 테이블이 나뉜 이유
 
@@ -260,11 +210,11 @@ JDBC를 사용한다고 업무 데이터도 JDBC로 다시 작성할 필요는 �
 
 **`JSESSIONID`와 `SESSION`은 기본 쿠키 이름이 다르다.** Tomcat의 기본 Servlet 세션에서는 보통 `JSESSIONID`, Spring Session의 기본 쿠키 처리에서는 `SESSION`을 사용한다. 이름은 설정 가능하며 이름만 바꾼다고 기존 세션 데이터가 자동 이관되지는 않는다.
 
-**쿠키 7일이 서버 세션 7일을 뜻하지 않는다.** 서버 비활성 만료는 서버 정책이고 쿠키의 `Max-Age`는 브라우저 정책이다. 서버의 마지막 접근 시각이 갱신돼도 브라우저 쿠키의 만료 시각이 저절로 연장되는 것은 아니다. 지속 쿠키의 보관 기간을 갱신하려면 `Set-Cookie` 재발급 정책도 확인한다. "로그인 유지"가 목적이면 세션 쿠키 수명이 아니라 remember-me로 푼다 → [세션·쿠키 기초 §4](../../infra/network/sessions-and-cookies.md).
+**서버 접근 시각이 갱신돼도 쿠키 수명은 연장되지 않는다.** 둘은 다른 시계다(§5 표). `max-age`를 준 지속 쿠키라면 보관 기간을 늘리려면 `Set-Cookie` 재발급이 따로 필요하다.
 
-**DB 저장이 동시 요청의 업무 처리를 직렬화해 주지는 않는다.** 두 요청이 같은 값을 읽고 각각 수정하면 충돌할 수 있다. 정확한 수량·요금·횟수는 업무 저장소에서 원자적으로 처리한다. 관련: [Read-Modify-Write](../jpa/read-modify-write.md).
+**DB에 저장한다고 동시 요청이 직렬화되지는 않는다** — 원리와 처방은 [HttpSession §6](./http-session.md)과 같다.
 
-**세션에는 작고 직렬화 가능한 값을 보관한다.** 단순 ID·문자열을 우선 사용하면 배포 후 클래스 구조 변경이나 JPA 프록시 직렬화 문제를 줄일 수 있다. 기본 직렬화를 JSON 등으로 교체하는 것은 필요할 때 따로 검토한다.
+**세션 값은 DB에 직렬화된 바이트로 남는다.** 클래스 구조를 바꿔 배포하면 이미 저장된 행의 역직렬화가 깨질 수 있고, JPA Entity를 넣으면 프록시 직렬화 문제까지 생긴다. 단순 ID·문자열을 우선 쓰고(이유는 [HttpSession §6](./http-session.md)), 기본 직렬화를 JSON 등으로 교체하는 것은 필요할 때 따로 검토한다.
 
 ### JPA의 더티 체킹과 같다고 생각하면 안 된다
 
@@ -312,7 +262,8 @@ session.setAttribute("preferredLanguage", "en");
 - [Spring Session 4.1.1 — JDBC 구현과 기본 저장 모드](https://github.com/spring-projects/spring-session/blob/4.1.1/spring-session-jdbc/src/main/java/org/springframework/session/jdbc/JdbcIndexedSessionRepository.java)
 - 기준: Spring Boot 4.1.1 / Spring Session 4.1.1. 예시는 일반화한 학습용 설정이며 독립 실행 프로젝트는 아니다.
 - [Spring Session 4.1.1 — HttpSessionIdResolver](https://github.com/spring-projects/spring-session/blob/4.1.1/spring-session-core/src/main/java/org/springframework/session/web/http/HttpSessionIdResolver.java)
-- 보강: 2026-09-22. ID resolver·저장소·HttpSession의 역할 차이, 직접 resolver 호출은 기본 세션 사용에 필수가 아니라는 점, 테이블 이름 변경과 Flyway 노트 링크.
+- 보강: 2026-09-22. ID resolver·저장소·HttpSession의 역할 차이, 테이블 이름 변경과 Flyway 노트 링크.
+- 정리: 2026-10-02. 예시에서 SESSION 쿠키 `max-age`를 빼 [세션·쿠키 기초](../../infra/network/sessions-and-cookies.md) 💡와 맞춤, http-session·세션 기초와 겹치는 설명은 링크로 축약.
 - 학습일: 2026-09-21. 계기: 직접 만든 토큰과 표준 세션 관리의 책임 차이, DB에 저장되는 HttpSession의 동작 이해하기.
 - 보강: 2026-09-21. TLS 종료 프록시 뒤에서 `secure` 미명시 시 `request.isSecure()`에 의존하는 함정과 `forward-headers-strategy` 처방(§4·§8), remember-me 링크 추가.
 

@@ -179,9 +179,11 @@ WAS(톰캣)는 쓰레드 생성 비용 때문에 **쓰레드 풀**을 쓴다: �
   - 참조 사슬: `Thread`(풀에서 계속 생존) → `threadLocals`(ThreadLocalMap) → Entry의 **value 강한 참조** — GC 입장에선 "아직 쓰는 값". 요청마다 쌓이면 릭.
   - ⚠️ 오해 주의(면접 꼬리 질문 단골): ThreadLocalMap의 **키(ThreadLocal 인스턴스)는 약한 참조**라 "알아서 정리되지 않나?" 싶지만 — 약한 건 키뿐이고 **value는 강한 참조로 남는다**(키만 사라진 고아 엔트리). 고아 정리는 이후 같은 스레드의 set/get/remove가 우연히 지나갈 때만 수행 → 보장이 아니라 보조 장치. **믿을 건 `remove()`뿐.**
 - ⚠️ 추가 함정: 콜백/비동기로 **다른 쓰레드에서 실행되는 코드는 ThreadLocal이 안 보인다** — 값은 쓰레드에 붙어 있으니까. (`@Async`, CompletableFuture, 이벤트 루프 등 → [람다 실행 타이밍](../functional/lambda-execution-timing.md), [Flux/Mono](../reactive/flux-mono-basics.md))
+  - 해법은 "제출 시점에 복사 → 실행 스레드에 심기 → 끝나면 지우기". Spring은 `TaskDecorator`(`ThreadPoolTaskExecutor.setTaskDecorator`)로 이 래핑을 한 곳에 둔다 — 제출 스레드에서 MDC·`SecurityContext`를 꺼내 두고, 실행 스레드에서 set → `finally`에서 clear. (Micrometer context-propagation 같은 라이브러리가 이 일을 일반화한 것)
+  - `InheritableThreadLocal`은 답이 아니다 — **스레드를 만들 때** 한 번 복사하므로, 미리 만들어 재사용하는 풀에선 처음 만든 요청의 값이 계속 남는다.
 - ⚠️ [가상 스레드](./virtual-threads.md) 환경: 가상 쓰레드는 풀링·재사용이 없어 "남은 데이터" 문제는 없지만, **수백만 개가 각자 ThreadLocal 사본을 들면 힙이 터진다** → ThreadLocal로 비싼 객체 캐싱 금지(JEP 444). Java 25의 `ScopedValue`(JEP 506)가 대체제(불변·스코프 종료 시 자동 정리).
 
-실무에서 ThreadLocal 기반인 것들: Spring Security `SecurityContextHolder` · MDC 로깅 · `TransactionSynchronizationManager` · `RequestContextHolder` — 전부 프레임워크가 요청 끝에 정리를 대신 해주고 있는 것.
+실무에서 ThreadLocal 기반인 것들: Spring Security `SecurityContextHolder` · MDC 로깅 · `TransactionSynchronizationManager` · `RequestContextHolder` — Security·트랜잭션·RequestContext는 프레임워크가 요청 끝에 정리를 대신 해준다. ⚠️ **MDC는 예외**: 트레이싱 라이브러리가 넣은 traceId 같은 값만 자동 정리되고, 내가 `MDC.put`한 값은 내가 필터의 `finally`에서 `MDC.remove`/`clear`해야 다음 요청 로그에 섞이지 않는다.
 
 ---
 
@@ -219,5 +221,7 @@ WAS(톰캣)는 쓰레드 생성 비용 때문에 **쓰레드 풀**을 쓴다: �
 - 김영한, 스프링 핵심 원리 고급편 — Ch.2 쓰레드 로컬
 - [JEP 444: Virtual Threads](https://openjdk.org/jeps/444) — ThreadLocal 주의사항
 - [Oracle Virtual Threads 문서](https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html)
+- [Spring - TaskDecorator (Javadoc)](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/core/task/TaskDecorator.html) — 실행 컨텍스트 전파용 데코레이터
+- [InheritableThreadLocal (Javadoc)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/InheritableThreadLocal.html) — 자식 스레드 *생성 시* 값 상속
 
 **학습 날짜**: 2026-08-11 · **계기**: 김영한 고급편 Ch.2 수강 후 Claude 소크라테스 복습 세션 — 동시성 문제의 원인(싱글톤 필드 공유)과 쓰레드 풀 재활용 메커니즘을 본인 말로 재구성함

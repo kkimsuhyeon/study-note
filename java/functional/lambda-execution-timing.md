@@ -12,7 +12,7 @@ emitter.onCompletion(() -> repository.removeIfMatches(clientId, emitter));
 ## 람다가 실제로 뭔가
 
 - 람다는 **함수형 인터페이스(추상 메서드 1개)의 인스턴스** — "코드 조각을 값처럼 담아서 넘기는" 문법.
-- `list.forEach(x -> print(x))` 는 `list.forEach(new Consumer<>(){ public void accept(x){ print(x);} })` 의 축약일 뿐.
+- `list.forEach(x -> print(x))` 는 **실행 시점 면에서** `list.forEach(new Consumer<>(){ public void accept(x){ print(x);} })` 와 같다 — 넘겨받은 쪽이 부를 때 돈다. (단 완전한 축약은 아니다: 람다 본문의 `this`·변수 이름은 바깥 문맥을 따른다. 익명 클래스처럼 새 이름 스코프를 만들지 않는다(람다 파라미터만 예외) — JLS §15.27.2)
 - **메서드 레퍼런스** `repository::remove` 도 똑같은 것(람다의 다른 표기). 실행 의미는 동일하게 "받는 메서드가 정함".
 - 즉 람다 **자체엔 "언제 실행"이라는 정보가 없다.** 그건 순전히 호출자 몫.
 
@@ -44,7 +44,7 @@ executor.submit(() -> heavyWork());
 - **"콜백이면 비동기"가 아니다.** `Optional.ifPresent(v -> ...)`, `Map.computeIfAbsent(k, ...)` 도 람다(콜백)를 받지만 **지금, 같은 스레드에서 동기로** 실행된다. "람다를 넘긴다 = 비동기"도, "콜백 = 비동기"도 둘 다 틀림. 축은 오직 **"받는 메서드가 지금 부르나 / 나중에 부르나".**
 - **스트림 중간 연산은 lazy — `.map()` 시점에 실행 안 된다.** `stream.map(x -> f(x))` 의 람다는 `.map()`을 호출할 때가 아니라 **terminal 연산(`collect`/`forEach`/`count` 등)이 파이프라인을 당길 때** 실행된다. (Oracle 문서: *"Intermediate operations are always lazy... traversal does not begin until the terminal operation is executed."*) → 중간 연산만 쓰고 terminal이 없으면 **람다는 아예 안 돈다.**
 - **같은 `forEach`라도 `parallelStream`이면 다른 스레드.** 병렬 스트림의 람다는 **공용 `ForkJoinPool`** 스레드들에서 실행된다 → 순서·스레드 가정이 깨진다. `thenApply` vs `thenApplyAsync` 도 마찬가지(같은 이름 계열도 Async면 풀로 감).
-- **콜백 스레드엔 "요청 스레드의 상태"가 없다.** `@Transactional`, `SecurityContext`, `AuthUser.get()` 같은 **ThreadLocal 기반 값**은 ②③의 다른 스레드 콜백에선 **안 잡힌다.** 콜백 안에서 이런 걸 꺼내 쓰면 null/빈 트랜잭션이 된다. → 필요한 값은 **람다 캡처(파라미터)로 미리 넘겨야** 한다.
+- **콜백 스레드엔 "요청 스레드의 상태"가 없다.** `@Transactional`, `SecurityContextHolder`, 요청 사용자 정보를 담은 ThreadLocal 홀더(`CurrentUser.get()` 같은) 등 **ThreadLocal 기반 값**은 ②③의 다른 스레드 콜백에선 **안 잡힌다.** 콜백 안에서 이런 걸 꺼내 쓰면 null/빈 트랜잭션이 된다. → 필요한 값은 **람다 캡처(파라미터)로 미리 넘겨야** 한다.
 - **②는 호출 순서와 실행 순서가 다르다.** `onCompletion`은 "완료 시 컨테이너 스레드에서 호출"이라, 코드상 뒤에 있는 줄(`put`)이 **먼저** 실행될 수 있다 → 순서에 기대는 로직은 CAS(조건부) 연산으로 방어. (→ [map-methods: 조건부(CAS)](../collections/map-methods.md), [SseEmitter 노트](../spring/sse-emitter.md))
 
 ## 그래서 어떻게 구분하나
@@ -63,9 +63,9 @@ executor.submit(() -> heavyWork());
 
 - **람다를 보면 실행이 아니라 "등록/전달"로 읽어라.** "이 코드 조각을 누구한테 넘기는 거지? 걔가 언제·어느 스레드에서 부르지?" — 받는 메서드가 답이다. `forEach`면 지금 여기, `onCompletion`이면 나중 딴 스레드.
 - **콜백(②③) 안에서 "지금 이 스레드"를 가정하지 마라.** ThreadLocal(트랜잭션·인증), 실행 순서, "이 변수 아직 안 바뀌었겠지"를 콜백에 넣으면 지뢰. 필요한 값은 **캡처로 넘기고**, 순서 의존은 **조건부(CAS) 연산으로** 방어.
-- 구체 케이스 (둘 다 지금 보는 PHAROS SSE 코드):
+- 구체 케이스 (SSE·스트리밍 응답 코드):
   1. **순서**: `onCompletion(() -> map.remove(clientId, emitter))` 콜백이 뒤의 `map.put(clientId, newEmitter)` 보다 **늦게/다른 스레드에서** 돌 수 있어, `remove`를 1인자가 아닌 **2인자(값 일치 시에만)** 로 써서 새 emitter를 보호했다.
-  2. **ThreadLocal**: 채팅 인증에서 원래 `AuthUser.get()`(ThreadLocal)로 orgId/usrId를 꺼냈는데, 스트리밍 처리는 **Reactor/boundedElastic 콜백 스레드**에서 돌아 그 ThreadLocal이 비어버린다 → 그래서 helper를 `getToken(orgId, usrId)` 로 바꿔 **값을 파라미터로 넘기도록** 리팩터링했다. ("콜백 스레드엔 요청 스레드 상태가 없다"의 실제 사례.)
+  2. **ThreadLocal**: 스트리밍 응답의 인증 helper가 ThreadLocal 홀더(`CurrentUser.get()`)로 orgId/userId를 꺼냈는데, 스트리밍 처리는 **Reactor `boundedElastic` 콜백 스레드**에서 돌아 그 ThreadLocal이 비어버린다 → helper를 `getToken(orgId, userId)` 로 바꿔 **값을 파라미터로 넘기도록** 리팩터링했다. ("콜백 스레드엔 요청 스레드 상태가 없다"의 실제 사례.)
 
 ## 참고
 - JLS §15.27 Lambda Expressions: https://docs.oracle.com/javase/specs/jls/se17/html/jls-15.html#jls-15.27
@@ -75,4 +75,5 @@ executor.submit(() -> heavyWork());
 
 ---
 학습 날짜: 2026-07-08
-계기: SSE `emitter.onCompletion(() -> ...)` 콜백을 보다가 "대부분의 람다는 다 비동기 처리냐?"는 질문에서 출발. 람다는 실행 의미가 없고 "받는 메서드가 타이밍을 정한다"를, 마침 보던 SSE 코드의 onCompletion(순서)·AuthUser.get()→파라미터 전환(ThreadLocal) 두 사례로 묶어 정리.
+계기: SSE `emitter.onCompletion(() -> ...)` 콜백을 보다가 "대부분의 람다는 다 비동기 처리냐?"는 질문에서 출발. 람다는 실행 의미가 없고 "받는 메서드가 타이밍을 정한다"를, SSE 코드의 onCompletion(순서)·ThreadLocal 사용자 정보→파라미터 전환 두 사례로 묶어 정리.
+보강: 2026-10-02 — "익명 클래스의 축약일 뿐"을 실행 시점 기준으로 한정(`this`·스코프 차이), 사례의 사내 명칭 일반화.

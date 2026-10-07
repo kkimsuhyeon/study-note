@@ -20,7 +20,7 @@ public static Integer valueOf(int i) {
 }
 ```
 
-JLS 5.1.7이 **-128~127 범위는 박싱 결과가 항상 동일 객체(`r1 == r2`)임을 보장**한다. 그래서:
+-128~127 범위가 **항상 동일 객체**라는 보장은 두 군데서 온다. **JLS 5.1.7**은 *상수 표현식*을 박싱한 결과(`Integer a = 127`)를, **`Integer.valueOf`/`Long.valueOf` Javadoc**은 실행 중에 계산된 값까지("will always cache values in the range -128 to 127") 보장한다. 그래서:
 
 ```java
 Integer a = 127, b = 127;
@@ -43,7 +43,7 @@ System.out.println(c == d);   // false  ← 각자 new Integer(128)  ⚠️
 | `Float`, `Double` | **캐시 없음** | — |
 
 > `Integer`의 상한은 **JVM 옵션(`-XX:AutoBoxCacheMax`)으로 바뀔 수 있다.** 즉 "127까지는 `==`가 되니까 괜찮다"는 가정은 **런타임 옵션에 의존하는 코드**라는 뜻 — 애초에 기대면 안 되는 이유.
-> 참고로 `Long`은 실제로 캐시되지만 **JLS가 명시적으로 보장하진 않는다** (JDK-7190924). 즉 `Long`의 `==`는 스펙상 근거조차 없다.
+> 참고로 `Long`도 같은 보장을 받는다. JLS 7에는 `long`이 5.1.7 목록에 빠져 있었지만(JDK-7190924, Fixed) 이후 JLS(17·21에서 확인)에 `long`이 들어갔고, `Long.valueOf` Javadoc도 -128~127 캐시를 명시한다. 다른 점은 **상한을 조정할 수 있는 건 `Integer`뿐**이라는 것. 어느 쪽이든 "캐시 범위라서 `==`가 맞는다"에 기대는 코드는 값이 커지는 순간 틀린다.
 
 ## 해결 — 두 가지
 
@@ -74,8 +74,11 @@ if (c1 != c2) { ... }
 - **`Long`이 실무에서 더 위험하다.** JPA 엔티티 ID가 보통 `Long`이라 **테스트 데이터(ID 1~10)에선 캐시 덕에 통과하다가, 운영에서 ID가 커지면 조용히 실패**한다.
   ```java
   if (order.getUserId() == user.getId())          // ⚠️ Long끼리 == → 참조 비교
-  if (order.getUserId().equals(user.getId()))     // ✅
+  if (order.getUserId().equals(user.getId()))     // ✅ 단 getUserId()가 null이면 NPE
+  if (Objects.equals(order.getUserId(), user.getId()))  // ✅ null 안전
   ```
+
+- **타입이 다른 래퍼끼리 `equals`는 항상 `false`다.** `Long.equals`는 인자가 `Long`일 때만 true(Javadoc: "is a Long object that contains the same long value")라, `Long id`에 `id.equals(1)`을 하면 `1`이 `Integer`로 박싱돼 **값이 같아도 false**. 리터럴은 `1L`로 쓰거나, 한쪽을 원시 타입으로 두고 비교한다(`id == 1L`).
 
 - **제네릭은 원시타입을 못 담는다 — 그래서 `toArray()`로는 `int[]`가 안 나온다.**
   ```java
@@ -116,26 +119,18 @@ if (test1 != test2) return name;   // ⚠️ Integer끼리 != → 참조 비교
 
 → **교훈: "큰 입력에서만 실패"가 항상 성능 문제인 건 아니다.** 값의 크기가 동작을 바꾸는 코드(래퍼 캐시)를 먼저 의심할 것.
 
-### 재발 기록 — "문자열 내 p와 y의 개수" (2026-07-14, 같은 날)
-`Map<String,Integer>`에 p·y 카운트를 담은 뒤 **똑같은 실수를 반복**했다:
-```java
-return resultMap.get("p") == resultMap.get("y");   // ⚠️ Integer 끼리 ==
-```
-- 예제(`pPoooyY`, 개수 1~2개) → **통과** (캐시 범위)
-- p·y 각 **128개 이상** → 개수가 같은데도 **`false`** ❌
-
-문제 제약상 문자열 길이가 짧아 채점은 통과할 수 있지만, **그건 운이지 정답이 아니다.** → `.equals()`로 수정.
-
-→ **한 번 정리했다고 손에 붙지 않는다.** 문제 세 개 뒤에 같은 함정을 다시 밟았다 — *꿀내어 보는 복습이 필요한 이유.*
+> ⚠️ 흔한 오해: "예제가 통과했으니 맞다." `map.get("p") == map.get("y")` 같은 코드는 개수가 127 이하인 예제에선 통과하고, 각 128개 이상이면 개수가 같아도 `false`가 된다. 입력이 작아 채점을 통과했다면 운이다.
 
 ## 참고
 
 - [JLS 5.1.7 — Boxing Conversion (-128~127 동일 객체 보장)](https://docs.oracle.com/javase/specs/jls/se17/html/jls-5.html#jls-5.1.7)
 - [Oracle Javadoc — Integer.valueOf](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/Integer.html#valueOf(int))
-- [JDK-7190924 — JLS는 Long 캐싱을 명시하지 않는다](https://bugs.openjdk.org/browse/JDK-7190924)
+- [Oracle Javadoc — Long.valueOf / Long.equals](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/Long.html#valueOf(long))
+- [JDK-7190924 — JLS 7이 Long 캐싱을 빠뜨렸던 문제 (Fixed)](https://bugs.openjdk.org/browse/JDK-7190924)
 - 관련 노트: [Map 주요 메서드](../collections/map-methods.md) (카운팅 = merge), [BigDecimal](../bigdecimal/bigdecimal.md) (equals vs compareTo — "객체 비교는 ==가 아니다"의 다른 사례)
 
 ---
 학습 날짜: 2026-07-14
 계기: 코테(프로그래머스 "완주하지 못한 선수") 첫 문제에서 `Integer != Integer`로 효율성 테스트만 실패 → 시간 초과인 줄 알았으나 실제론 Integer 캐시(127) 경계 오답. 실무 JPA `Long id` 비교와 동일 메커니즘이라 확장 정리.
-보강: 2026-07-14 — **제네릭은 원시타입을 못 담는다**는 같은 뿌리에서 나오는 함정 2개 추가(`toArray()`로 `int[]` 불가 → `mapToInt`로 `IntStream` 경유 / `Arrays.asList(int[])`는 size 1). "p와 y의 개수" 문제에서 `Integer ==` 재발 기록 추가.
+보강: 2026-07-14 — **제네릭은 원시타입을 못 담는다**는 같은 뿌리에서 나오는 함정 2개 추가(`toArray()`로 `int[]` 불가 → `mapToInt`로 `IntStream` 경유 / `Arrays.asList(int[])`는 size 1). "p와 y의 개수" 문제에서 `Integer ==`를 다시 밟은 사례를 ⚠️ 한 줄로.
+보강: 2026-10-02 — JLS 5.1.7 보장 범위(상수 표현식) 정정, `Long` 캐시는 JLS·Javadoc 모두 보장(구 JLS 7 기준 문장 삭제), `Objects.equals`·다른 래퍼 타입 간 `equals` 함정 추가.

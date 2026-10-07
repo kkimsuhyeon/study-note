@@ -25,23 +25,23 @@
 ## 2. 기본형 — 이 모양만 알면 된다
 
 ```sql
--- 채팅방 목록 + 방마다 "가장 최근 질문"의 mode
+-- 채팅방 목록 + 방마다 "가장 최근 질문"의 category
 SELECT  cr.chat_room_id,
         cr.chat_room_name,
-        q.mode
+        q.category
 FROM    chat_room cr
 LEFT JOIN LATERAL (
-    SELECT  q.mode
-    FROM    user_question q
+    SELECT  q.category
+    FROM    question q
     WHERE   q.chat_room_id = cr.chat_room_id   -- ★ 바깥 테이블(cr) 참조 — LATERAL이 허용
-    ORDER BY q.reg_dtm DESC
+    ORDER BY q.created_at DESC
     LIMIT 1                                    -- ★ 방당 정확히 1줄 보장
 ) q ON TRUE                                    -- 조인 조건은 이미 서브쿼리 WHERE에 있음
-WHERE   cr.usr_id = :usrId
-ORDER BY cr.reg_dtm DESC;
+WHERE   cr.user_id = :userId
+ORDER BY cr.created_at DESC;
 ```
 
-실행 모델은 루프다: `cr`의 각 행에 대해 → 서브쿼리 실행 → 결과를 옆에 붙임. 질문이 0건인 방은 `LEFT`라서 살아남고 `mode = NULL`.
+실행 모델은 루프다: `cr`의 각 행에 대해 → 서브쿼리 실행 → 결과를 옆에 붙임. 질문이 0건인 방은 `LEFT`라서 살아남고 `category = NULL`.
 
 | 요소 | 역할 |
 |---|---|
@@ -49,16 +49,16 @@ ORDER BY cr.reg_dtm DESC;
 | `LEFT ... ON TRUE` | 매칭 0건이어도 바깥 행 유지. 조건은 서브쿼리 안에 있으니 `ON TRUE`가 관용구 |
 | `ORDER BY ... LIMIT 1` | "최신 1건" — 이게 없으면 질문 수만큼 방이 **중복**돼서 나옴 |
 
-**왜 `GROUP BY + MAX`로는 안 되나** — `MAX(reg_dtm)`은 최신 *시각*을 줄 뿐, "그 행의 mode"를 못 집는다. `MAX(mode)`는 그냥 알파벳순 최대값이고. **"그룹마다 최신 행의 컬럼"이 보이면 집계가 아니라 top-1-per-group 문제**이고, 그게 이 도구가 존재하는 이유다.
+**왜 `GROUP BY + MAX`로는 안 되나** — `MAX(created_at)`은 최신 *시각*을 줄 뿐, "그 행의 category"를 못 집는다. `MAX(category)`는 그냥 알파벳순 최대값이고. **"그룹마다 최신 행의 컬럼"이 보이면 집계가 아니라 top-1-per-group 문제**이고, 그게 이 도구가 존재하는 이유다.
 
 ## 3. 루프라던데, N+1만큼 느린 거 아닌가?
 
 애플리케이션 N+1과 비교하면 LATERAL이 하는 일은 개념적으로 아래 루프와 **완전히 같다**. 차이는 루프가 도는 위치뿐:
 
 ```java
-List<ChatRoom> rooms = mapper.selectAll(usrId);          // 1
+List<ChatRoom> rooms = mapper.selectAll(userId);          // 1
 for (ChatRoom room : rooms) {
-    mapper.selectLatestMode(room.getChatRoomId());       // + N (방마다 왕복)
+    mapper.selectLatestCategory(room.getChatRoomId());       // + N (방마다 왕복)
 }
 ```
 
@@ -77,7 +77,7 @@ for (ChatRoom room : rooms) {
 Nested Loop Left Join            (actual time=0.020..3.120 rows=500 loops=1)
   ->  Seq Scan on chat_room cr   (actual time=0.008..0.120 rows=500 loops=1)
   ->  Limit                      (actual time=0.005..0.005 rows=1 loops=500)
-        ->  Index Scan Backward using idx_q_room_dtm on user_question q
+        ->  Index Scan Backward using idx_question_room_created on question q
                                  (actual time=0.004..0.004 rows=1 loops=500)
               Index Cond: (chat_room_id = cr.chat_room_id)
 ```
@@ -95,13 +95,15 @@ JPA 쪽 N+1과 fetch 전략은 → [n-plus-one-fetch](../java/jpa/n-plus-one-fet
 "서브쿼리는 바깥을 못 본다"가 아니라 **FROM 절 서브쿼리만 못 본다.** 같은 상관 참조를 SELECT 절에 쓰면 LATERAL 없이도 된다:
 
 ```sql
--- ❌ FROM 절: ERROR - column "o.org_id" does not exist
+-- ❌ FROM 절 (PostgreSQL 17 실제 메시지):
+--    ERROR: invalid reference to FROM-clause entry for table "o"
+--    HINT:  To reference that table, you must mark this subquery with LATERAL.
 FROM   org o
-LEFT JOIN (SELECT code FROM history WHERE org_id = o.org_id ORDER BY dtm DESC LIMIT 1) h ON TRUE
+LEFT JOIN (SELECT code FROM history WHERE org_id = o.org_id ORDER BY created_at DESC LIMIT 1) h ON TRUE
 
 -- ✅ SELECT 절 스칼라 서브쿼리: 바깥 참조 OK
 SELECT o.org_id,
-       (SELECT h.code FROM history h WHERE h.org_id = o.org_id ORDER BY h.dtm DESC LIMIT 1) AS code
+       (SELECT h.code FROM history h WHERE h.org_id = o.org_id ORDER BY h.created_at DESC LIMIT 1) AS code
 FROM   org o
 ```
 
@@ -123,7 +125,7 @@ FROM   org o
 
 **같은 규칙에서 나오는 실무 결과 두 가지**
 
-- **WHERE에서는 SELECT 별칭을 못 쓴다** (`WHERE ttl_point > 0` 불가) — WHERE가 SELECT보다 먼저이기 때문. 반면 ORDER BY는 SELECT 뒤라 별칭 사용 가능
+- **WHERE에서는 SELECT 별칭을 못 쓴다** (`WHERE total_point > 0` 불가) — WHERE가 SELECT보다 먼저이기 때문. 반면 ORDER BY는 SELECT 뒤라 별칭 사용 가능
 - 스칼라 서브쿼리는 **반드시 1행 1열**. 2행 이상이면 런타임 에러(`more than one row returned by a subquery used as an expression`) → `LIMIT 1` 필수. 컬럼이 2개 필요하면 서브쿼리를 2벌 써야 하고(같은 테이블 2회 스캔), 그 지점이 LATERAL로 갈아탈 신호
 
 ### JOIN은 어느 단계에서 처리되나?
@@ -150,7 +152,7 @@ d. JOIN이 더 있으면 c의 결과를 왼쪽 항목 삼아 a~c 반복
 
 ```sql
 LEFT JOIN LATERAL (
-    SELECT COUNT(*) AS cnt, MAX(h.use_dtm) AS last_dt
+    SELECT COUNT(*) AS cnt, MAX(h.used_at) AS last_dt
     FROM   history h
     WHERE  h.org_id = o.org_id
 ) s ON TRUE
@@ -162,9 +164,9 @@ LEFT JOIN LATERAL (
 
 ```sql
 -- 같은 식을 SELECT·WHERE·ORDER BY에 세 번 반복하는 대신
-CROSS JOIN LATERAL (SELECT COALESCE(p.paid,0) + COALESCE(p.free,0) AS ttl) t
-WHERE  t.ttl > 10000
-ORDER  BY t.ttl DESC
+CROSS JOIN LATERAL (SELECT COALESCE(p.paid,0) + COALESCE(p.free,0) AS total) t
+WHERE  t.total > 10000
+ORDER  BY t.total DESC
 ```
 
 FROM 단계에서 만들어진 컬럼이라 WHERE에서도 보인다. 항상 1행이므로 `CROSS JOIN LATERAL`.
@@ -191,15 +193,15 @@ CROSS JOIN LATERAL jsonb_array_elements(l.payload -> 'items') AS e
 
 ```sql
 SELECT DISTINCT ON (org_id)
-       org_id, promotion_cd, use_dtm
-FROM   promotion_history
-ORDER  BY org_id, use_dtm DESC;   -- org_id마다 use_dtm 최대인 1행
+       org_id, coupon_code, used_at
+FROM   coupon_history
+ORDER  BY org_id, used_at DESC;   -- org_id마다 used_at 최대인 1행
 ```
 
 규칙과 함정:
 
 - **`DISTINCT ON` 식은 `ORDER BY`의 맨 앞과 일치해야 한다** (공식 규정). 뒤에 오는 정렬식이 "그룹 안에서 어느 행이 첫 행인가"를 결정
-- **`ORDER BY`를 빼면 어느 행이 남을지 예측 불가** — 문서가 명시하는 unpredictable. 에러가 아니라 **조용히 아무 행**이라 위험. (실무 예: `ORDER BY org_id, use_dtm`처럼 `DESC`를 빼먹으면 최신이 아니라 **가장 오래된** 이력이 뽑힌다 — 의도와 반대인데 결과는 그럴듯해서 눈치채기 어렵다)
+- **`ORDER BY`를 빼면 어느 행이 남을지 예측 불가** — 문서가 명시하는 unpredictable. 에러가 아니라 **조용히 아무 행**이라 위험. (실무 예: `ORDER BY org_id, used_at`처럼 `DESC`를 빼먹으면 최신이 아니라 **가장 오래된** 이력이 뽑힌다 — 의도와 반대인데 결과는 그럴듯해서 눈치채기 어렵다)
 - 최종 결과를 다른 기준으로 정렬하려면 서브쿼리로 감싸고 바깥에서 다시 `ORDER BY`
 - `DISTINCT`(및 `DISTINCT ON`)는 `FOR UPDATE`/`FOR SHARE` 등 잠금 절과 **함께 쓸 수 없다** → 락이 필요하면 [select-for-update](./select-for-update.md) 쪽 방식으로 분리
 
@@ -215,14 +217,14 @@ ORDER  BY org_id, use_dtm DESC;   -- org_id마다 use_dtm 최대인 1행
 ## 7. ⚠️ 결과가 이상할 때 — 자주 하는 실수
 
 - **`LIMIT 1` 빠뜨리면 조용히 중복**: 에러가 아니라 그룹의 자식 수만큼 바깥 행이 늘어난 결과가 나온다 (목록 화면에 같은 방이 여러 줄)
-- **동점(tie) 주의**: `ORDER BY reg_dtm DESC LIMIT 1`에서 동일 시각 2건이면 어느 쪽이 뽑힐지 비결정적. 재현 가능해야 하면 `ORDER BY reg_dtm DESC, id DESC`처럼 유니크 타이브레이커를 붙인다
+- **동점(tie) 주의**: `ORDER BY created_at DESC LIMIT 1`에서 동일 시각 2건이면 어느 쪽이 뽑힐지 비결정적. 재현 가능해야 하면 `ORDER BY created_at DESC, id DESC`처럼 유니크 타이브레이커를 붙인다
 - **상관 조건을 ON으로 빼면 의미가 달라진다**: `ON TRUE` 대신 `ON q.grp_id = 부모.grp_id`로 옮기면, 서브쿼리가 먼저 **전체에서 LIMIT 1**을 자른 뒤에 ON이 검사됨 → 전체 최신 1건이 속한 그룹만 값이 붙고 나머지는 전부 NULL. 조건이 서브쿼리 **안**에 있어야 "그룹 안에서 정렬→LIMIT"이 된다 (빼는 순간 바깥 참조가 사라져 LATERAL 의미 자체가 소멸). `ON TRUE`는 "조건은 이미 안에 있고, LEFT JOIN 문법이 요구하는 ON 자리만 채운다"는 관용구
-- **실행 = nested loop → 상관 조건+정렬 인덱스 필수**: `(chat_room_id, reg_dtm)`(상관 컬럼들 + 정렬 컬럼) 복합 인덱스가 있으면 반복 1회가 "인덱스 끝 1건 집기"로 끝나지만, 없으면 바깥 행마다 자식 테이블을 스캔한다 — 바깥이 클수록 비용이 곱으로 늘어남
+- **실행 = nested loop → 상관 조건+정렬 인덱스 필수**: `(chat_room_id, created_at)`(상관 컬럼들 + 정렬 컬럼) 복합 인덱스가 있으면 반복 1회가 "인덱스 끝 1건 집기"로 끝나지만, 없으면 바깥 행마다 자식 테이블을 스캔한다 — 바깥이 클수록 비용이 곱으로 늘어남
 - **반대 케이스도 있다**: "전 테이블의 모든 그룹에 대해 top-1"처럼 결국 자식 테이블 대부분을 읽어야 하는 배치성 쿼리라면, 인덱스 probe를 그룹 수만큼 하는 LATERAL보다 **한 번 스캔하는 윈도우 함수가 더 빠를 수 있다**. LATERAL의 이점은 "바깥에서 이미 걸러진 소수 행"이 전제
 
 ## 💡 판단 기준
 
-- 채팅방 목록에 방별 최신 질문 mode를 붙여야 했다 → `MAX()`로는 최신 행의 다른 컬럼을 못 뽑는다는 걸 확인 → **"그룹마다 최신 행의 컬럼"이 보이면 집계가 아니라 top-1-per-group 도구(LATERAL)를 꺼낸다**
+- 채팅방 목록에 방별 최신 질문 category를 붙여야 했다 → `MAX()`로는 최신 행의 다른 컬럼을 못 뽑는다는 걸 확인 → **"그룹마다 최신 행의 컬럼"이 보이면 집계가 아니라 top-1-per-group 도구(LATERAL)를 꺼낸다**
 - **앱에서 루프 돌며 건별 조회(N+1)를 짜고 싶어지는 순간이 LATERAL의 신호**다 — 그 루프를 쿼리 안으로 밀어넣는 도구라고 기억하면 언제 쓸지 헷갈리지 않는다
 - 선택 공식: 바깥 행이 적고(WHERE로 걸러진 목록) 인덱스가 있다 → LATERAL / 전 그룹 대상 배치 집계 → 윈도우 함수 / 필요한 게 컬럼 딱 1개 → 스칼라 서브쿼리도 충분
 
@@ -233,7 +235,7 @@ LATERAL이 N+1 만능 해법인가 헷갈렸는데, **"결과 한 줄이 무엇�
 | 결과 한 줄의 단위 | 붙이려는 값 | 도구 | 예시 |
 |---|---|---|---|
 | 부모 (방당 1줄) | 자식의 **집계값** (개수·합계·최신 시각 자체) | GROUP BY + 집계함수 | 방 목록 + 질문 개수 |
-| 부모 (방당 1줄) | **특정 자식 행의 컬럼** (최신 행의 mode) | **LATERAL** | 방 목록 + 마지막 질문 mode |
+| 부모 (방당 1줄) | **특정 자식 행의 컬럼** (최신 행의 category) | **LATERAL** | 방 목록 + 마지막 질문 category |
 | 자식 (질문당 1줄) | 부모 정보를 각 줄에 | 일반 JOIN | 질문 전체 목록 (방 이름 포함) — 부모 반복이 뻥튀기가 아니라 원하는 모양 |
 | 중첩 (부모 안에 자식 리스트) | — | **IN 배치 + groupingBy** (쿼리 2번) | 방 상세 API `{방, questions:[...]}` — JOIN하면 부모가 자식 수만큼 반복돼 다시 접어야 함 |
 
@@ -245,5 +247,5 @@ LATERAL이 N+1 만능 해법인가 헷갈렸는데, **"결과 한 줄이 무엇�
 - PostgreSQL 공식 문서 — Table Expressions, LATERAL Subqueries: https://www.postgresql.org/docs/current/queries-table-expressions.html#QUERIES-LATERAL
 - PostgreSQL SELECT 문서 (DISTINCT ON): https://www.postgresql.org/docs/current/sql-select.html
 - MySQL 8.0 Lateral Derived Tables: https://dev.mysql.com/doc/refman/8.0/en/lateral-derived-tables.html
-- 학습 날짜: 2026-08-03 (2026-08-10 보강)
-- 계기: 실무 MyBatis 매퍼에서 채팅방 목록 쿼리의 `LEFT JOIN LATERAL (... ORDER BY reg_dtm DESC LIMIT 1) ON TRUE`를 만나 "이게 무슨 조인인지"부터 GROUP BY로 안 되는 이유, N+1과의 관계까지 따라가며 정리
+- 학습 날짜: 2026-08-03 (2026-08-10 보강, 2026-10-02 4번 에러 메시지를 PG17에서 확인)
+- 계기: MyBatis 매퍼의 채팅방 목록 쿼리에서 `LEFT JOIN LATERAL (... ORDER BY created_at DESC LIMIT 1) ON TRUE`를 만나 "이게 무슨 조인인지"부터 GROUP BY로 안 되는 이유, N+1과의 관계까지 따라가며 정리

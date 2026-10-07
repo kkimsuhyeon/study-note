@@ -28,7 +28,7 @@ for (String empNo : empNos) {
 
 - 패턴은 항상 같다: **넓게 1번 조회 → `groupingBy`/`toMap` → 루프는 Map만 조회.**
 - 날짜 축에도 동일 적용: per-day 조회 22번 → 월 범위 조회 1번 + `Map<LocalDate, ...>`.
-- **캐시와의 구분**: 캐시는 lazy("물어본 것만 그때 채움" — `computeIfAbsent`), 배치는 eager("미리 다 퍼와서 분배"). 반복 대상(날짜들/직원들)을 미리 알면 배치, 뭐가 올지 모르면(어떤 근로제가 나올지) 캐시. → [Map 주요 메서드](../collections/map-methods.md)
+- **캐시와의 구분**: 캐시는 lazy("물어본 것만 그때 채움" — `computeIfAbsent`), 배치는 eager("미리 다 퍼와서 분배"). 반복 대상(날짜들/직원들)을 미리 알면 배치, 뭐가 올지 모르면(어떤 정책 코드가 나올지) 캐시. → [Map 주요 메서드](../collections/map-methods.md)
 
 ## ② Spring Batch — "언제"가 아니라 "안전한 완주"의 프레임워크
 
@@ -41,8 +41,8 @@ Job ─ Step ─ Chunk(read → process → write, 청크 단위 트랜잭션)
 @Bean
 public Step settleStep(JobRepository jobRepository, PlatformTransactionManager tx) {
     return new StepBuilder("settleStep", jobRepository)
-            .<Attendance, Settlement>chunk(1000, tx)   // 1,000건 단위 커밋
-            .reader(attendanceReader())                 // 페이징/커서로 읽기
+            .<Order, Settlement>chunk(1000, tx)        // 1,000건 단위 커밋
+            .reader(orderReader())                      // 페이징/커서로 읽기
             .processor(settleProcessor())               // 가공
             .writer(settlementWriter())                 // 쓰기 (내부에서 ③ 쓰기 배치 흔함)
             .build();
@@ -71,8 +71,9 @@ ps.executeBatch();   // 여러 문장을 한 번에 전송
 SqlSession session = factory.openSession(ExecutorType.BATCH);
 ```
 
-- INSERT/UPDATE N번의 네트워크 왕복을 묶는다. (MySQL 은 `rewriteBatchedStatements=true` 여야 진짜 multi-value 로 재작성)
+- INSERT/UPDATE N번의 네트워크 왕복을 묶는다. (MySQL 은 `rewriteBatchedStatements=true` 여야 진짜 multi-value 로 재작성, PostgreSQL JDBC는 `reWriteBatchedInserts=true`)
 - ①이 **읽기** 묶기라면 이건 **쓰기** 묶기.
+- **JPA(Hibernate)는 설정해야 켜진다** — `spring.jpa.properties.hibernate.jdbc.batch_size`(예: 50)를 줘야 쓰기 지연된 INSERT/UPDATE를 JDBC 배치로 보낸다. 엔티티가 섞이면 배치가 끊기므로 `hibernate.order_inserts`·`order_updates`도 함께. ⚠️ **키 전략이 IDENTITY면 INSERT 배치가 조용히 꺼진다** — INSERT마다 DB가 만든 키를 바로 받아야 해서다([키 생성 전략](../jpa/id-generation.md)). 대량 INSERT가 중요하면 SEQUENCE 전략이나 JDBC/MyBatis 배치로.
 
 ## ⚠️ 함정
 
@@ -83,7 +84,7 @@ SqlSession session = factory.openSession(ExecutorType.BATCH);
 
 ## 💡 판단 기준
 
-- **루프 안에서 쿼리가 보이면 무조건 ①부터** — 프레임워크 도입 이전의 기본기. (근태 마감 rewrite: 직원 루프의 per-day 로더 쿼리 ~130개/인 → 월 범위 조회 3~4개/인으로 배치화 설계. Spring Batch 없이 mapper 쿼리 추가만으로 해결)
+- **루프 안에서 쿼리가 보이면 무조건 ①부터** — 프레임워크 도입 이전의 기본기. (월 마감 계산 재작성 사례: 직원 루프 안의 일자별 조회 쿼리 ~130개/인 → 월 범위 조회 3~4개/인으로 배치화. Spring Batch 없이 mapper 쿼리 추가만으로 해결)
 - **②는 "요청 시간 안에 못 끝나는 일괄 작업"이 생겼을 때** — 마감 계산이 느려져 "미리 계산해두자"가 되는 순간이 도입 시점. 그 전에 도입하면 인프라만 무겁다.
 - 단어 "배치"가 나오면 **어느 층위인지 먼저 확인** — "마감 batch"(일괄 계산 작업, ②적 의미)와 "쿼리 배치화"(①)가 같은 대화에 섞이면 서로 다른 걸 말하게 된다.
 
@@ -91,8 +92,9 @@ SqlSession session = factory.openSession(ExecutorType.BATCH);
 
 - [Spring Batch Reference — Domain Language (Job/Step/Chunk)](https://docs.spring.io/spring-batch/reference/domain.html)
 - [MyBatis — SqlSession ExecutorType](https://mybatis.org/mybatis-3/java-api.html)
-- 관련 노트: [Map 주요 메서드 (computeIfAbsent 캐시)](../collections/map-methods.md), [스케일 아웃 & 배포 모델](../../infra/scaling.md)
+- [Hibernate User Guide — Batching](https://docs.jboss.org/hibernate/orm/6.6/userguide/html_single/Hibernate_User_Guide.html#batch) ("identity identifier generator를 쓰면 INSERT 배치를 투명하게 끈다")
+- 관련 노트: [Map 주요 메서드 (computeIfAbsent 캐시)](../collections/map-methods.md), [스케일 아웃 & 배포 모델](../../infra/scaling.md), [키 생성 전략](../jpa/id-generation.md)
 
 ---
 학습 날짜: 2026-07-03
-계기: 근태 마감 per-day 쿼리 배치화(⑥) 논의 중 "배치화가 캐시랑 다른가? Spring Batch랑 다른가?"에서 출발
+계기: 월 마감 계산의 일자별 쿼리 배치화를 논의하다 "배치화가 캐시랑 다른가? Spring Batch랑 다른가?"에서 출발

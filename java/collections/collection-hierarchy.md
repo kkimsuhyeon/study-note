@@ -64,6 +64,7 @@ if (!seen.add(key)) continue;   // 중복이면 스킵 — contains+add 2번 할
 - `values()`는 Collection이지 Set이 아니다 (값은 중복 가능).
 - `Set.of(...)`(Java 9+)는 **생성 시점에 중복이 있으면 IllegalArgumentException** — List.of와 다른 점. (불변 생성 자체는 [리스트 생성](./list-creation.md) 참고)
 - Map/Set 순회 순서: HashMap/HashSet은 **순서 보장 없음**(리해싱 시 바뀔 수도) → 순서가 의미 있으면 LinkedHash*/Tree*를 명시적으로 선택. "테스트에서만 우연히 순서가 맞는" 코드가 전형적 지뢰.
+  - `Set.of`/`Map.of`는 더 심하다 — 명세상 순서 미정("unspecified and is subject to change")이고, OpenJDK 구현은 **JVM 실행마다 순서를 일부러 섞는다**(`ImmutableCollections`의 SALT). 어제 통과한 순서 의존 테스트가 오늘 깨질 수 있다.
 
 ## 구현체 선택 요약
 
@@ -72,20 +73,22 @@ if (!seen.add(key)) continue;   // 중복이면 스킵 — contains+add 2번 할
 | 그냥 빠른 집합/맵 | HashSet / HashMap |
 | 넣은 순서 유지 | LinkedHashSet / LinkedHashMap |
 | 정렬 순서(범위 검색) | TreeSet / TreeMap |
-| 키가 enum | **EnumSet / EnumMap** (배열 기반, 가장 빠르고 가벼움) |
+| 키가 enum | **EnumSet / EnumMap** (EnumSet은 비트 벡터, EnumMap은 배열 기반 — 가장 빠르고 가벼움) |
 | 멀티스레드 | ConcurrentHashMap (+ `ConcurrentHashMap.newKeySet()`) |
 
 ## 💡 판단 기준
 
-- **"중복 없이 모으고 contains로 판별"이 목적이면 Set, "키로 값을 찾는"이 목적이면 Map, "순서/인덱스"가 목적이면 List** — 자료구조 선택은 메서드가 아니라 목적으로. 근태 마감 rewrite에서 날짜 모음은 전부 `Set<LocalDate>`(전사휴일/공휴일 — contains 판별용), 날짜→하루치 데이터는 `Map<LocalDate, DailyClosing>`(키 조회용), 정렬 순회가 필요한 대상일만 `TreeSet`(allDates)이었다.
+- **"중복 없이 모으고 contains로 판별"이 목적이면 Set, "키로 값을 찾는"이 목적이면 Map, "순서/인덱스"가 목적이면 List** — 자료구조 선택은 메서드가 아니라 목적으로. 예: 월간 일정 계산에서 휴무일 모음은 `Set<LocalDate>`(contains 판별용), 날짜→하루치 결과는 `Map<LocalDate, DailySummary>`(키 조회용), 정렬 순회가 필요한 대상일만 `TreeSet`(allDates).
 - Map을 순회/스트림하고 싶으면 무조건 entrySet/keySet/values 뷰로 — "Map은 Collection이 아니다"만 기억하면 헤맬 일 없다.
 
 ## 참고
 
 - [Oracle Javadoc — Collection (Java 17)](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/Collection.html)
 - [Oracle Tutorial — Collections Framework Overview](https://docs.oracle.com/javase/tutorial/collections/intro/index.html)
+- [Oracle Javadoc — Set (불변 Set의 순회 순서 미정)](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/Set.html) · [EnumSet (bit vectors)](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/EnumSet.html)
 - 관련 노트: [Map 주요 메서드](./map-methods.md), [리스트 생성](./list-creation.md)
 
 ---
 학습 날짜: 2026-07-03
 계기: computeIfAbsent 정리하다가 "Set은 또 다른 게 있나? 다 Collection인가?"로 확장
+보강: 2026-10-02 — EnumSet 내부 표현(비트 벡터) 정정, `Set.of`/`Map.of` 순회 순서 무작위 함정 추가.

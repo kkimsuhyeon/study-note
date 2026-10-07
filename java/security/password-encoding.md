@@ -16,6 +16,8 @@
 | 저장값 | bcrypt/argon2 해시 (매번 salt 다름) | AES 등 암호문 (키로 복원) |
 
 > **선행지식 — 왜 해시에 salt가 필요한가.** 같은 비번은 같은 해시 → 공격자가 "흔한 비번 → 해시" 사전(rainbow table)을 미리 만들어두면 역추적된다. **salt**(임의 값)를 비번에 섞어 해시하면 같은 비번도 매번 다른 해시가 되어 사전이 무력화. bcrypt/argon2는 salt를 **해시 문자열 안에 함께 저장**한다(그래서 `matches`가 거기서 salt를 꺼내 비교 — §3-2).
+>
+> **선행지식 2 — salt만으로는 부족하고 "느려야" 한다.** salt는 미리 만든 사전을 무력화할 뿐, 해시 하나를 노린 대입은 막지 못한다. SHA-256 같은 범용 해시는 GPU로 초당 수십억 번 계산되므로 salt를 섞어도 흔한 비번은 금방 맞춘다. 비밀번호 해시는 **일부러 느리게 만드는 비용 인자(work factor)**가 핵심이다 — bcrypt의 strength(기본 10, 1 올리면 2배), argon2의 메모리·반복 횟수. 그래서 비번에 SHA-256+salt나 HMAC을 쓰지 않는다([HMAC과 해시](./hmac-and-hashing.md)는 "같은 입력 비교·위조 방지"용).
 
 ---
 
@@ -41,7 +43,7 @@ if (!passwordEncoder.matches(raw, user.getPassword())) {
 ```
 
 - **`DelegatingPasswordEncoder`**: 저장값이 `{bcrypt}$2a$10$...`처럼 알고리즘 접두사를 가져, 나중에 argon2 등으로 **점진 마이그레이션**이 가능(기존 해시도 그대로 검증). 요즘 스프링 시큐리티 기본 권장. (`{noop}`은 평문—변환 안 함—이라 테스트/데모 전용. 운영에 쓰면 평문 저장.)
-- ⚠️ **bcrypt는 입력 72바이트까지만 본다** — 그보다 긴 비번은 뒤가 잘려 무시된다(긴 passphrase·멀티바이트에서 함정). 더 긴 입력이 필요하면 argon2/scrypt.
+- ⚠️ **bcrypt 알고리즘은 입력 72바이트까지만 본다** — 원래는 그보다 긴 비번의 뒤가 조용히 잘렸다(긴 passphrase·한글처럼 글자당 3바이트인 입력에서 함정). 현재 Spring Security의 `BCrypt`는 **새 비밀번호가 72바이트를 넘으면 `encode()`에서 `IllegalArgumentException("password cannot be more than 72 bytes")`를 던진다**(main 소스 확인, 도입 버전은 확인 필요). 즉 Spring에선 "잘림"이 아니라 가입·변경 시 예외 → 입력 길이(바이트 기준) 검증을 앞단에 두거나, 더 긴 입력이 필요하면 argon2/scrypt.
 - **위치 = 앱 서비스**(`AuthService`). 인코딩은 보안 *메커니즘*이라 도메인(엔티티/도메인서비스)에 넣지 않는다 — `PasswordEncoder`는 스프링 시큐리티 인프라라 도메인이 알면 순수성이 깨진다. (→ [domain-validation §4-1](../design/domain-validation.md): 메커니즘은 앱/인프라)
 
 ---
@@ -83,10 +85,12 @@ public class CryptoConverter implements AttributeConverter<String, String> {
 ---
 
 ## 6. 참고
-- [Spring Security - PasswordEncoder](https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html)
-- 관련 노트: [도메인 검증 위치 §4-1](../design/domain-validation.md)
+- [Spring Security - PasswordEncoder](https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html) — 적응형 단방향 함수(work factor) 설명
+- [Spring Security 소스 — BCrypt (72바이트 초과 시 예외)](https://github.com/spring-projects/spring-security/blob/main/crypto/src/main/java/org/springframework/security/crypto/bcrypt/BCrypt.java)
+- [OWASP — Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+- 관련 노트: [도메인 검증 위치 §4-1](../design/domain-validation.md) · [HMAC과 해시](./hmac-and-hashing.md)
 
 ---
 
-**학습 날짜**: 2026-06-09
+**학습 날짜**: 2026-06-09 (2026-10-02 work factor·Spring BCrypt 72바이트 예외 보강)
 **계기**: `UserRegistration`/`AuthService`에서 비번 인코딩을 어디서·어떻게 할지 보다가 — "직접 `PasswordEncoder` 호출 vs 예전에 쓰던 `AttributeConverter` 중 뭐가 맞나" 의문. 결론: 비번=단방향 해시(`PasswordEncoder`), 컨버터는 양방향 암호화(PII)용이라 비번엔 부적합(검증·이중해시 문제).

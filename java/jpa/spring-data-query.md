@@ -1,6 +1,6 @@
 # Criteria · Specification · Pageable · Page — 출처와 사용법
 
-> **한 줄 요약**: 동적 조회·페이징에 쓰는 도구들인데 **출처가 제각각**이다. `Pageable`/`Page`는 **Spring Data**(JPA 아님), `Specification`은 **Spring Data JPA**, 그 안의 `root`/`criteriaBuilder`는 **JPA 표준 Criteria API**, `UserCriteria`는 **프로젝트가 만든 DTO**. 가장 큰 함정은 **"Criteria"가 두 가지**(JPA Criteria API vs 자작 필터 DTO)라는 것.
+> **한 줄 요약**: 동적 조회·페이징에 쓰는 도구들인데 **출처가 제각각**이다. `Pageable`/`Page`는 **Spring Data**(JPA 아님), `Specification`은 **Spring Data JPA**, 그 안의 `root`/`criteriaBuilder`는 **JPA 표준 Criteria API**, `MemberCriteria` 같은 이름은 **애플리케이션이 직접 만든 DTO**. 가장 큰 함정은 **"Criteria"가 두 가지**(JPA Criteria API vs 자작 필터 DTO)라는 것.
 
 관련 노트: [영속성 컨텍스트·flush](./persistence-context.md) · [JPA repository 테스트](../test/jpa-repository-test.md)
 
@@ -13,7 +13,7 @@
 | `Pageable`, `Page`, `PageRequest`, `Sort`               | `org.springframework.data.domain` | **Spring Data Commons**         | ❌ JPA 아님 (MongoDB 등에도 씀) |
 | `Specification`, `JpaSpecificationExecutor`             | `org.springframework.data.jpa.*`  | **Spring Data JPA**             | △ JPA 위에 얹은 Spring 것     |
 | `CriteriaBuilder`, `CriteriaQuery`, `Root`, `Predicate` | `jakarta.persistence.criteria`    | **JPA(Jakarta Persistence) 표준** | ✅ JPA 그 자체               |
-| `UserCriteria`                                          | 프로젝트 패키지                          | **내가 만든 DTO**                   | ❌ 프레임워크 아님               |
+| `MemberCriteria` (예시)                                  | 애플리케이션 패키지                        | **직접 만든 필터 DTO**               | ❌ 프레임워크 아님               |
 
 > 즉 "이거 다 JPA냐?" → **아니다.** 페이징은 Spring Data, Specification은 Spring Data JPA, Criteria API만 순수 JPA. 한 줄에 섞여 보여서 헷갈릴 뿐이다.
 
@@ -21,23 +21,23 @@
 
 ## 2. ⚠️ "Criteria"는 두 개다 (가장 큰 혼동)
 
-| | JPA **Criteria API** | 프로젝트 `UserCriteria` |
+| | JPA **Criteria API** | 자작 `MemberCriteria` |
 |---|---|---|
 | 정체 | JPA 표준 — 쿼리를 자바 코드로 타입세이프하게 조립 | 그냥 **필터 조건을 담는 DTO** |
 | 구성 | `CriteriaBuilder`, `Root`, `Predicate` ... | `id`, `name`, `email` 필드 |
 | 누가 만듦 | JPA(Jakarta) | 내가 직접 |
 
 ```java
-// 프로젝트 UserCriteria — 검색 조건을 담는 평범한 DTO일 뿐
+// 자작 MemberCriteria — 검색 조건을 담는 평범한 DTO일 뿐
 @Getter @Builder
-public class UserCriteria {
+public class MemberCriteria {
     private String id;
     private String name;
     private String email;
 }
 ```
 
-> 이름이 같아서 "Criteria = JPA 그거?" 싶지만, `UserCriteria`는 **JPA와 무관한 자작 DTO**다. JPA Criteria API는 `Specification` *내부*에서 쓰인다(§4).
+> 이름이 같아서 "Criteria = JPA 그거?" 싶지만, `MemberCriteria`는 **JPA와 무관한 자작 DTO**다. JPA Criteria API는 `Specification` *내부*에서 쓰인다(§4).
 
 ---
 
@@ -54,9 +54,9 @@ Pageable pageable = PageRequest.of(0, 20, Sort.by("email").ascending());
 ### `Page<T>` — 결과 + 메타데이터 반환
 
 ```java
-Page<User> page = repository.findAll(pageable);
+Page<Member> page = repository.findAll(pageable);
 
-page.getContent();        // List<User> — 이번 페이지 데이터
+page.getContent();        // List<Member> — 이번 페이지 데이터
 page.getTotalElements();  // 전체 개수
 page.getTotalPages();     // 전체 페이지 수
 page.hasNext();           // 다음 페이지 있나
@@ -87,13 +87,13 @@ public static <T> Specification<T> likeIgnoreCase(String field, String value) {
   - **모든 조건이 null이면 WHERE 절 자체가 없음 → 전체 조회.**
   - ⚠️ 그래서 `if (값 == null) return null` 가드가 필수. 빼먹고 `cb.equal(root.get("role"), null)`을 만들면 `WHERE role = null` → **아무것도 안 잡힘**(NULL 비교라 항상 거짓).
 
-> ⚠️ **enum 필터는 `like`가 아니라 `equal`.** role 같은 enum은 카테고리라 부분 매칭이 무의미 → `cb.equal(root.get("role"), UserRole.USER)`. 엔티티가 `@Enumerated(EnumType.STRING)`이라 DB엔 `"USER"` 문자열로 저장되지만, **enum 값을 그대로 넘기면 Hibernate가 저장형태로 변환**해 `WHERE role = 'USER'`를 만든다(직접 toString 불필요). 웹 레이어에선 `?role=USER`가 String→enum 자동 바인딩(이름 정확 일치, 대소문자 구분).
+> ⚠️ **enum 필터는 `like`가 아니라 `equal`.** role 같은 enum은 카테고리라 부분 매칭이 무의미 → `cb.equal(root.get("role"), MemberRole.USER)`. 엔티티가 `@Enumerated(EnumType.STRING)`이라 DB엔 `"USER"` 문자열로 저장되지만, **enum 값을 그대로 넘기면 Hibernate가 저장형태로 변환**해 `WHERE role = 'USER'`를 만든다(직접 toString 불필요). 웹 레이어에선 `?role=USER`가 String→enum 자동 바인딩(이름 정확 일치, 대소문자 구분).
 
 ### 사용하려면 레포가 `JpaSpecificationExecutor` 상속
 
 ```java
-public interface UserJpaRepository
-    extends JpaRepository<UserEntity, String>, JpaSpecificationExecutor<UserEntity> {
+public interface MemberJpaRepository
+    extends JpaRepository<MemberEntity, String>, JpaSpecificationExecutor<MemberEntity> {
 }
 // → findAll(Specification, Pageable), findOne(Specification), count(Specification) 등이 생김
 ```
@@ -102,26 +102,26 @@ public interface UserJpaRepository
 
 ## 5. 어떻게 조립되나 (데이터 흐름)
 
-이 프로젝트의 실제 연결:
+헥사고날/어댑터 구조에서 흔한 연결:
 
 ```
-UserCriteria (필터 DTO: id/name/email)
-   │  UserSpecification.withCriteria(criteria)
+MemberCriteria (필터 DTO: id/name/email)
+   │  MemberSpecification.withCriteria(criteria)
    ▼
-Specification<UserEntity>           ← 조건을 코드로 조립 (내부는 JPA Criteria API)
+Specification<MemberEntity>           ← 조건을 코드로 조립 (내부는 JPA Criteria API)
    │  jpaRepository.findAll(spec, pageable)   ← JpaSpecificationExecutor 제공
    ▼
-Page<UserEntity>                    ← 페이징 결과 (+ count)
-   │  .map(UserEntity::toModel)
+Page<MemberEntity>                    ← 페이징 결과 (+ count)
+   │  .map(MemberEntity::toModel)
    ▼
-Page<User>                          ← 어댑터가 도메인으로 변환해 반환
+Page<Member>                          ← 어댑터가 도메인으로 변환해 반환
 ```
 
 ```java
 // 어댑터
-public Page<User> findAllByCriteria(UserCriteria criteria, Pageable pageable) {
-    Specification<UserEntity> spec = UserSpecification.withCriteria(criteria);
-    return jpaRepository.findAll(spec, pageable).map(UserEntity::toModel);
+public Page<Member> findAllByCriteria(MemberCriteria criteria, Pageable pageable) {
+    Specification<MemberEntity> spec = MemberSpecification.withCriteria(criteria);
+    return jpaRepository.findAll(spec, pageable).map(MemberEntity::toModel);
 }
 ```
 
@@ -129,11 +129,11 @@ public Page<User> findAllByCriteria(UserCriteria criteria, Pageable pageable) {
 
 ## 6. ⚠️ 함정 모음
 
-- **"Criteria" 두 의미** — JPA Criteria API ≠ 자작 `UserCriteria`(§2).
+- **"Criteria" 두 의미** — JPA Criteria API ≠ 자작 `MemberCriteria`(§2).
 - **PageRequest 0-based** — 첫 페이지 `0`.
 - **`Page`는 count 쿼리 추가** — 개수 불필요하면 `Slice`.
 - **Specification `return null`** — 조건 제외를 의미. 값 없을 때 null 반환하면 그 조건이 WHERE에서 빠짐(동적 쿼리).
-- **존재하지 않는 필드 참조** — `root.get("name")`인데 엔티티에 `name`이 없으면 **쿼리 빌드 시 `IllegalArgumentException`**. (← 이 프로젝트 `UserSpecification`이 실제로 가진 버그)
+- **존재하지 않는 필드 참조** — `root.get("name")`인데 엔티티에 `name`이 없으면 **쿼리 빌드 시 `IllegalArgumentException`**. 문자열 필드명이라 컴파일러가 못 잡고, 엔티티 필드명을 바꾸면 Specification이 런타임에 깨진다. (필터 DTO 필드명을 그대로 `root.get(...)`에 넘기다 엔티티 필드명과 어긋나는 게 흔한 원인 → JPA 메타모델(`Member_.name`)이나 QueryDSL처럼 타입세이프한 경로가 대안)
 
 ---
 
@@ -152,19 +152,19 @@ public Page<User> findAllByCriteria(UserCriteria criteria, Pageable pageable) {
 조건이 고정이어도 **`AND` 와 `OR` 가 섞이면** 파생 쿼리를 쓸 수 없다. 메서드 이름에 **괄호를 넣을 방법이 없기 때문**이다.
 
 ```
-원하는 조건:  org = ? AND usr = ? AND date < ?
+원하는 조건:  team = ? AND member = ? AND date < ?
               AND (expired IS NULL OR expired >= ?)
                    └──── 이 괄호 ────┘
 ```
 ```java
-findByOrgAndUsrAndDateLessThanAndExpiredIsNullOrExpiredGreaterThanEqual(...)
-// 실제 해석 → (org=? AND usr=? AND date<? AND expired IS NULL) OR (expired>=?)
+findByTeamAndMemberAndDateLessThanAndExpiredIsNullOrExpiredGreaterThanEqual(...)
+// 실제 해석 → (team=? AND member=? AND date<? AND expired IS NULL) OR (expired>=?)
 //              뒤쪽 OR 가 앞 조건을 통째로 무시한다
 ```
 
-**컴파일도 되고 실행도 되는데 결과만 조용히 틀린다.** 다른 소유자·다른 사용자의 행까지 딸려온다.
+**컴파일도 되고 실행도 되는데 결과만 조용히 틀린다.** 다른 팀·다른 회원의 행까지 딸려온다.
 
-부가로 파생 쿼리는 **엔티티/인터페이스 프로젝션만** 반환한다 — 필요한 컬럼만 뽑는 DTO 프로젝션은 `@Query`가 필요하다(→ [N+1 §5-1](./n-plus-one-fetch.md)).
+참고로 파생 쿼리도 **인터페이스 프로젝션과 클래스(DTO·record) 프로젝션**을 둘 다 지원한다 — 반환 타입을 DTO로 두면 생성자 표현식으로 필요한 컬럼만 SELECT한다. 단 프로젝션 대상은 엔티티의 최상위 속성이고, 중첩 경로를 넣으면 그 연관 전체가 조인돼 올라온다. 조인·가공이 필요한 프로젝션은 `@Query`/QueryDSL로(→ [N+1 §5-1](./n-plus-one-fetch.md)).
 
 > 💡 **`OR` 가 괄호로 묶여야 하면 그 순간 `@Query`(JPQL) 또는 QueryDSL이다.** 이름이 길어지는 게 문제가 아니라 **표현 자체가 불가능**한 것. 이름이 세 줄 넘어가기 시작하면 대개 이 신호다.
 
@@ -199,9 +199,10 @@ findByOrgAndUsrAndDateLessThanAndExpiredIsNullOrExpiredGreaterThanEqual(...)
 ## 9. 참고
 - [Spring Data JPA - Specifications](https://docs.spring.io/spring-data/jpa/reference/jpa/specifications.html)
 - [Spring Data - Paging and Sorting](https://docs.spring.io/spring-data/jpa/reference/repositories/core-concepts.html)
+- [Spring Data JPA - Projections (파생 쿼리는 클래스·인터페이스 프로젝션 모두 지원)](https://docs.spring.io/spring-data/jpa/reference/repositories/projections.html)
 - 관련 노트: [JPA repository 테스트](../test/jpa-repository-test.md) · [영속성 컨텍스트·flush](./persistence-context.md)
 
 ---
 
 **학습 날짜**: 2026-06-06
-**계기**: `findAllByCriteria` 테스트를 짜려다 `Criteria`/`Page`/`Pageable`/`Specification`이 각각 뭔지·JPA인지 헷갈려서 정리. 핵심은 "출처가 다 다르다"(Spring Data vs Spring Data JPA vs JPA 표준 vs 자작 DTO) + "Criteria가 두 의미".
+**계기**: `findAllByCriteria` 테스트를 짜려다 `Criteria`/`Page`/`Pageable`/`Specification`이 각각 뭔지·JPA인지 헷갈려서 정리. 핵심은 "출처가 다 다르다"(Spring Data vs Spring Data JPA vs JPA 표준 vs 자작 DTO) + "Criteria가 두 의미". (2026-10-02 예시 이름 일반화·파생 쿼리 DTO 프로젝션 보정)

@@ -19,6 +19,8 @@
 
 > `@Scheduled(cron = "${batch.cron}")`처럼 **설정값을 크론에 넣는 것**까지는 `@Scheduled`로 된다. 다만 기동 시 한 번 읽는 것이라 "운영 중 바꾸기"는 안 된다. 그게 필요해지는 순간이 이 노트의 방식으로 넘어가는 시점.
 
+> 중간 단계: `@EnableScheduling` 인프라를 그대로 쓰면서 **크론만** 바꾸려면 `SchedulingConfigurer`를 구현해 `ScheduledTaskRegistrar.addTriggerTask(task, trigger)`로 등록한다. `Trigger`를 람다로 넘겨 실행이 끝날 때마다 DB에서 크론을 다시 읽어 `CronTrigger`로 다음 시각을 계산하면, 재등록 없이 다음 회차부터 바뀐다. 스케줄을 **추가·삭제**까지 하려면 결국 `ScheduledFuture`를 직접 관리하게 되어 아래 방식과 같아진다.
+
 ---
 
 ## 2. 사용법 — 스프링 코어만으로
@@ -39,57 +41,57 @@ scheduler.shutdown();                    // 전부 종료 (실행 중 작업을 
 ```
 
 - `Trigger`는 "다음 실행 시각을 알려주는" 인터페이스. `CronTrigger`(크론), `PeriodicTrigger`(고정 간격)가 기본 제공이고, 직접 구현하면 "DB에서 다음 시각을 읽는 트리거"도 가능하다.
-- **재등록 패턴 두 가지**: ⓐ 전부 `shutdown()` 후 스케줄러를 새로 만들어 다시 등록(단순, pharos_batch 방식) ⓑ `ScheduledFuture`를 보관해 두고 바뀐 것만 `cancel` → 재`schedule`(세밀, 실행 중 작업 보호).
+- **재등록 패턴 두 가지**: ⓐ 전부 `shutdown()` 후 스케줄러를 새로 만들어 다시 등록(단순, 아래 사례 방식) ⓑ `ScheduledFuture`를 보관해 두고 바뀐 것만 `cancel` → 재`schedule`(세밀, 실행 중 작업 보호).
 
 ---
 
-## 3. 사례 — pharos_batch: 테이블 3개 + 클래스 1개
+## 3. 사례 — DB 정의 스케줄: 테이블 4개 + 클래스 1개
 
 **테이블 역할**
 
 | 테이블 | 역할 | 코드가 |
 |---|---|---|
-| `cbm_schd` | 스케줄 정의: `schd_cd`(번호) · `schd_cron` · `schd_nm` | 읽음 |
-| `cbm_schd_job_command_mapp` | 스케줄 ↔ 명령 매핑: `schd_cd` · `job_command`(**빈 이름**) · `step`(순서, 0=비활성) · `retry` | 읽음 |
-| `cbm_job_command` | 명령 카탈로그 (이름·설명) | **안 읽음** — 문서용 |
-| `cbm_job_run_hst` | 실행 이력: 명령 1회 = 1행, 성공 여부·에러 | 씀 |
+| `schedule` | 스케줄 정의: `schedule_id` · `cron` · `name` | 읽음 |
+| `schedule_command` | 스케줄 ↔ 명령 매핑: `schedule_id` · `command_bean`(**빈 이름**) · `step`(순서, 0=비활성) · `retry` | 읽음 |
+| `command_catalog` | 명령 카탈로그 (이름·설명) | **안 읽음** — 문서용 |
+| `job_run_history` | 실행 이력: 명령 1회 = 1행, 성공 여부·에러 | 씀 |
 
-**기동 흐름** (`DynamicBatch.init`, `@PostConstruct`)
+**기동 흐름** (`DynamicJobScheduler.init`, `@PostConstruct`)
 
 ```java
-List<Schd> schds = schdMapper.selectAll();                        // ① 스케줄 전부
-List<SchdJobCommandMapp> mapps = schdJobCommandMappMapper.selectAll();  // ② 매핑 전부
+List<Schedule> schedules = scheduleMapper.selectAll();                       // ① 스케줄 전부
+List<ScheduleCommandMapping> mappings = scheduleCommandMapper.selectAll();   // ② 매핑 전부
 
-for (Schd schd : schds) {
-    List<CommandInfo> jobs = mapps.stream()
-            .filter(m -> m.getSchdCd() == schd.getSchdCd() && m.getStep() > 0)   // step 0 = 사용 안 함
+for (Schedule schedule : schedules) {
+    List<CommandInfo> jobs = mappings.stream()
+            .filter(m -> m.getScheduleId() == schedule.getId() && m.getStep() > 0)  // step 0 = 사용 안 함
             .map(m -> {
-                AbstactCommand cmd = ctx.getBean(m.getJobCommand(), AbstactCommand.class);  // ③ 빈 이름으로 조회
+                BatchCommand cmd = ctx.getBean(m.getCommandBean(), BatchCommand.class);  // ③ 빈 이름으로 조회
                 cmd.maxRetry = m.getRetry();
                 return CommandInfo.create(m, cmd);
             })
             .sorted(comparingInt(CommandInfo::getStep))                            // ④ step 순
             .collect(toList());
-    tasks.add(Task.of(schd, jobs));
+    tasks.add(Task.of(schedule, jobs));
 }
 
 scheduler.setPoolSize(tasks.size());                                               // 스케줄 1개 = 스레드 1개
 for (Task t : tasks) {
     scheduler.schedule(() -> t.getJobs().forEach(this::startJob),                  // ⑤ 같은 스케줄의 명령은 순차
-                       new CronTrigger(t.getSchdCron()));
+                       new CronTrigger(t.getCron()));
 }
 ```
 
-- `startJob`은 명령마다 `cbm_job_run_hst`에 한 줄 insert → 실행 → 성공/실패 update. 실패 시 `retry`만큼 재시도.
-- **재로딩**: `PATCH /api/v1/mgmt/batch/init` → `stopBatch()`(shutdown) → `init()` 다시. DB만 바꾸면 반영 안 되고 이 호출이나 재기동이 필요하다.
-- 새 잡 = `AbstactCommand`를 상속한 `@Component` **코드 작성·배포** + `cbm_schd_job_command_mapp`에 행 1개. 크론이 새로 필요하면 `cbm_schd`에도 1행.
+- `startJob`은 명령마다 `job_run_history`에 한 줄 insert → 실행 → 성공/실패 update. 실패 시 `retry`만큼 재시도.
+- **재로딩**: 관리용 재로딩 엔드포인트 → `stop()`(shutdown) → `init()` 다시. DB만 바꾸면 반영 안 되고 이 호출이나 재기동이 필요하다.
+- 새 잡 = `BatchCommand`를 상속한 `@Component` **코드 작성·배포** + `schedule_command`에 행 1개. 크론이 새로 필요하면 `schedule`에도 1행.
 
 **무엇이 정적이고 무엇이 동적인가**
 
 | | 정해지는 곳 | 바꾸려면 |
 |---|---|---|
 | 어떤 명령(클래스)이 존재하는가 | 코드 | 빌드·배포 |
-| 언제·어떤 순서·재시도·on/off | DB | SQL + `/init` |
+| 언제·어떤 순서·재시도·on/off | DB | SQL + 재로딩 호출 |
 
 ---
 
@@ -118,28 +120,30 @@ for (Task t : tasks) {
 
 ## ⚠️ 함정
 
-- **빈 이름 오타 한 건이 스케줄 전체를 죽인다** — `getBean`은 없으면 예외이고, 위 코드처럼 `for` 전체가 하나의 `try`에 있으면 첫 실패에서 init이 끝나 **아무 스케줄도 등록되지 않는다.** 이름 규칙은 `Introspector.decapitalize`(클래스명 첫 글자 소문자, 단 앞 두 글자가 대문자면 그대로) → [ApplicationContext §7](./application-context.md). 해법은 `Map<String, AbstactCommand>` 주입으로 "없으면 null → 경고 후 건너뛰기".
-- **step=0 같은 "삭제 대신 끄기" 관례** — 코드에 `if (step > 0)` 한 줄로만 존재한다. 문서화하지 않으면 다음 사람이 "왜 이 행은 안 도나"를 코드까지 파고 들어야 한다. 비활성 행에는 잘못된 빈 이름이 숨어 있어도 티가 안 나다가 활성화 순간 터진다.
+- **빈 이름 오타 한 건이 스케줄 전체를 죽인다** — 위 코드처럼 `for` 전체가 하나의 `try`에 있으면 첫 `getBean` 실패에서 init이 끝나 아무 스케줄도 등록되지 않는다. 원인·이름 규칙·`Map` 주입 해법은 [ApplicationContext §6-b](./application-context.md).
+- **step=0 같은 "삭제 대신 끄기" 관례** — 코드에 `if (step > 0)` 한 줄로만 존재한다. 문서화하지 않으면 다음 사람이 "왜 이 행은 안 도나"를 코드까지 파고 들어야 한다.
+- **직접 `new`한 스케줄러는 빈이 아니다** — 컨테이너가 종료할 때 `shutdown()`을 불러 주지 않는다(종료 콜백은 빈에만 간다). 컨텍스트가 닫힌 뒤에도 작업이 돌며 이미 닫힌 `DataSource` 등을 쓰다 실패할 수 있다. `@Bean`으로 등록하거나, 감싼 클래스의 `@PreDestroy`에서 직접 `shutdown()`한다.
 - **CronTrigger는 이전 실행이 끝난 시각 기준으로 다음 시각을 계산한다** — 같은 스케줄은 겹쳐 돌지 않지만, 명령 하나가 오래 걸리면 다음 회차가 밀리거나 건너뛴다(5분 주기인데 7분 걸리면 다음은 10분 시점). 순차 실행이 안전장치이자 지연의 원인.
-- **`shutdown()`은 실행 중 작업을 기다리지 않는다** — `waitForTasksToCompleteOnShutdown`이 기본 false. `/init`을 작업 도중 호출하면 그 작업이 중간에 끊긴다. 재로딩 API는 "지금 도는 게 없을 때"만 부르거나, 재등록 패턴 ⓑ(변경분만 cancel)로 바꿔야 한다.
+- **`shutdown()`은 실행 중 작업을 기다리지 않는다** — `waitForTasksToCompleteOnShutdown`이 기본 false. 재로딩을 작업 도중 호출하면 그 작업이 중간에 끊긴다(실행 중 작업은 `shutdownNow()`로 인터럽트되고, 아직 시작 안 한 작업은 취소된다). 재로딩 API는 "지금 도는 게 없을 때"만 부르거나, 재등록 패턴 ⓑ(변경분만 cancel)로 바꿔야 한다.
 - **인스턴스가 2대면 2번 돈다** — 스케일 아웃하면 모든 인스턴스가 같은 크론을 등록한다. 단일 배치 인스턴스로 두거나, ShedLock(DB 락으로 한 인스턴스만 실행), Quartz 클러스터 모드가 필요하다 → [스케일 아웃](../../infra/scaling.md).
-- **미스파이어 복구가 없다** — 서버가 꺼져 있던 시각의 스케줄은 그냥 사라진다. "매월 1일 정산"이 배포 시각과 겹치면 그 달 정산이 안 돈다. 이력 테이블(`cbm_job_run_hst`)로 "돌았는지"는 확인되지만 "안 돌았으니 지금 돌린다"는 없다. 필요하면 Quartz의 misfire 정책이나 수동 실행 엔드포인트(pharos_batch는 `*CommandTest` GET들이 그 역할).
+- **미스파이어 복구가 없다** — 서버가 꺼져 있던 시각의 스케줄은 그냥 사라진다. "매월 1일 정산"이 배포 시각과 겹치면 그 달 정산이 안 돈다. 이력 테이블(`job_run_history`)로 "돌았는지"는 확인되지만 "안 돌았으니 지금 돌린다"는 없다. 필요하면 Quartz의 misfire 정책이나 명령별 수동 실행 엔드포인트.
 
 ---
 
 ## 💡 판단 기준
 
-- **`@Scheduled`로 시작한다.** 운영이 "시각을 바꿔 달라"고 두 번째 말하는 순간이 DB 정의로 넘어가는 시점. 그 전에 만들면 테이블 3개와 재로딩 API가 그냥 짐이다.
+- **`@Scheduled`로 시작한다.** 운영이 "시각을 바꿔 달라"고 두 번째 말하는 순간이 DB 정의로 넘어가는 시점(크론만 바뀌면 `SchedulingConfigurer`가 먼저). 그 전에 만들면 테이블 여러 개와 재로딩 API가 그냥 짐이다.
 - **"동적"의 범위를 정확히 말한다** — DB 정의 스케줄이라도 잡의 **종류** 추가는 배포다. 기획·운영에게 "새 배치 추가는 DB만 넣으면 되죠?"라는 기대를 만들지 않도록 표(§3 마지막)로 설명한다.
-- **이름을 DB에 저장하면 그 이름은 계약이다** — 클래스명 리팩토링이 곧 장애다. 클래스 주석에 "이름 변경 금지, DB `job_command`와 계약"을 박거나, 빈 이름 대신 명령이 스스로 선언하는 코드(enum·`getCommandCode()`)를 키로 쓴다.
+- **이름을 DB에 저장하면 그 이름은 계약이다** — 클래스명 리팩토링이 곧 장애다. 클래스 주석에 "이름 변경 금지, DB `command_bean`과 계약"을 박거나, 빈 이름 대신 명령이 스스로 선언하는 코드(enum·`getCommandCode()`)를 키로 쓴다.
 - **클러스터·미스파이어·이력 조회 셋 중 둘 이상이 요구되면 Quartz** — 직접 구현하면 결국 Quartz 테이블을 다시 만들게 된다.
-- 구체 케이스: pharos_batch는 단일 배치 서버·수십 개 잡·"운영이 시각을 바꾼다" 요구에 이 방식이 잘 맞는다. 고칠 건 두 가지 — `Map` 주입으로 부분 실패 격리, `/init`의 실행 중 작업 보호.
+- 구체 케이스: 단일 배치 서버·수십 개 잡·"운영이 시각을 바꾼다" 요구에는 이 방식이 잘 맞았다. 고칠 건 두 가지 — `Map` 주입으로 부분 실패 격리, 재로딩의 실행 중 작업 보호.
 
 ---
 
 ## 참고
 
-- [Spring Framework Reference — Task Execution and Scheduling](https://docs.spring.io/spring-framework/reference/integration/scheduling.html) (`TaskScheduler`, `Trigger`, `@Scheduled`)
+- [Spring Framework Reference — Task Execution and Scheduling](https://docs.spring.io/spring-framework/reference/integration/scheduling.html) (`TaskScheduler`, `Trigger`, `@Scheduled`, `SchedulingConfigurer`)
+- [Javadoc — ScheduledTaskRegistrar](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/scheduling/config/ScheduledTaskRegistrar.html) (`addTriggerTask(Runnable, Trigger)`)
 - [Javadoc — CronExpression](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/scheduling/support/CronExpression.html) (6필드 문법, `L`/`W`/`#`/`?`, 매크로) · [CronTrigger](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/scheduling/support/CronTrigger.html) · [ThreadPoolTaskScheduler](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/scheduling/concurrent/ThreadPoolTaskScheduler.html)
 - [Spring Blog — Cron Expressions in Spring 5.3](https://spring.io/blog/2020/11/10/new-in-spring-5-3-improved-cron-expressions)
 - [Quartz — JDBC JobStore 설정](https://www.quartz-scheduler.org/documentation/quartz-2.3.0/configuration/ConfigJobStoreTX.html) · [ShedLock](https://github.com/lukas-krecan/ShedLock)
@@ -148,4 +152,4 @@ for (Task t : tasks) {
 ---
 
 **학습 날짜**: 2026-09-16
-**계기**: DB에 `cbm_job_command`·`cbm_schd_job_command_mapp`가 있는데 "코드에서 스케줄을 어떻게 만드는 건가"에서 출발. pharos_batch `DynamicBatch`를 읽으며 Quartz·Spring Batch 없이 스프링 코어만으로 DB 정의 스케줄을 도는 구조, 그리고 빈 이름이 DB와의 계약이 되는 함정을 정리. `AppContextProvider`가 뭔지는 [ApplicationContext](./application-context.md)로 분리.
+**계기**: DB에 스케줄 정의·명령 매핑 테이블이 있는데 "코드에서 스케줄을 어떻게 만드는 건가"에서 출발. 배치 서버의 DB 정의 스케줄러를 읽으며 Quartz·Spring Batch 없이 스프링 코어만으로 DB 정의 스케줄을 도는 구조, 그리고 빈 이름이 DB와의 계약이 되는 함정을 정리. `AppContextProvider`가 뭔지는 [ApplicationContext](./application-context.md)로 분리.

@@ -9,7 +9,7 @@
 ## 1. Setter를 열지 않는다
 
 - Setter가 다 열려 있으면 **값이 어디서 바뀌는지 추적이 안 된다.** `member.setStock(...)`이 30군데면 재고가 왜 틀어졌는지 30군데를 다 봐야 한다.
-- JPA는 더티 체킹으로 동작하므로 setter 호출 = 곧 UPDATE 예약이다([영속성 컨텍스트](./persistence-context.md)). 변경 지점이 흩어지면 UPDATE 발생 지점도 흩어진다.
+- JPA는 더티 체킹으로 동작하므로 setter로 바꾼 값은 그대로 flush 때 UPDATE가 된다([영속성 컨텍스트](./persistence-context.md)). 변경 지점이 흩어지면 UPDATE의 원인도 흩어진다.
 - 대신 **의도가 드러나는 비즈니스 메서드**를 제공:
 
 ```java
@@ -38,16 +38,7 @@ public void removeStock(int quantity) {
 
 ## 2. 모든 연관관계는 LAZY
 
-- `@ManyToOne` · `@OneToOne`(ToOne)의 fetch **기본값은 EAGER** — 그대로 두면 조회마다 연관 엔티티를 즉시 로딩하고, JPQL과 만나면 N+1로 직행한다.
-- **모든 연관관계에 `fetch = FetchType.LAZY`를 명시**하고, 함께 필요한 경우만 fetch join·EntityGraph로 그때그때 가져온다.
-
-```java
-@ManyToOne(fetch = FetchType.LAZY)   // ToOne은 반드시 명시 (기본 EAGER)
-@JoinColumn(name = "MEMBER_ID")
-private Member member;
-```
-
-상세 메커니즘: [N+1과 fetch 전략](./n-plus-one-fetch.md) · 관계별 규칙: [연관관계 매핑](./relation-mapping.md)
+- **모든 연관관계에 `fetch = FetchType.LAZY`를 명시**하고(ToOne은 기본이 EAGER라 특히), 함께 필요한 경우만 fetch join·EntityGraph로 그때그때 가져온다. 기본값 표와 이유 → [연관관계 매핑 §7](./relation-mapping.md) · [N+1과 fetch 전략](./n-plus-one-fetch.md)
 
 ---
 
@@ -68,10 +59,10 @@ System.out.println(member.getOrders().getClass());
 
 em.persist(member);
 System.out.println(member.getOrders().getClass());
-// class org.hibernate.collection.internal.PersistentBag  ← 교체됐다!
+// class org.hibernate.collection.spi.PersistentBag  ← 교체됐다! (Hibernate 5.x는 ...collection.internal.PersistentBag)
 ```
 
-- 하이버네이트는 이 **PersistentBag을 통해 컬렉션 변경을 추적**한다. 임의로 `setOrders(new ArrayList<>())`처럼 **컬렉션을 통째로 갈아끼우면 추적 메커니즘이 깨진다.**
+- 하이버네이트는 이 **PersistentBag을 통해 컬렉션 변경을 추적**한다. 임의로 `setOrders(new ArrayList<>())`처럼 **컬렉션을 통째로 갈아끼우면 추적 메커니즘이 깨진다.** 증상은 매핑에 따라 다르다 — `orphanRemoval = true` 컬렉션이면 flush 때 `HibernateException: A collection with orphan deletion was no longer referenced by the owning entity instance`(Hibernate 6.x 메시지)로 터지고, 일반 컬렉션이면 "옛 컬렉션 제거 + 새 컬렉션 재생성"으로 처리돼, 연결 테이블·컬렉션 테이블처럼 엔티티가 직접 관리하는 컬렉션이면 행을 전부 지우고 다시 넣는다. ([영속성 전이와 고아 객체](./cascade-orphan-removal.md))
 - → **컬렉션은 필드에서 한 번 초기화하고, 이후엔 절대 교체하지 말 것.** 내용만 add/remove로 다룬다.
 
 ---
@@ -132,7 +123,7 @@ private RoleType roleType;
 
 ## 7. 네이밍 전략 — 카멜 → 언더스코어는 자동
 
-- 스프링부트(Hibernate 기본 `PhysicalNamingStrategy`)는 **camelCase 필드를 snake_case 컬럼으로 자동 변환**한다: `orderDate` → `order_date`, `Member` → `member`.
+- **스프링 부트는 물리 네이밍 전략을 `CamelCaseToUnderscoresNamingStrategy`로 기본 설정**해서 camelCase 필드를 snake_case 컬럼으로 자동 변환한다: `orderDate` → `order_date`, `Member` → `member`(테이블명도 소문자). ⚠️ 이건 **Hibernate 기본이 아니다** — Hibernate 자체 기본(`PhysicalNamingStrategyStandardImpl`)은 이름을 바꾸지 않으므로, 스프링 부트 밖(순수 Hibernate·다른 설정)에서는 `orderDate` 컬럼을 찾는다.
 - 그러니 `@Column(name = "order_date")`처럼 **변환 결과를 그대로 다시 적는 건 노이즈**다. 명시가 필요한 경우는 자동 규칙과 다른 이름을 써야 할 때(레거시 테이블 매핑 등)뿐.
 - 회사 컨벤션이 다르면 `spring.jpa.hibernate.naming.physical-strategy`로 전략 교체.
 
@@ -150,10 +141,12 @@ private RoleType roleType;
 
 - 김영한, 자바 ORM 표준 JPA 프로그래밍 기본편 04장(엔티티 매핑) · 스프링부트와 JPA 활용1 2장(도메인 분석 설계 — 엔티티 설계 시 주의점)
 - [Hibernate User Guide - Naming strategies](https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#naming)
+- [Spring Boot - Configure Hibernate Naming Strategy (`CamelCaseToUnderscoresNamingStrategy` 기본 설정)](https://docs.spring.io/spring-boot/how-to/data-access.html#howto.data-access.configure-hibernate-naming-strategy)
+- [Hibernate ORM 6.6 javadoc - `org.hibernate.collection.spi.PersistentBag`](https://docs.hibernate.org/orm/6.6/javadocs/org/hibernate/collection/spi/PersistentBag.html)
 - [Vlad Mihalcea - The best way to map an enum](https://vladmihalcea.com/the-best-way-to-map-an-enum-type-with-jpa-and-hibernate/)
 - 관련 노트: [연관관계 매핑](./relation-mapping.md) · [도메인 검증 위치](../design/domain-validation.md)
 
 ---
 
 **학습 날짜**: 2026-08-12
-**계기**: 활용1 2장 "엔티티 설계 시 주의점" + 기본편 04장을 합쳐, 새 엔티티를 만들 때마다 반복 적용할 규칙을 체크리스트로 정리 (특히 PersistentBag 때문에 컬렉션을 교체하면 안 되는 이유가 처음 납득돼서)
+**계기**: 활용1 2장 "엔티티 설계 시 주의점" + 기본편 04장을 합쳐, 새 엔티티를 만들 때마다 반복 적용할 규칙을 체크리스트로 정리 (특히 PersistentBag 때문에 컬렉션을 교체하면 안 되는 이유가 처음 납득돼서) (2026-10-02 네이밍 전략 출처·Hibernate 6 패키지·컬렉션 교체 증상 보정)

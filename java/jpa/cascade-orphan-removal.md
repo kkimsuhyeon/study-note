@@ -58,6 +58,10 @@ order.getOrderItems().remove(0);   // 컬렉션에서 제거
 | 부모 삭제 시 | 자식도 삭제 ✅ | 자식도 삭제 ✅ (동일) |
 | **컬렉션에서 제거만** 하면 | 아무 일 없음 | **DELETE 나감** ← 차이점 |
 
+> ⚠️ **둘 다 "자식 한 건당 DELETE 한 번"이다.** 부모를 지우면 Hibernate는 자식 컬렉션을 로딩한 뒤 `DELETE FROM child WHERE id = ?`를 자식 수만큼 날리고 부모를 지운다. 자식이 수천 건이면 느리다 → 자식 먼저 JPQL 벌크 DELETE 후 부모 삭제([JPQL 심화 §1](./jpql-advanced.md), 단 영속성 컨텍스트 우회), 또는 DB의 `ON DELETE CASCADE`를 Hibernate `@OnDelete(action = OnDeleteAction.CASCADE)`로 선언하는 방법이 있다.
+>
+> ⚠️ orphanRemoval 컬렉션을 `setOrderItems(new ArrayList<>())`로 **통째로 교체하면** flush 때 예외가 난다 — 내용만 `clear()`/`remove()`로 다룰 것 → [엔티티 설계 실무 규칙 §3](./entity-design-rules.md).
+
 ## 4. ⚠️ 사용 기준 — 소유자가 하나일 때만
 
 > **자식을 참조하는 곳이 그 부모 하나뿐이고, 자식의 라이프사이클이 부모와 완전히 같을 때만** 건다.
@@ -107,9 +111,10 @@ public class OrderItem {
 
 ## 7. 참고
 - [Hibernate User Guide - Cascading](https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#pc-cascade)
+- [Hibernate ORM 6.6 User Guide - CascadeType.REMOVE 예제(자식 id별 DELETE)·`@OnDelete` cascade](https://docs.hibernate.org/orm/6.6/userguide/html_single/#pc-cascade)
 - 관련 노트: [애그리거트 소유권](../design/aggregate-ownership.md) · [값 타입](./value-types.md) (값 타입 컬렉션 대체 시 이 조합 사용)
 
 ---
 
 **학습 날짜**: 2026-08-13
-**계기**: 김영한 JPA 기본편 08장 + 활용1 6장 — cascade를 "편하니까" 거는 게 아니라 "소유자 하나 + 수명 동일"일 때만 걸어야 하는 이유와, ALL+orphanRemoval이 애그리거트 루트의 JPA 구현이라는 연결을 정리.
+**계기**: 김영한 JPA 기본편 08장 + 활용1 6장 — cascade를 "편하니까" 거는 게 아니라 "소유자 하나 + 수명 동일"일 때만 걸어야 하는 이유와, ALL+orphanRemoval이 애그리거트 루트의 JPA 구현이라는 연결을 정리. (2026-10-02 건별 DELETE·컬렉션 교체 함정 추가)

@@ -1,6 +1,6 @@
 # 값 타입(@Embeddable) — "식별자 없이 값으로만 사는 객체"의 설계 규칙
 
-> **한 줄 요약**: 식별자를 갖고 추적·변경되는 건 **엔티티**, 값만 있으면 되는 건 **값 타입**이다. 값 타입은 `@Embeddable`로 묶어 엔티티 안에 임베드하되(테이블은 그대로), 반드시 **불변(immutable)** 으로 설계하고 **equals로 동등성 비교**해야 한다. 값 타입 **컬렉션**(@ElementCollection)은 변경 시 전체 삭제+재저장이라는 함정이 있어 실무에서는 일대다 엔티티로 대체하는 경우가 많다.
+> **한 줄 요약**: 식별자를 갖고 추적·변경되는 건 **엔티티**, 값만 있으면 되는 건 **값 타입**이다. 값 타입은 `@Embeddable`로 묶어 엔티티 안에 임베드하되(테이블은 그대로), 반드시 **불변(immutable)** 으로 설계하고 **equals로 동등성 비교**해야 한다. 값 타입 **컬렉션**(@ElementCollection)은 식별자가 없어 (순서 없는 List로 매핑하면) 변경 시 전체 삭제+재저장이라는 함정이 있어 실무에서는 일대다 엔티티로 대체하는 경우가 많다.
 
 관련 노트: [영속성 전이와 고아 객체](./cascade-orphan-removal.md)
 
@@ -133,7 +133,7 @@ member.setHomeAddress(new Address("NewCity", old.getStreet(), old.getZipcode()))
 @Override
 public boolean equals(Object o) {
     if (this == o) return true;
-    if (!(o instanceof Address)) return false;   // 프록시 대비 instanceof
+    if (!(o instanceof Address)) return false;   // 하위 타입까지 허용하는 instanceof
     Address address = (Address) o;
     return Objects.equals(city, address.city)
         && Objects.equals(street, address.street)
@@ -144,7 +144,7 @@ public boolean equals(Object o) {
 public int hashCode() { return Objects.hash(city, street, zipcode); }
 ```
 
-- 필드 접근을 getter 경유로 작성하면 프록시로 감싸진 경우에도 안전하다 (→ [proxy.md](./proxy.md)의 타입 비교 함정과 같은 맥락).
+- `@Embeddable` 값 타입은 **프록시가 되지 않는다**(프록시는 엔티티 참조의 지연 로딩용). 그래서 값 타입 equals는 필드 직접 비교로 충분하다. 반면 **엔티티**의 equals를 직접 구현할 때는 프록시가 섞이므로 `instanceof` + getter 경유가 필요하다 → [proxy.md §3](./proxy.md).
 
 ---
 
@@ -167,7 +167,7 @@ private List<Address> addressHistory = new ArrayList<>();
 
 ### 제약사항 (실무에서 안 쓰는 이유)
 
-1. **변경 시 전체 삭제 + 재INSERT**: 값 타입은 식별자가 없어 어느 행이 바뀌었는지 추적할 수 없다. 그래서 컬렉션에 변경이 생기면 **주인 엔티티와 연관된 데이터를 전부 DELETE하고, 현재 컬렉션 값을 전부 다시 INSERT**한다. 주소 100개 중 1개 바꿨는데 DELETE 1번 + INSERT 100번.
+1. **변경 시 전체 삭제 + 재INSERT (List/bag 매핑일 때)**: 값 타입은 식별자가 없어 어느 행이 바뀌었는지 추적할 수 없다. 그래서 순서 없는 `List`(bag)는 컬렉션에 변경이 생기면 **주인 엔티티와 연관된 데이터를 전부 DELETE하고, 현재 컬렉션 값을 전부 다시 INSERT**한다. 주소 100개 중 1개 바꿨는데 DELETE 1번 + INSERT 100번. 매핑 의미에 따라 다르다 — `@OrderColumn`을 붙인 List는 인덱스 기준으로 해당 행만 DELETE/UPDATE하고, `Set`은 행 단위로 지우는 것으로 알려져 있다(Set 동작은 확인 필요). 그래도 식별자가 없어 "값을 고치는" UPDATE는 안 되고 지우고 넣기다.
 2. **PK 구성 제약**: 매핑 테이블은 **모든 컬럼을 묶어 기본 키**를 구성해야 한다 (null 입력 불가, 중복 저장 불가). 식별자 컬럼(id)을 넣으면 그건 이미 값 타입이 아니라 엔티티다.
 
 ### 실무 대안: 일대다 엔티티로 승격
@@ -189,6 +189,7 @@ private List<AddressEntity> addressHistory = new ArrayList<>();
 ```
 
 - id가 생기니 개별 행 UPDATE/DELETE가 가능해지고, cascade ALL + orphanRemoval로 **값 타입 컬렉션처럼 생명주기를 부모에 묶어** 쓴다 (→ [cascade-orphan-removal.md](./cascade-orphan-removal.md)).
+- ⚠️ 위 매핑은 **1:N 단방향**(`@OneToMany` + `@JoinColumn`)이라 INSERT 뒤에 FK를 채우는 **추가 UPDATE**가 나간다([연관관계 매핑 §6](./relation-mapping.md)에서 "쓰지 말 것"으로 분류한 형태). 강의 예시는 값 타입 대체라는 맥락에서 단순함을 택한 것이고, 그 비용이 싫으면 `AddressEntity`에 `@ManyToOne Member`를 두는 N:1 양방향으로 바꾼다.
 - 값 타입 컬렉션은 **"치킨/피자 선호" 체크박스처럼 정말 단순한 것**(추적 불필요, 값 바뀌어도 전체 교체가 자연스러운 것)에만 쓴다.
 
 ### @ElementCollection vs 일대다 엔티티
@@ -196,7 +197,7 @@ private List<AddressEntity> addressHistory = new ArrayList<>();
 | | @ElementCollection | @OneToMany + 엔티티 (cascade ALL, orphanRemoval) |
 |---|---|---|
 | 식별자 | 없음 | 있음 (id) |
-| 변경 SQL | **전체 DELETE + 전체 재INSERT** | 해당 행만 UPDATE/DELETE |
+| 변경 SQL | **전체 DELETE + 전체 재INSERT** (List/bag 기준) | 해당 행만 UPDATE/DELETE |
 | 테이블 PK | 모든 컬럼 묶음 (null·중복 불가) | id (유연) |
 | 생명주기 | 부모에 완전 종속 (자동) | cascade/orphanRemoval로 동일하게 구성 |
 | 적합한 곳 | 정말 단순한 다중 값 | 그 외 대부분의 실무 케이스 |
@@ -217,10 +218,11 @@ private List<AddressEntity> addressHistory = new ArrayList<>();
 - 김영한, 자바 ORM 표준 JPA 프로그래밍 - 기본편, 09장 값 타입
 - [Hibernate User Guide - Embeddable types](https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#embeddables)
 - [Baeldung - JPA @Embedded and @Embeddable](https://www.baeldung.com/jpa-embedded-embeddable)
-- [Vlad Mihalcea - @ElementCollection 성능 이슈](https://vladmihalcea.com/how-to-optimize-unidirectional-collections-with-jpa-and-hibernate/)
+- [Vlad Mihalcea - @ElementCollection 성능 이슈](https://vladmihalcea.com/how-to-optimize-unidirectional-collections-with-jpa-and-hibernate/) — bag은 전체 삭제·재삽입, `@OrderColumn`은 인덱스 단위
+- [Hibernate ORM 6.6 User Guide - Element collections (DB 호출은 매핑 의미에 따라 다름)](https://docs.hibernate.org/orm/6.6/userguide/html_single/#collections-elemental)
 - 관련 노트: [영속성 전이와 고아 객체](./cascade-orphan-removal.md) · [영속성 컨텍스트](./persistence-context.md)
 
 ---
 
 **학습 날짜**: 2026-08-12
-**계기**: JPA 기본편 09장을 들으며 "엔티티 vs 값 타입" 판단 기준과, 공유 참조 부작용을 불변 설계로 막는 이유, 값 타입 컬렉션을 실무에서 일대다 엔티티로 대체하는 이유를 정리
+**계기**: JPA 기본편 09장을 들으며 "엔티티 vs 값 타입" 판단 기준과, 공유 참조 부작용을 불변 설계로 막는 이유, 값 타입 컬렉션을 실무에서 일대다 엔티티로 대체하는 이유를 정리 (2026-10-02 bag 조건·프록시 오해·1:N 단방향 비용 보정)

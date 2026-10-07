@@ -2,18 +2,13 @@
 
 > **한 줄 요약**: 빈 후처리기는 스프링이 생성한 객체를 **빈 저장소에 등록하기 직전에** 가로채서 조작하거나 **다른 객체로 바꿔치기**하는 후킹 포인트다. 이걸로 ProxyFactory가 못 풀었던 **설정 지옥**과 **컴포넌트 스캔 프록시 미적용**이 한 번에 해결된다. ⚠️ `Before/After`의 기준은 "빈 등록"이 아니라 **`@PostConstruct` 초기화**이며(둘 다 등록 *전*에 실행), ⚠️ 하나의 프록시에 여러 Advisor가 들어갈 때 **각 Advisor의 포인트컷은 독립적으로 판단**된다 — 전부 적용되거나 전부 안 되는 게 아니다.
 
-관련 노트: [ProxyFactory](./proxy-factory.md) (직전 챕터 — "설정 지옥 + 컴포넌트 스캔"으로 끝난 자리가 이 노트의 출발점) · [동적 프록시](./dynamic-proxy.md) · [프록시/데코레이터 패턴](./proxy-decorator-pattern.md) (V3 컴포넌트 스캔에 못 끼운다는 문제를 처음 제기한 챕터) · [ThreadLocal](../concurrency/thread-local.md) (`LogTrace`의 출처) · [@Transactional](../spring/transactional.md)·[Spring Cache](../spring/spring-cache.md)·[메서드 보안](../security/method-security.md) (전부 이 자동 프록시 생성기 위에서 동작한다)
+관련 노트: [ProxyFactory](./proxy-factory.md) (직전 챕터 — "설정 지옥 + 컴포넌트 스캔"으로 끝난 자리가 이 노트의 출발점) · [동적 프록시](./dynamic-proxy.md) · [프록시/데코레이터 패턴](./proxy-decorator-pattern.md) (V3 컴포넌트 스캔에 못 끼운다는 문제를 처음 제기한 챕터) · [ThreadLocal](../concurrency/thread-local.md) (`LogTrace`의 출처) · [@Transactional](../spring/transactional.md)·[Spring Cache](../spring/spring-cache.md)·[메서드 보안](../security/method-security.md) (전부 이 자동 프록시 생성기 위에서 동작한다) · [ApplicationContext](../spring/application-context.md) (빈 생명주기 단계 전체와 어노테이션별 처리기 매핑 — 이 노트는 그중 "빈 후처리" 단계만 깊게 판다)
 
 ---
 
 ## 0. 출발점 — ProxyFactory로도 안 풀린 두 가지
 
-[직전 챕터](./proxy-factory.md)에서 `ProxyFactory` + `Advisor`로 기술 선택·중복·책임 분리를 해결했다. 그런데 **실무 적용에서 두 가지가 남았다**:
-
-| # | 문제 | 구체적으로 |
-|---|------|-----------|
-| ① | **설정 지옥** | 빈이 100개면 프록시 생성 코드도 100개. `ProxyFactoryConfigV1`, `V2` 같은 설정 클래스가 끝없이 늘어남 |
-| ② | **컴포넌트 스캔 미지원** | `@Component`·`@Service`로 자동 등록되는 빈은 **개발자가 프록시를 끼워넣을 타이밍이 없음**. `@Bean`으로 직접 등록할 때만 프록시를 반환할 수 있었다 |
+[직전 챕터](./proxy-factory.md)에서 `ProxyFactory` + `Advisor`로 기술 선택·중복·책임 분리를 해결했지만, **① 설정 지옥**(빈마다 프록시 생성 코드)과 **② 컴포넌트 스캔 미지원**(자동 등록 빈에는 프록시를 끼울 타이밍이 없음)이 남았다 — 자세한 건 [ProxyFactory §7](./proxy-factory.md).
 
 ②가 특히 치명적이다. 실무 코드는 거의 전부 컴포넌트 스캔인데, 거기에 프록시를 못 넣으면 이제까지 배운 게 무용지물이다.
 
@@ -72,10 +67,13 @@ public class BasicTest {
 
 ```java
 public interface BeanPostProcessor {
-    Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException;
-    Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException;
+    // Spring 5.0+: 둘 다 default 메서드 — 기본 구현은 bean을 그대로 반환
+    default Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException { return bean; }
+    default Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException { return bean; }
 }
 ```
+
+→ 아래 예제들처럼 **필요한 쪽 하나만 오버라이드**해도 된다.
 
 - `postProcessBeforeInitialization` : 객체 생성 이후 **`@PostConstruct` 같은 초기화가 발생하기 전**에 호출
 - `postProcessAfterInitialization` : 객체 생성 이후 **초기화가 발생한 다음**에 호출
@@ -196,34 +194,7 @@ public class BeanPostProcessorTest {
 
 ### @PostConstruct란 — 빈 생명주기 안에서의 위치
 
-객체 생성 후, **의존관계 주입이 모두 완료된 시점**에 추가 초기화 작업을 하기 위해 호출되는 메서드.
-
-```java
-@Component
-public class CacheService {
-
-    private final DataRepository repository;
-    private Map<String, Object> cache;
-
-    // 1단계: 생성자 → 객체 생성 + 의존관계 주입
-    public CacheService(DataRepository repository) {
-        this.repository = repository;
-    }
-
-    // 2단계: DI가 모두 끝난 뒤 자동 호출
-    @PostConstruct
-    public void init() {
-        this.cache = repository.loadAll();   // repository가 null이 아님이 보장됨
-    }
-}
-```
-
-**왜 생성자에서 안 하고 분리하나?** 생성자가 호출되는 시점에는 다른 의존성이 아직 안 들어와 있을 수 있다. `@PostConstruct`는 **모든 의존관계 주입이 끝난 뒤**가 보장되므로 주입받은 협력 객체를 안전하게 쓸 수 있다.
-
-빈 생명주기 전체:
-```
-객체 생성 → 의존관계 주입 → @PostConstruct(초기화) → 사용 → @PreDestroy(소멸)
-```
+객체 생성 후 **의존관계 주입이 모두 끝난 시점**에 호출되는 초기화 메서드다. 필드·세터 주입이면 생성자 시점엔 협력 객체가 아직 null이라 초기화를 여기로 미뤄야 하고, 생성자 주입이면 생성자에서도 쓸 수 있지만 "조립(생성)"과 "무거운 초기화"를 분리하려고 쓴다. 생명주기 단계 전체(정의 수집 → 인스턴스화·주입 → Aware → 초기화 → 빈 후처리 → 준비 완료)와 "`@PostConstruct` 안에서는 아직 프록시가 없다" 함정은 [ApplicationContext 노트](../spring/application-context.md)에 있다.
 
 > 📌 **패키지 주의**: Spring Framework 6 / Spring Boot 3부터 `javax.annotation.PostConstruct`가 아니라 **`jakarta.annotation.PostConstruct`**다. Jakarta EE 네임스페이스 이전의 결과.
 
@@ -239,7 +210,7 @@ public Object postProcessAfterInitialization(Object bean, String beanName) {
 }
 ```
 
-Before에서 바꿔치기하면 이후에 실행될 **`@PostConstruct`가 원본이 아니라 프록시 객체를 향해 호출**된다. 프록시가 target에 위임하는 구조라 대개는 동작하지만, 프록시 종류·구현에 따라 예측하기 어려운 문제가 생길 수 있다. **초기화까지 끝난 완성품을 감싸는 After가 안전하고 예측 가능**하다.
+Before에서 바꿔치기하면 이후에 실행될 **`@PostConstruct`가 원본이 아니라 프록시 객체를 향해 호출**된다(커스텀 BPP의 Before는 대개 `@PostConstruct` 처리보다 먼저 돈다 — §3 함정 2). CGLIB 프록시라면 위임으로 대개 동작하지만, JDK 동적 프록시라면 `$Proxy` 클래스에는 `@PostConstruct` 메서드가 없어서 초기화가 조용히 빠질 수 있다(확인 필요). **초기화까지 끝난 완성품을 감싸는 After가 안전하고 예측 가능**하다.
 
 실제로 스프링이 제공하는 자동 프록시 생성기도 `postProcessAfterInitialization`에서 프록시를 만든다.
 
@@ -271,7 +242,8 @@ CommonAnnotationBeanPostProcessor
 1. PriorityOrdered 구현체   (그룹 내에서 order 값으로 정렬)
 2. Ordered 구현체            (그룹 내에서 order 값으로 정렬)
 3. 나머지 (정렬 안 함)
-4. MergedBeanDefinitionPostProcessor는 마지막에 재등록
+4. internal(MergedBeanDefinitionPostProcessor 구현체)은 위 목록에서 빼서 맨 뒤에 재등록
+   → CommonAnnotationBeanPostProcessor(@PostConstruct)·AutowiredAnnotationBeanPostProcessor가 여기 해당
 ```
 
 ```java
@@ -293,15 +265,15 @@ public class MyPostProcessor implements BeanPostProcessor, Ordered {
 
 Spring 공식 Javadoc이 명시한다: **BeanPostProcessor 빈에 대해서는 `@Order` 애노테이션이 고려되지 않는다.** 반드시 `Ordered` / `PriorityOrdered` **인터페이스를 구현**해야 한다.
 
-다른 곳(`@Aspect`, `Advisor` 등)에서는 `@Order`가 잘 먹기 때문에 **여기서만 안 먹는다는 걸 모르면 조용히 순서가 어긋난다.**
+`@Aspect` 클래스에서는 `@Order`가 잘 먹기 때문에 **여기서만 안 먹는다는 걸 모르면 조용히 순서가 어긋난다.** (`@Bean`으로 등록한 `DefaultPointcutAdvisor`도 `@Order`가 무시되고 `setOrder()`를 써야 한다 → [ProxyFactory §5](./proxy-factory.md))
 
 ### ⚠️ 함정 2 — order 값보다 그룹이 먼저다
 
-`CommonAnnotationBeanPostProcessor`는 **`PriorityOrdered`**다. 그래서 내가 만든 후처리기가 `Ordered`만 구현했다면, **order 값을 아무리 작게(=우선순위 높게) 줘도 `PriorityOrdered` 그룹 뒤로 밀린다.**
+`PriorityOrdered` 그룹이 `Ordered` 그룹보다 항상 먼저다. `Ordered`만 구현한 후처리기는 order 값을 아무리 작게(=우선순위 높게) 줘도 `PriorityOrdered` 그룹 뒤로 밀린다.
 
-즉 `Ordered`만 구현한 커스텀 BPP의 `postProcessBeforeInitialization`은 **`@PostConstruct`보다 항상 늦게 실행된다.** "order를 작게 주면 @PostConstruct보다 먼저 끼어들 수 있다"는 직관은 틀렸다 — 그러려면 `PriorityOrdered`를 구현하고 그 그룹 안에서 경쟁해야 한다.
+⚠️ **단, `@PostConstruct`와의 순서는 이 그룹 규칙으로 정해지지 않는다.** `@PostConstruct`를 호출하는 `CommonAnnotationBeanPostProcessor`는 `PriorityOrdered`이지만 동시에 internal 후처리기라서 **마지막에 리스트 맨 뒤로 재등록**된다(위 4번). 그래서 일반 커스텀 BPP(`MergedBeanDefinitionPostProcessor`까지 구현하지 않는 한)의 `postProcessBeforeInitialization`은 그룹과 무관하게 **`@PostConstruct`보다 먼저** 돈다. "`PriorityOrdered`라서 `@PostConstruct`가 내 BPP보다 먼저 실행된다"는 추론이 틀리기 쉬운 지점이다.
 
-> 📌 **§2 그림과 모순이 아니다.** §2의 "Before → 초기화 → After" 그림은 `afterPropertiesSet`·`init-method` 기준의 **계약**이다 — 이들은 컨테이너가 *모든* Before 콜백이 끝난 뒤 호출한다. 반면 `@PostConstruct`는 자체가 CABPP라는 빈 후처리기의 **Before 안에서** 실행되므로, 다른 BPP의 Before와의 순서는 그림이 아니라 **BPP 등록 순서**가 결정한다.
+> 📌 결과적으로 §2의 "Before → 초기화(`@PostConstruct` 포함) → After" 그림은 커스텀 BPP 입장에서도 그대로 맞다. `afterPropertiesSet`·`init-method`는 컨테이너가 *모든* Before 콜백이 끝난 뒤 호출하고, `@PostConstruct`는 CABPP의 Before 안에서 돌지만 그 CABPP가 체인 맨 뒤에 있기 때문이다.
 
 ### ⚠️ 함정 3 — 프로그래밍 방식 등록은 정렬을 무시한다
 
@@ -446,7 +418,8 @@ create proxy: target=v3.OrderControllerV3 proxy=v3.OrderControllerV3$$EnhancerBy
 ### 의존성 추가
 
 ```gradle
-implementation 'org.springframework.boot:spring-boot-starter-aop'
+implementation 'org.springframework.boot:spring-boot-starter-aop'       // Boot 3.x까지
+implementation 'org.springframework.boot:spring-boot-starter-aspectj'   // Boot 4.0+ (이름 변경)
 ```
 
 이걸 추가하면 `aspectjweaver` 라이브러리가 등록되고, 스프링 부트가 AOP 관련 클래스를 자동으로 빈에 등록한다. 부트가 없던 시절에는 `@EnableAspectJAutoProxy`를 직접 붙여야 했다. (부트가 활성화하는 빈은 `AopAutoConfiguration` 참고)
@@ -631,26 +604,7 @@ public Advisor advisor3(LogTrace logTrace) {
 
 ## 8. "빈 저장소 등록" vs "객체 생성 + DI" — 두 단계는 별개다
 
-빈 후처리기가 끼어드는 위치를 정확히 이해하려면 이 둘의 구분이 필요하다.
-
-### 객체 생성 + 의존관계 주입
-
-```java
-new OrderService(orderRepository, paymentService)
-```
-
-메모리에 객체가 존재하고 필드에 협력 객체가 다 들어간 상태. **하지만 아직 스프링 빈이 아니다.** 그냥 자바 객체다.
-
-### 빈 저장소 등록
-
-스프링 컨테이너 내부에 빈 이름 → 빈 객체 매핑을 저장하는 저장소가 있다(개념적으로 `Map`).
-
-```java
-// 개념적 표현
-beanStore.put("orderService", orderServiceObject);
-```
-
-**여기 들어가야 비로소 스프링 빈**이다. `applicationContext.getBean()`으로 조회되고, 다른 빈에 주입될 수 있다.
+빈 후처리기가 끼어드는 위치를 정확히 이해하려면 이 둘의 구분이 필요하다. **객체 생성 + DI**가 끝난 시점의 객체는 협력 객체까지 다 들어간 그냥 자바 객체이고, 컨테이너 내부의 빈 이름 → 객체 저장소(개념적으로 `Map`)에 **등록돼야** 비로소 `getBean()`으로 조회되고 다른 빈에 주입되는 스프링 빈이다. (단계 전체는 [ApplicationContext 노트](../spring/application-context.md))
 
 ### 빈 후처리기의 위치
 
@@ -690,16 +644,23 @@ APPLICATION FAILED TO START
 
 Description:
 The dependencies of some of the beans in the application context form a cycle:
-   orderService → paymentService → orderService
+
+┌─────┐
+|  orderService defined in file [...]
+↑     ↓
+|  paymentService defined in file [...]
+└─────┘
 
 Action:
 Relying upon circular references is discouraged and they are prohibited by default.
 Update your application to remove the dependency cycle between beans.
+As a last resort, it may be possible to break the cycle automatically by setting
+spring.main.allow-circular-references to true.
 ```
 
 `spring.main.allow-circular-references=true`로 되돌릴 수는 있지만 **권장되지 않는다.** 근본 해결은 의존 방향을 한쪽으로 정리하는 것 — 이건 [포트와 어댑터](./ports-and-adapters.md), [애그리거트 소유권](./aggregate-ownership.md)에서 다루는 설계 문제로 이어진다.
 
-> 💡 "빈 등록에 순서가 있다"는 감각이 순환 참조 에러를 이해하는 열쇠다. 에러 메시지가 화살표(`→`)로 사이클을 그려주는 이유가 바로 이것.
+> 💡 "빈 등록에 순서가 있다"는 감각이 순환 참조 에러를 이해하는 열쇠다. 에러 메시지가 `↑ ↓` 고리로 사이클을 그려주는 이유가 바로 이것.
 
 ---
 
@@ -709,10 +670,10 @@ Update your application to remove the dependency cycle between beans.
 `@PostConstruct` 같은 **초기화 콜백** 기준이며, 둘 다 빈 등록 *전*에 실행된다. 이름만 보고 "After = 등록 후"로 읽으면 전체 흐름이 어긋난다.
 
 ### 2. `@Order`는 BeanPostProcessor에 안 먹는다
-`Ordered` / `PriorityOrdered` **인터페이스**만 인정된다. 다른 곳에서는 `@Order`가 잘 먹기 때문에 더 위험하다 — 예외 없이 **조용히** 순서가 어긋난다.
+`Ordered` / `PriorityOrdered` **인터페이스**만 인정된다. `@Aspect`에서는 `@Order`가 잘 먹기 때문에 더 위험하다 — 예외 없이 **조용히** 순서가 어긋난다.
 
 ### 3. order 값보다 그룹(PriorityOrdered > Ordered > 나머지)이 우선
-`Ordered`만 구현한 커스텀 BPP는 order 값과 무관하게 `PriorityOrdered`인 `CommonAnnotationBeanPostProcessor` 뒤에 실행된다.
+`Ordered`만 구현한 커스텀 BPP는 order 값과 무관하게 `PriorityOrdered` 그룹 뒤에 실행된다. 단 `@PostConstruct`를 부르는 `CommonAnnotationBeanPostProcessor`는 internal이라 맨 뒤로 재등록되므로, 커스텀 BPP의 Before는 오히려 `@PostConstruct`보다 **먼저** 돈다(§3 함정 2).
 
 ### 4. 빈 후처리기는 스프링 부트 내부 빈까지 전부 통과시킨다
 필터링(패키지든 포인트컷이든)이 없으면 `DataSource`, `RequestMappingHandlerAdapter` 같은 인프라 빈에도 프록시가 씌워져 오류가 나거나 기동 로그가 오염된다.
@@ -734,6 +695,12 @@ BeanPostProcessors (for example: not eligible for auto-proxying)
 ```
 이 경고가 보이면 해당 빈에는 `@Transactional`·`@Cacheable` 같은 프록시 기반 기능이 **조용히 안 걸릴 수 있다.** 커스텀 BPP를 만들 때 일반 서비스 빈을 주입받으면 이 함정을 밟기 쉽다 — BPP의 의존성은 최소화하는 게 원칙이다.
 
+⚠️ **BPP를 `@Bean`으로 등록할 땐 `static` 메서드로 선언한다.** non-static이면 BPP를 만들려고 그 `@Configuration` 클래스 자체와 그 클래스의 의존성까지 일찍 생성되어 같은 경고를 부른다. 위 §4의 `BeanPostProcessorConfig`(non-static + `LogTrace` 파라미터)가 그 예. 최신 스프링은 이 경고에 "is declared through a non-static factory method on that class; consider declaring it as static instead"라는 안내까지 붙인다.
+```java
+@Bean
+public static PackageLogTraceProxyPostProcessor logTraceProxyPostProcessor(...) { ... }
+```
+
 ---
 
 ## 💡 판단 기준
@@ -751,8 +718,9 @@ BeanPostProcessors (for example: not eligible for auto-proxying)
 - 김영한, 스프링 핵심 원리 고급편 — Ch.7 빈 후처리기
 - [Spring Framework Javadoc — `BeanPostProcessor`](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/beans/factory/config/BeanPostProcessor.html) (정렬 규칙: `@Order` 미적용, 프로그래밍 등록 시 정렬 무시)
 - [Spring Framework Javadoc — `CommonAnnotationBeanPostProcessor`](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/CommonAnnotationBeanPostProcessor.html) (`InitDestroyAnnotationBeanPostProcessor` 상속, `PriorityOrdered`)
-- [`PostProcessorRegistrationDelegate` 소스](https://github.com/spring-projects/spring-framework/blob/main/spring-context/src/main/java/org/springframework/context/support/PostProcessorRegistrationDelegate.java) (PriorityOrdered → Ordered → 나머지 → internal 재등록)
-- [Spring Boot 2.6 Release Notes — Circular References Prohibited by Default](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-2.6-Release-Notes#circular-references-prohibited-by-default)
+- [`PostProcessorRegistrationDelegate` 소스](https://github.com/spring-projects/spring-framework/blob/main/spring-context/src/main/java/org/springframework/context/support/PostProcessorRegistrationDelegate.java) (PriorityOrdered → Ordered → 나머지 → internal 재등록 / non-static `@Bean` BPP에 "consider declaring it as static" 안내) · [`AbstractBeanFactory.addBeanPostProcessors`](https://github.com/spring-projects/spring-framework/blob/main/spring-beans/src/main/java/org/springframework/beans/factory/support/AbstractBeanFactory.java) (기존 위치에서 지우고 리스트 끝에 추가) · [`InitDestroyAnnotationBeanPostProcessor`](https://github.com/spring-projects/spring-framework/blob/main/spring-beans/src/main/java/org/springframework/beans/factory/annotation/InitDestroyAnnotationBeanPostProcessor.java) (`MergedBeanDefinitionPostProcessor` + `PriorityOrdered` 구현 = internal)
+- [Spring Boot 2.6 Release Notes — Circular References Prohibited by Default](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-2.6-Release-Notes#circular-references-prohibited-by-default) · [`BeanCurrentlyInCreationFailureAnalyzer` 소스](https://github.com/spring-projects/spring-boot/blob/3.5.x/spring-boot-project/spring-boot/src/main/java/org/springframework/boot/diagnostics/analyzer/BeanCurrentlyInCreationFailureAnalyzer.java) (사이클 출력 형식)
+- [Spring Boot 4.0 Migration Guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide) (`spring-boot-starter-aop` → `spring-boot-starter-aspectj` 이름 변경)
 - [Spring Framework Reference — AOP APIs](https://docs.spring.io/spring-framework/reference/core/aop-api.html)
 
-**학습 날짜**: 2026-08-14 · **계기**: 김영한 고급편 Ch.7 수강 후 Claude 소크라테스 복습 세션 — "자동화가 갑자기 많아지고 처음 보는 함수가 늘어서 이해가 안 된다"고 느껴 복습 시작. ① 4~6장의 **문제 인식(설정 지옥 + 컴포넌트 스캔)은 정확히 기억**했고 이게 전체 이해의 앵커가 됨 ② ⚠️ **Before/After 기준을 "빈 등록 전/후"로 오해** — 실제로는 `@PostConstruct` 기준이고 둘 다 등록 *전*임 ③ `@PostConstruct`가 무엇인지 몰라 세션 중 직접 질문 → 빈 생명주기 전체를 다시 정리 ④ `PackageLogTraceProxyPostProcessor`의 필터 기준을 "메서드 이름 매칭"으로 오답 (실제는 패키지) — 메서드 이름은 Pointcut의 역할이라 혼동한 것 ⑤ 포인트컷의 **이중 사용(클래스/메서드)은 정확히 답함** ⑥ ⚠️ **여러 Advisor가 있을 때 각각 독립 판단**한다는 점을 놓쳐, `getStatus()` 호출 시 "어드바이저가 적용 안 된다"고 답함 (실제로는 로그 Advisor는 적용됨) ⑦ 세션 후반에 "빈 저장소 등록이 무슨 뜻이냐" → "DI가 끝났다는 게 다 주입됐다는 거냐" → "그럼 등록 순서가 중요하겠네" → **순환 참조를 스스로 도출**, 회사에서 겪은 기동 실패 경험과 연결됨. 📌 세션 중 Claude가 "`@Order`로도 BPP 순서를 정할 수 있다"고 답한 것은 **오답** — 공식 Javadoc 확인 결과 BPP에는 `@Order`가 적용되지 않으며, 이 노트에서 정정함
+**학습 날짜**: 2026-08-14 · **계기**: 김영한 고급편 Ch.7 복습 — 자동화 단계가 늘어 헷갈려서 Before/After의 기준, `@PostConstruct`의 정체, 포인트컷의 이중 사용, Advisor별 독립 판단을 다시 정리하다 "등록에 순서가 있다"에서 순환 참조까지 연결됨

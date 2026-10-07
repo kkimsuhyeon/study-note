@@ -32,7 +32,7 @@ public Advisor advisor3(LogTrace logTrace) {
 ### 의존성 (Ch.7에서 이미 추가)
 
 ```gradle
-implementation 'org.springframework.boot:spring-boot-starter-aop'
+implementation 'org.springframework.boot:spring-boot-starter-aop'   // Boot 4.0+는 spring-boot-starter-aspectj로 이름이 바뀜
 ```
 
 ### LogTraceAspect — Aspect 클래스
@@ -179,7 +179,7 @@ public Object execute(ProceedingJoinPoint joinPoint) throws Throwable {
 
 ## 3. ⚠️ ProceedingJoinPoint — Pointcut이 아니다
 
-**세션에서 헷갈렸던 지점.** 이름에 `Point`가 들어가서 "프록시를 적용할지 결정하는 조건"으로 읽기 쉽지만 **완전히 다른 층의 물건**이다.
+⚠️ **흔한 오해**: 이름에 `Point`가 들어가서 "프록시를 적용할지 결정하는 조건"(=Pointcut)으로 읽기 쉽지만 **완전히 다른 층의 물건**이다.
 
 | | 정체 | 언제 쓰이나 |
 |---|---|---|
@@ -296,9 +296,9 @@ public class AnnotationAwareAspectJAutoProxyCreator extends AspectJAwareAdvisorA
 
 ## 5. ⚠️ @Aspect만 붙이면 아무 일도 안 일어난다
 
-**세션에서 "왜 빈으로 등록해야 하나"를 정확히 답하지 못한 지점.**
+⚠️ **흔한 오해**: "왜 빈으로 등록해야 하나?"에 "스프링이 관리해야 하니까" 정도로 막연하게 답하기 쉽다.
 
-이유는 §4의 **①-2단계**에 그대로 적혀 있다: 자동 프록시 생성기는 **"컨테이너에서 `@Aspect` 빈을 조회"** 한다. 빈이 아니면 조회 대상 자체가 아니므로 → 변환 안 됨 → Advisor 없음 → 프록시 없음. **그냥 평범한 자바 클래스로 남는다.**
+정확한 이유는 §4의 **①-2단계**에 그대로 적혀 있다: 자동 프록시 생성기는 **"컨테이너에서 `@Aspect` 빈을 조회"** 한다. 빈이 아니면 조회 대상 자체가 아니므로 → 변환 안 됨 → Advisor 없음 → 프록시 없음. **그냥 평범한 자바 클래스로 남는다.**
 
 ```java
 // 방법 1: @Bean으로 직접 등록
@@ -353,7 +353,7 @@ protected boolean isInfrastructureClass(Class<?> beanClass) {
 }
 ```
 
-→ **`@Aspect` 클래스 안에 `@Transactional`·`@Cacheable`을 붙여도 안 먹는다.** (`Advice`·`Advisor`·`AopInfrastructureBean`도 같은 이유로 제외된다.) 아스펙트가 자기 자신을 감싸는 무한 재귀를 막기 위한 설계.
+→ **`@Aspect` 클래스 안에 `@Transactional`·`@Cacheable`을 붙여도 안 먹는다.** (`Advice`·`Advisor`·`AopInfrastructureBean`도 같은 이유로 제외된다.) 소스 주석이 밝힌 이유: aspect가 `Ordered` 같은 인터페이스를 구현하면 **그 인터페이스 기준으로 JDK 프록시가 만들어지고, advice 메서드가 프록시에 없어 런타임에 실패**하기 때문이다. 주석 스스로 "aspect를 advise하지 않을 좋은 이유는 없다, 나중에 완화할 수도 있다"고 적고 있어 원리적 금지라기보다 실용적 제약에 가깝다.
 
 ### 4. ⚠️ 자기호출(self-invocation)은 여전히 안 먹는다
 
@@ -373,30 +373,9 @@ public class OrderService {
 
 ### 5. ⚠️ `@Order`는 **Aspect(클래스) 단위**로만 동작한다
 
-Spring 공식 문서: 서로 다른 aspect의 advice가 같은 조인 포인트에 걸리면 **명시하지 않는 한 실행 순서는 정의되지 않는다.** 순서는 `@Order` 애노테이션이나 `Ordered` 인터페이스로 지정한다.
+서로 다른 aspect의 advice가 같은 조인 포인트에 걸리면 **명시하지 않는 한 순서는 미정의**다. `@Order`/`Ordered`를 **aspect 클래스에** 붙여 정한다(메서드에 붙이면 무시). 같은 aspect 안에서는 **타입이 다른 advice는 우선순위가 정해져 있고, 같은 타입끼리만 미정의**다. 규칙 표·`static class` 분리 예제·우선순위 방향은 [AOP 구현 §6](./aop-implementation.md)에 모아뒀다.
 
-```java
-@Aspect
-@Order(1)          // ✅ 클래스에 붙여야 의미 있음
-@Component
-public class LogAspect { ... }
-
-@Aspect
-@Order(2)
-@Component
-public class TxAspect { ... }
-```
-
-**같은 `@Aspect` 클래스 안**에서는 규칙이 두 층으로 갈린다:
-
-| 상황 | 순서 |
-|---|---|
-| 같은 aspect, **다른 타입**의 advice | ✅ 타입 우선순위로 정의됨: `@Around` > `@Before` > `@After` > `@AfterReturning` > `@AfterThrowing` (단 `@After`는 finally 의미라 실제 호출은 `@AfterReturning`/`@AfterThrowing` **뒤**) |
-| 같은 aspect, **같은 타입**의 advice 2개 (예: `@After` 둘) | ⚠️ **미정의** — javac 컴파일 클래스에서 소스 선언 순서를 리플렉션으로 알 수 없음. 메서드에 `@Order` 붙여도 소용없다 |
-
-같은 타입끼리 순서가 중요하면 공식 권장은 둘 중 하나: **한 메서드로 합치거나, aspect 클래스를 분리**해 클래스 단위 `@Order`로 정렬한다.
-
-> 📌 [Ch.7 노트](./bean-post-processor.md#️-함정-1--order-애노테이션은-beanpostprocessor에-안-먹는다)와 대비해서 외울 것: **BeanPostProcessor에는 `@Order`가 안 먹고(`Ordered` 인터페이스만), `@Aspect`에는 `@Order`가 먹는다.** 같은 AOP 계열인데 규칙이 반대라 헷갈리기 쉽다.
+> 📌 [Ch.7 노트](./bean-post-processor.md#️-함정-1--order-애노테이션은-beanpostprocessor에-안-먹는다)와 대비: **BeanPostProcessor에는 `@Order`가 안 먹고(`Ordered` 인터페이스만), `@Aspect`에는 먹는다.**
 
 ### 6. 포인트컷은 여전히 두 번 사용된다
 
@@ -410,35 +389,13 @@ Ch.7의 `advisor1~3`을 주석 처리하지 않은 채 `AopConfig`를 추가하�
 
 ## 7. 인접 개념 — Advice 5종 (다음 챕터 예고)
 
-이 챕터는 `@Around`만 쓰지만, 나머지도 같은 자리에 들어간다. **`@Around` 하나로 전부 표현 가능**하고 나머지는 그 부분집합이다.
-
-| 애노테이션 | 시점 | 파라미터 | target 호출 차단 |
-|---|---|---|---|
-| `@Around` | 전/후 전부 | `ProceedingJoinPoint` | ✅ 가능 |
-| `@Before` | 호출 전 | `JoinPoint` | ❌ (예외 던지면 가능) |
-| `@AfterReturning` | 정상 반환 후 | `JoinPoint` + `returning` | ❌ |
-| `@AfterThrowing` | 예외 발생 시 | `JoinPoint` + `throwing` | ❌ |
-| `@After` | 정상·예외 무관 (finally) | `JoinPoint` | ❌ |
-
-> 💡 **강력함이 아니라 제약이 선택 기준이다.** `@Around`는 `proceed()`를 빠뜨릴 수 있고 반환값을 조작할 수 있어서 실수 여지가 크다. 로그만 남기면 되는데 `@Around`를 쓰는 건, 읽는 사람에게 "이 메서드가 흐름을 바꿀 수도 있다"는 잘못된 신호를 준다. **부가 기능이 흐름에 개입하지 않는다면 `@Before`/`@After`가 의도를 정확히 드러낸다.**
+이 챕터는 `@Around`만 쓰지만 `@Before`·`@AfterReturning`·`@AfterThrowing`·`@After`도 같은 자리에 들어간다. **`@Around` 하나로 전부 표현 가능**하고 나머지는 그 부분집합이다. 비교표·실행 순서·"가장 덜 강력한 advice를 고른다"는 선택 기준은 [AOP 구현 §7·💡](./aop-implementation.md)에 있다.
 
 ---
 
 ## 8. 횡단 관심사 (Cross-Cutting Concerns) — Ch.4~8의 도착점
 
-로그 추적 기능은 **특정 기능 하나에 관심이 있는 기능이 아니다.** 애플리케이션의 여러 기능들 **사이에 걸쳐서** 들어가는 관심사다. 이것을 **횡단 관심사**라고 한다.
-
-```
-              OrderController  OrderService  OrderRepository
-                    │               │               │
-  로그 추적  ───────┼───────────────┼───────────────┼──────▶  횡단(cross-cutting)
-  트랜잭션  ───────┼───────────────┼───────────────┼──────▶
-  보안      ───────┼───────────────┼───────────────┼──────▶
-                    │               │               │
-                  (핵심 관심사 = 각자의 고유 로직)
-```
-
-**세로**가 각 클래스의 핵심 관심사, **가로**가 횡단 관심사. 객체지향의 상속·위임만으로는 이 가로줄을 깔끔하게 뽑아내기 어렵다 — 그래서 프록시가 필요했다.
+로그 추적처럼 여러 기능 **사이에 걸쳐서** 들어가는 관심사를 **횡단 관심사**라고 한다. 정의·그림·OOP만으로 어려운 이유는 [AOP 개념 §1](./aop-concepts.md)에 있다. 여기서는 그 문제를 Ch.4~8이 어떻게 풀어왔는지만 정리한다.
 
 ### Ch.4 → Ch.8 발전사
 
@@ -458,9 +415,9 @@ Ch.7의 `advisor1~3`을 주석 처리하지 않은 채 `AopConfig`를 추가하�
 
 **"편해진 문법"과 "달라진 동작"을 구분해야 디버깅이 된다.** `@Aspect`는 Advisor를 만드는 축약 표기이지, 새로운 실행 엔진이 아니다. 변환이 끝나면 런타임에는 Ch.6·Ch.7과 똑같은 것(프록시 1개 + Advisor 리스트)이 돈다. 그래서 `@Aspect`로 바꿨다고 자기호출 함정이 사라지거나 `final` 메서드가 프록시되기 시작하지 않는다. **새 애노테이션을 배울 때 "이게 무엇으로 변환되는가"를 먼저 물으면, 그 애노테이션이 상속하는 제약까지 함께 온다.**
 
-**"조용히 안 되는" 실패는 활성화·등록 조건부터 의심한다.** `@Aspect`를 빈으로 안 올리면 예외 없이 무시된다. 이건 `@EnableCaching` 없는 `@Cacheable`, `@EnableMethodSecurity` 없는 `@PreAuthorize`, `@Enable~` 없는 대부분과 **똑같은 실패 모양**이다. 세션에서 배운 실용적 순서는 이것 — **① 활성화됐나(빈 등록·`@Enable~`) → ② 프록시가 생겼나(`AopUtils.isAopProxy`) → ③ 포인트컷이 맞나 → ④ 자기호출인가.** 네 단계를 순서대로 짚으면 "AOP가 안 먹어요"의 대부분이 잡힌다.
+**"조용히 안 되는" 실패는 활성화·등록 조건부터 의심한다.** `@Aspect`를 빈으로 안 올리면 예외 없이 무시된다. 이건 `@EnableCaching` 없는 `@Cacheable`, `@EnableMethodSecurity` 없는 `@PreAuthorize`, `@Enable~` 없는 대부분과 **똑같은 실패 모양**이다. 확인 순서는 [AOP 구현 노트의 무음 실패 진단 순서](./aop-implementation.md#-판단-기준)(`AopUtils.isAopProxy()`부터 4단계)로 통일해 두었다 — 그 1단계가 `false`면 바로 이 활성화·등록 문제다.
 
-**같은 계열이라도 규칙이 같을 거라고 가정하지 않는다.** `@Order`는 `@Aspect`에는 먹고 `BeanPostProcessor`에는 안 먹는다. 둘 다 AOP·프록시 계열이라 직관적으로는 같아야 할 것 같지만 다르다. 게다가 `@Aspect`에서도 **클래스 단위로만** 유효하고 같은 클래스 내부 메서드끼리는 순서가 보장되지 않는다. **"이 애노테이션이 어느 단위에 붙어서 무엇을 정렬하는가"를 확인하지 않으면, 순서가 어긋나도 에러가 없어서 오래 모른 채 지나간다.**
+**같은 계열이라도 규칙이 같을 거라고 가정하지 않는다.** `@Order`는 `@Aspect`에는 먹고 `BeanPostProcessor`에는 안 먹는다. 둘 다 AOP·프록시 계열이라 직관적으로는 같아야 할 것 같지만 다르다. 게다가 `@Aspect`에서도 **클래스 단위로만** 지정할 수 있고, 같은 클래스 안에서는 advice 타입 우선순위만 정해져 있을 뿐 **같은 타입끼리는 순서가 보장되지 않는다.** **"이 애노테이션이 어느 단위에 붙어서 무엇을 정렬하는가"를 확인하지 않으면, 순서가 어긋나도 에러가 없어서 오래 모른 채 지나간다.**
 
 ---
 
@@ -474,5 +431,6 @@ Ch.7의 `advisor1~3`을 주석 처리하지 않은 채 `AopConfig`를 추가하�
 - [Spring Framework Reference — Proxying Mechanisms](https://docs.spring.io/spring-framework/reference/core/aop/proxying.html) (JDK vs CGLIB 선택 규칙, 자기호출 미인터셉트)
 - [Spring Boot Javadoc — `AopAutoConfiguration`](https://docs.spring.io/spring-boot/api/java/org/springframework/boot/autoconfigure/aop/AopAutoConfiguration.html) (`spring.aop.auto` 기본 true, `proxyTargetClass` 기본 true)
 - [Spring Framework Javadoc — `@EnableAspectJAutoProxy`](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/EnableAspectJAutoProxy.html) (`aspectjweaver` 필요)
+- [Spring Boot 4.0 Migration Guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide) (`spring-boot-starter-aop` → `spring-boot-starter-aspectj` 이름 변경)
 
-**학습 날짜**: 2026-08-14 · **계기**: 김영한 고급편 Ch.8 수강 후 Claude 소크라테스 복습 세션 — "어디까지 알아야 하고 외워야 하는지 감이 안 잡힌다"는 질문으로 시작. ① `AnnotationAwareAspectJAutoProxyCreator`의 2가지 역할을 **"@Aspect를 Advisor로 만든다"와 "프록시를 만든다" 중 어느 쪽인지 헷갈려 함** — 실제로는 둘 다이며, 이게 이 챕터의 전부라는 걸 확인 ② `@Around` 표현식=Pointcut / 메서드 본문=Advice 매핑은 감으로 맞혔으나 **"Advisor로 변환된다"는 결론까지는 도달 못 함** ③ ⚠️ **`ProceedingJoinPoint`를 "프록시 생성 여부를 결정하는 조건"(=Pointcut)으로 오해** — 실제로는 Ch.6 `MethodInvocation`에 대응하는 호출 핸들. 이름의 `Point` 때문에 생긴 혼동으로 보여 §3에 Join Point/Pointcut/ProceedingJoinPoint 3층 구분을 별도 정리 ④ `@Aspect` 빈 등록 필요성은 **방법(@Bean/@Component)은 정확히 답했으나 이유("스프링이 관리해야 하니까")가 막연** → "조회 대상이 아니면 변환 자체가 안 일어난다"로 구체화 ⑤ 횡단 관심사는 그림으로는 이해하나 **말로 설명하기 어려워함** → "여러 기능을 가로질러 걸쳐 있는 관심사" 정의 정리. 📌 세션 후 조사에서 추가 확인한 것: `@Aspect` 클래스 자신은 `isInfrastructureClass`로 프록시 제외됨 / `@Order`가 `@Aspect`에는 먹지만 클래스 단위만 — 같은 aspect 내에서는 advice 타입 우선순위는 정의되고(5.2.7+) **같은 타입끼리만 미보장** / Boot의 `spring.aop.proxy-target-class` 기본 true
+**학습 날짜**: 2026-08-14 · **계기**: 김영한 고급편 Ch.8 수강 후 복습 — `AnnotationAwareAspectJAutoProxyCreator`의 두 역할(Advisor 변환 / 프록시 생성)과 `ProceedingJoinPoint`·Pointcut 구분이 흔들려서 정리. 이후 공식 문서·소스로 `isInfrastructureClass`·`@Order` 규칙·Boot 기본값을 보강.

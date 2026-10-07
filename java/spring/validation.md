@@ -1,6 +1,6 @@
 # @Valid · @Validated — Bean Validation 동작과 위치
 
-> **한 줄 요약**: `@Valid`(표준)는 "여기서 검증을 시작/전파해라"는 **트리거**, `@Validated`(Spring)는 그 위에 **그룹 검증 + 메서드 파라미터 검증**을 얹은 것. 제일 헷갈리는 함정은 **중첩 객체/리스트는 "부모 *필드*"에 `@Valid`를 붙여야 안쪽 제약이 검증된다**는 것 — 클래스 선언부에 붙이면 아무 일도 안 한다.
+> **한 줄 요약**: `@Valid`(표준)는 "여기서 검증을 시작/전파해라"는 **트리거**, `@Validated`(Spring)는 그 위에 **그룹 검증 + (AOP) 메서드 검증**을 얹은 것. 컨트롤러의 `@RequestParam @Min` 같은 파라미터 제약은 Spring 6.1+면 `@Validated` 없이도 MVC가 직접 검증한다. 제일 헷갈리는 함정은 **중첩 객체/리스트는 "부모 *필드*"에 `@Valid`를 붙여야 안쪽 제약이 검증된다**는 것 — 클래스 선언부에 붙이면 아무 일도 안 한다.
 
 관련 노트: [@Transactional](./transactional.md) · [Jackson 어노테이션](../jackson/annotations.md) · [@AssertTrue 필드 조합 검증](./assert-true-cross-field.md)
 
@@ -11,8 +11,8 @@
 | | `@Valid` | `@Validated` |
 |---|---|---|
 | 패키지 | `jakarta.validation` (**표준**) | `org.springframework...` (**Spring**) |
-| 역할 | 검증 **트리거 / cascade(전파)** | `@Valid` + **그룹(groups)** + **메서드 파라미터 검증** |
-| 주 위치 | 파라미터, **필드**, 메서드 | 주로 **클래스**(Controller/Service) |
+| 역할 | 검증 **트리거 / cascade(전파)** | `@Valid` + **그룹(groups)** + **AOP 메서드 검증**(`MethodValidationPostProcessor`) |
+| 주 위치 | 파라미터, **필드**, 메서드 | 주로 **클래스**(Service 등 컨트롤러 밖 빈) |
 
 - **그룹 검증**이 필요하면 `@Validated(OnCreate.class)` — `@Valid`는 그룹 지정 불가.
 - `@RequestBody` 검증은 **둘 중 아무거나** 트리거로 동작(클래스에 `@Validated` 없어도 `@Valid`만으로 됨).
@@ -38,27 +38,27 @@
 
 ```java
 // ❌ 잘못 — 안쪽 @NotBlank/@Size가 전부 무시됨
-private List<WkTmList> wkTimeList;        // 필드에 @Valid 없음
+private List<BreakTime> breakTimes;       // 필드에 @Valid 없음
 
 @Valid                                    // 클래스에 붙여도 효과 없음
-public static class WkTmList {
+public static class BreakTime {
     @NotBlank @Size(min = 4, max = 4)
-    private String breakStHhmm;           // 검증 안 됨
+    private String startHhmm;             // 검증 안 됨
 }
 ```
 
 ```java
 // ✅ 올바름 — @Valid를 "필드"로 옮긴다
 @Valid
-private List<WkTmList> wkTimeList;        // 리스트 각 요소로 검증 전파
+private List<BreakTime> breakTimes;       // 리스트 각 요소로 검증 전파
 
-public static class WkTmList {            // 클래스의 @Valid는 제거
+public static class BreakTime {           // 클래스의 @Valid는 제거
     @NotBlank @Size(min = 4, max = 4)
-    private String breakStHhmm;           // 이제 검증됨
+    private String startHhmm;             // 이제 검증됨
 }
 ```
 
-- 단일 중첩 객체도 동일: `@Valid private WorkPatternDtlRequest workPatternDtl;`
+- 단일 중첩 객체도 동일: `@Valid private ScheduleDetailRequest detail;`
 - 컬렉션의 각 요소도 전파됨(`@Valid List<Child>` = 모든 Child 검증).
 - **중첩 필드마다 각각** `@Valid`가 필요하다. 한 군데 붙였다고 다른 필드까지 되는 게 아니다.
 
@@ -69,7 +69,7 @@ public static class WkTmList {            // 클래스의 @Valid는 제거
 "필드가 null이어도 되나"(`@NotNull`)와 "값이 있을 때 안쪽을 검증하나"(`@Valid`)는 **완전히 별개**다. **`@Valid`는 대상이 null이면 그냥 통과**(검사할 객체가 없으니) → `@Valid`만으론 필수가 안 된다.
 
 ```java
-private WorkPatternDtlRequest workPatternDtl;   // 아무것도 안 붙음
+private ScheduleDetailRequest detail;   // 아무것도 안 붙음
 ```
 
 | 필드에 붙은 것 | null로 들어오면 | 값 있으면 내부(@NotBlank 등) 검증 |
@@ -87,29 +87,32 @@ private WorkPatternDtlRequest workPatternDtl;   // 아무것도 안 붙음
 
 ---
 
-## 4. 동작 원리 — 두 경로, 두 예외
+## 4. 동작 원리 — 세 경로, 세 예외
 
-| 경로 | 트리거 | 처리 주체 | 실패 예외 |
+| 경로 | 트리거 | 처리 주체 | 실패 예외 (기본 응답) |
 |------|--------|-----------|-----------|
-| **@RequestBody 검증** | 파라미터 `@Valid`/`@Validated` | Spring MVC (ArgumentResolver) | `MethodArgumentNotValidException` |
-| **메서드 파라미터 검증** (`@RequestParam @Min` 등) | **클래스에 `@Validated`** | AOP (`MethodValidationPostProcessor`) | `ConstraintViolationException` |
+| **@RequestBody 검증** | 파라미터 `@Valid`/`@Validated` | Spring MVC (ArgumentResolver) | `MethodArgumentNotValidException` (400) |
+| **MVC 내장 메서드 검증** (6.1+) | 파라미터에 **제약 어노테이션이 직접** 붙음(`@RequestParam @Min` 등), 클래스엔 `@Validated` **없음** | Spring MVC (`HandlerMethod` 호출 전) | `HandlerMethodValidationException` (400) |
+| **AOP 메서드 검증** | **클래스에 `@Validated`** | AOP (`MethodValidationPostProcessor`) | `ConstraintViolationException` (핸들러 없으면 500) |
 
 ```java
 // (A) 바디 검증 — 클래스 @Validated 불필요
 @PostMapping
 public X save(@Valid @RequestBody Dto dto) { ... }   // 실패 → MethodArgumentNotValidException
 
-// (B) 단일 파라미터 검증 — 클래스 @Validated 필수
-@Validated                                            // ← 이게 있어야 아래 @Min이 동작
+// (B) 단일 파라미터 검증 — Spring 6.1+(Boot 3.2+)는 클래스 @Validated 없이 동작
 @RestController
 public class C {
     @GetMapping
-    public X list(@RequestParam @Min(1) int page) { ... }  // 실패 → ConstraintViolationException
+    public X list(@RequestParam @Min(1) int page) { ... }  // 실패 → HandlerMethodValidationException
 }
+// 클래스에 @Validated를 붙이면 MVC 내장 검증은 건너뛰고 AOP 경로로 → ConstraintViolationException
+// (6.0 이하는 이 AOP 경로뿐이라 클래스 @Validated가 필수였다)
 ```
 
 - cascade는 Validator가 객체를 훑다 **`@Valid` 붙은 필드**를 만나면 그 안으로 재귀하는 방식. `@Valid` 없는 필드는 "그냥 값"으로 보고 안 들어간다.
-- **예외 타입이 다르므로** `@RestControllerAdvice`에서 둘 다 핸들링해야 일관된 에러 응답이 나온다.
+- ⚠️ **6.1+에서 한 메서드에 내장 메서드 검증이 적용되면**(파라미터 하나라도 제약이 직접 붙으면) 같은 메서드의 `@Valid @RequestBody` 오류도 `MethodArgumentNotValidException`이 아니라 `HandlerMethodValidationException`으로 보고된다. 공식 문서도 "메서드 시그니처에 따라 둘 중 하나가 날 수 있으니 둘 다 처리하라"고 한다.
+- **예외 타입이 다르므로** `@RestControllerAdvice`에서 쓰는 경로의 예외를 모두 핸들링해야 일관된 에러 응답이 나온다([Spring 예외 처리](./exception-handling.md)).
 
 ---
 
@@ -152,7 +155,7 @@ public class C {
 
 ## 5-2. ⚠️ 제약마다 "붙일 수 있는 타입"이 정해져 있다
 
-안 맞는 타입에 붙이면 **조용히 무시가 아니라 예외**가 난다(검증 첫 실행/부팅 시):
+안 맞는 타입에 붙이면 **조용히 무시가 아니라 예외**가 난다(그 필드를 실제로 검증하는 순간 — 기동 시 미리 잡아 주지 않는다):
 ```
 jakarta.validation.UnexpectedTypeException: HV000030:
 No validator could be found for constraint '...' validating type '...'
@@ -178,17 +181,9 @@ No validator could be found for constraint '...' validating type '...'
 5. **Boolean에 `@NotBlank`** → ❌. → `@NotNull`/`@AssertTrue`.
 6. **요청 DTO의 필수 불리언을 원시 `boolean`으로** → ⚠️ 조용히 통과. JSON에서 필드를 빼먹으면 Jackson이 기본값 `false`를 넣고, 원시 타입엔 `@NotNull`이 의미가 없다 → "안 보냄"과 "false로 보냄"을 구분 못 한다. **래퍼 `Boolean` + `@NotNull`**로 받고, 검증이 끝난 뒤 내부 Command로 옮길 때 `boolean`으로 언박싱한다(이미 null이 아님이 보장돼 NPE 없음).
 
-**검증은 보통 세 층에 나뉜다 — "지금 알 수 있는 것"만 그 층에서.**
+**Bean Validation은 "형식·필수값" 층이다.** 값 자체의 불변식은 도메인 생성자, 여러 행·외부를 봐야 아는 규칙은 도메인 서비스·외부 확인이 맡는다 — 층 나누기는 [도메인 검증 위치 §2-1](../design/domain-validation.md). ⚠️ 바깥에 물어봐야 아는 검증(외부 API로만 확인되는 값)이 **비동기 작업 안**에 있으면 사용자는 접수 성공을 받은 뒤 한참 후에 실패를 본다. 자주 틀리는 입력이라면 요청 단계에서 동기로 한 번 확인할지, 늦게 알려도 되는지를 **UX 결정**으로 정한다.
 
-| 층 | 무엇을 | 예 | 실패 |
-| --- | --- | --- | --- |
-| DTO (`@Valid` + Jackson 바인딩) | 형식·필수값 | enum 값, `HH:mm` 엄격 파싱, `@NotNull` | 400, 메서드 진입 전 |
-| 도메인 생성자(레코드 compact constructor) | 값 자체의 규칙(불변식) | 이름 1~20자, 날짜 문자열 형식, 음력 일 1~30 | 400, 유즈케이스 안 |
-| 외부 확인 | 바깥에 물어봐야 아는 것 | "그 해 음력 2월에 30일이 실제로 있나"는 달력 API만 안다 | 외부 호출 시점. 비동기 작업이면 **요청은 성공하고 나중에 실패 상태로** 나타난다 |
-
-⚠️ 셋째 층이 비동기 작업 안에 있으면 사용자는 접수 성공을 받은 뒤 한참 후에 실패를 본다. 자주 틀리는 입력이라면 요청 단계에서 동기로 한 번 확인할지, 늦게 알려도 되는지를 **UX 결정**으로 정한다.
-
-> 예: `"0900"` 같은 시간값을 **String + `@Size(min=4,max=4)`** 로 검증하는 건 맞다. `int`로 바꾸면 `@Size`가 깨지고 `@Min`/`@Max`로 가야 한다. enum 필드(예: `WorkDivCode`)에 `@NotBlank`를 붙이면 `UnexpectedTypeException` — 필수면 `@NotNull`.
+> 예: `"0900"` 같은 시간값을 **String + `@Size(min=4,max=4)`** 로 검증하는 건 맞다. `int`로 바꾸면 `@Size`가 깨지고 `@Min`/`@Max`로 가야 한다. enum 필드(예: `WorkType`)에 `@NotBlank`를 붙이면 `UnexpectedTypeException` — 필수면 `@NotNull`.
 
 ---
 
@@ -198,19 +193,23 @@ No validator could be found for constraint '...' validating type '...'
 |------|------|
 | 요청 바디(@RequestBody) 검증 | 파라미터에 `@Valid` |
 | 바디 안의 중첩 객체/리스트도 검증 | **그 필드마다** `@Valid` |
-| 쿼리/경로 단일 파라미터(@RequestParam 등) 검증 | **클래스에 `@Validated`** |
+| 쿼리/경로 단일 파라미터(@RequestParam 등) 검증 | 6.1+: 파라미터에 제약만 붙인다(클래스 `@Validated` 불필요) / 6.0 이하: 클래스에 `@Validated` |
+| 컨트롤러 밖 서비스 메서드의 파라미터 검증 | **클래스에 `@Validated`** (AOP) |
 | 생성/수정 등 상황별 다른 규칙 | `@Validated(groups)` |
 
-> 한 줄: **`@Valid`는 "검증을 켜고 안으로 전파"하는 스위치 — 켜야 할 지점(파라미터·중첩 필드)마다 붙인다.** 클래스에 붙이는 건 `@Validated`(메서드 검증/그룹)일 때만 의미 있다.
+> 한 줄: **`@Valid`는 "검증을 켜고 안으로 전파"하는 스위치 — 켜야 할 지점(파라미터·중첩 필드)마다 붙인다.** 클래스에 붙이는 건 `@Validated`(AOP 메서드 검증/그룹)일 때만 의미 있고, 6.1+ 컨트롤러에 붙이면 오히려 MVC 내장 검증 대신 AOP 경로(`ConstraintViolationException`)로 바뀐다.
 
 ---
 
 ## 7. 참고
 - [Jakarta Bean Validation 스펙](https://beanvalidation.org/)
-- [Spring - Validation](https://docs.spring.io/spring-framework/reference/core/validation/beanvalidation.html)
+- [Spring - Validation](https://docs.spring.io/spring-framework/reference/core/validation/beanvalidation.html) (`MethodValidationPostProcessor` + 클래스 `@Validated`)
+- [Spring MVC - Validation](https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-validation.html) (6.1+ 내장 메서드 검증, `HandlerMethodValidationException`)
+- 소스 - `HandlerMethod.MethodValidationInitializer.checkArguments`(클래스에 `@Validated`가 있으면 내장 검증을 건너뜀)
 - 관련 노트: [@Transactional](./transactional.md) · [Spring 예외 처리](./exception-handling.md) — 검증 실패가 어떤 예외로 잡혀 응답이 되나
 
 ---
 
 **학습 날짜**: 2026-06-05
 **계기**: 컨트롤러의 `@Valid @RequestBody`, 클래스의 `@Valid`, 중첩 리스트 요소 클래스의 `@Valid`가 각각 어떻게 동작하는지 헷갈려서 정리. 실제 코드에서 **중첩 리스트 필드에 `@Valid`가 빠져 안쪽 제약이 안 돌던 버그**(클래스에 잘못 붙임)를 발견한 게 계기.
+**정리**: 2026-10-02 — Spring 6.1 MVC 내장 메서드 검증(`HandlerMethodValidationException`) 반영, 검증 층 표는 도메인 검증 노트로 넘김.

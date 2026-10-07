@@ -72,7 +72,7 @@ team.getName();                            // ← 실제 사용 시점에 초기
 
 - `getReference()`를 내가 직접 부르는 일은 드물지만, **LAZY 연관관계는 JPA가 자동으로 같은 짓을 해준다.** 프록시를 이해해야 지연 로딩이 이해되는 이유.
 - 즉시 로딩(EAGER)은 조회 시점에 조인으로 함께 가져오지만, **실무에서는 전부 LAZY로 깔고** 함께 필요한 경우만 fetch join 등으로 해결하는 게 원칙 (즉시 로딩은 JPQL에서 N+1을 일으킨다 → [n-plus-one-fetch.md](./n-plus-one-fetch.md)).
-- `@ManyToOne`·`@OneToOne`은 **기본이 EAGER**라 직접 LAZY로 바꿔야 하고, `@OneToMany`·`@ManyToMany`는 기본이 LAZY다.
+- 어노테이션별 fetch 기본값(ToOne=EAGER, ToMany=LAZY) → [연관관계 매핑 §7](./relation-mapping.md).
 
 ---
 
@@ -91,6 +91,8 @@ m2 instanceof Member;            // true ← 이걸 써야 함
 ```
 
 equals를 직접 구현할 때도 `obj.getClass() == this.getClass()` 대신 `obj instanceof Member`로 비교해야 프록시가 섞여도 안전하다.
+
+> ⚠️ equals 안에서 상대의 **필드를 직접(`other.id`) 읽지 말고 getter(`other.getId()`)로** 읽는다. 프록시는 메서드 호출만 target에 위임하고 **자기 필드는 채우지 않으므로**(§1 구조), 상대가 프록시면 `other.id`는 null이다 — 같은 엔티티인데 equals가 false가 된다.
 
 ### (2) 영속성 컨텍스트에 이미 있으면 getReference도 실제 엔티티를 반환한다
 
@@ -192,4 +194,4 @@ order.setMember(memberRepository.getReferenceById(memberId)); // SELECT 없이 I
 ---
 
 **학습 날짜**: 2026-08-12
-**계기**: JPA 기본편 08장을 들으며 지연 로딩이 실제로 어떻게 동작하는지(프록시 초기화), 그리고 트랜잭션 밖 지연 로딩에서 LazyInitializationException이 터지는 근본 원인을 정리
+**계기**: JPA 기본편 08장을 들으며 지연 로딩이 실제로 어떻게 동작하는지(프록시 초기화), 그리고 트랜잭션 밖 지연 로딩에서 LazyInitializationException이 터지는 근본 원인을 정리 (2026-10-02 equals 필드 접근 함정 추가)

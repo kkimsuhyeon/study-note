@@ -25,7 +25,7 @@ sum(1, 2, 3);   // 6
 varargs **원소가 제네릭(매개변수화) 타입**이면 컴파일러가 경고를 낸다:
 ```java
 static <T> List<T> listOf(T... items) { ... }          // ⚠️ unchecked
-static Segments combine(List<Seg>... sources) { ... }  // ⚠️ unchecked
+static OrderLines combine(List<OrderLine>... sources) { ... }  // ⚠️ unchecked
 ```
 > ⚠️ *Possible heap pollution from parameterized vararg type*
 
@@ -70,18 +70,18 @@ static void pollute(List<String>... lists) {
 ## 5. 💡 판단 기준 — 붙여도 되는가
 **varargs 배열을 읽기만(iterate) 하고 저장·수정·외부 노출·반환을 안 하면 안전** → 붙여도 된다.
 
-구체 케이스(이 프로젝트 `Segments.combine`):
+구체 케이스(`OrderLines.combine` — [일급 컬렉션](../design/first-class-collection.md)의 정적 팩토리):
 ```java
 @SafeVarargs
-static Segments combine(List<Seg>... sources) {
-    List<Seg> merged = new ArrayList<>();
-    for (List<Seg> s : sources) {          // ✅ 읽기만
+static OrderLines combine(List<OrderLine>... sources) {
+    List<OrderLine> merged = new ArrayList<>();
+    for (List<OrderLine> s : sources) {    // ✅ 읽기만
         if (s != null) merged.addAll(s);   // ✅ 값만 새 리스트로 복사
     }
-    return new Segments(merged);           // ✅ sources 배열 자체는 노출 안 함
+    return new OrderLines(merged);         // ✅ sources 배열 자체는 노출 안 함
 }
 ```
-반대로 **그 배열을 반환/저장/다른 메서드로 넘기면** 붙이면 안 된다(위 `toArray`처럼).
+반대로 **그 배열을 반환/저장하거나 신뢰할 수 없는 코드에 넘기면** 붙이면 안 된다(위 `toArray`처럼). 단 `@SafeVarargs`가 제대로 붙은 다른 varargs 메서드나, 배열 내용으로 값만 계산하는 일반 메서드에 넘기는 건 안전하다(Effective Java 3판 Item 32).
 
 > 한 줄: **제네릭 varargs는 "읽기 전용"으로만 쓰고 그 배열을 밖으로 흘리지 마라.** 그 조건이면 `@SafeVarargs`로 경고를 끈다. 애매하면 varargs 대신 `List<T>` 파라미터를 받는 편이 더 안전하다.
 
@@ -89,8 +89,10 @@ static Segments combine(List<Seg>... sources) {
 - [Oracle Java Tutorials — Non-Reifiable Types & Varargs](https://docs.oracle.com/javase/tutorial/java/generics/nonReifiableVarargsType.html)
 - [Baeldung — Java @SafeVarargs Annotation](https://www.baeldung.com/java-safevarargs)
 - [Oracle — Improved Compiler Warnings When Using Non-Reifiable Formal Parameters with Varargs](https://docs.oracle.com/javase/8/docs/technotes/guides/language/non-reifiable-varargs.html)
+- Joshua Bloch, 『Effective Java』 3판 Item 32 — 제네릭과 가변인수를 함께 쓸 때는 신중하라 (`@SafeVarargs` 안전 조건)
 
 ---
 
 **학습 날짜**: 2026-07-01
-**계기**: `Segments.combine(List<AttendanceTraceSegment>... sources)`에서 `@SafeVarargs`를 처음 보고 — varargs 개념 자체부터, 제네릭 varargs가 왜 heap pollution 경고를 내는지(배열 reifiable vs 제네릭 non-reifiable), 붙일 수 있는 위치와 안전 기준(읽기만/노출 금지)을 정리.
+**계기**: 일급 컬렉션의 `combine(List<…>... sources)` 팩토리에서 `@SafeVarargs`를 처음 보고 — varargs 개념 자체부터, 제네릭 varargs가 왜 heap pollution 경고를 내는지(배열 reifiable vs 제네릭 non-reifiable), 붙일 수 있는 위치와 안전 기준(읽기만/노출 금지)을 정리.
+**보강(2026-10-02)**: 안전 조건을 Effective Java Item 32 기준으로 정정(다른 `@SafeVarargs` 메서드로 넘기기는 안전), 예시를 일급 컬렉션 노트의 `OrderLines`로 통일.

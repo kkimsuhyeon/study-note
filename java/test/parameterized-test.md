@@ -38,7 +38,7 @@ void deduct_fail_whenNotPositive(int amount) {   // ← 공급된 값이 인자�
 | `@MethodSource` | 메서드가 만든 **복잡한 객체/스트림** | VO, 엔티티 등 |
 | `@ArgumentsSource` | **`ArgumentsProvider` 구현 클래스** (여러 테스트서 재사용·확장) | `@ArgumentsSource(MyProvider.class)` |
 
-### `@EnumSource` — enum 케이스 돌리기 (이 프로젝트 pay 예시)
+### `@EnumSource` — enum 케이스 돌리기 (결제 상태 예시)
 ```java
 @ParameterizedTest
 @EnumSource(value = PaymentStatus.class, names = {"SUCCESS", "FAIL", "CANCEL"})
@@ -94,10 +94,11 @@ void pay_fail(PaymentStatus status) {
             .isInstanceOf(BusinessException.class);
 }
 
-// 별도 클래스 — 다른 테스트에서도 재사용 가능
+// 별도 클래스 — 다른 테스트에서도 재사용 가능 (JUnit 5.13+ 시그니처)
 static class NotPayableStatusProvider implements ArgumentsProvider {
     @Override
-    public Stream<? extends Arguments> provideArguments(ExtensionContext context) {
+    public Stream<? extends Arguments> provideArguments(ParameterDeclarations parameters,
+                                                        ExtensionContext context) {
         return Stream.of(
                 Arguments.of(PaymentStatus.SUCCESS),
                 Arguments.of(PaymentStatus.CANCEL)
@@ -105,6 +106,7 @@ static class NotPayableStatusProvider implements ArgumentsProvider {
     }
 }
 ```
+> ⚠️ **버전 차이**: JUnit 5.12 이하는 `provideArguments(ExtensionContext)` 하나만 구현했다. **5.13부터 그 메서드는 deprecated**이고 `ParameterDeclarations`(테스트 메서드의 파라미터 선언 정보)를 같이 받는 위 시그니처가 기본 경로다(JUnit 6도 동일). 옛 예제를 그대로 옮기면 deprecation 경고가 난다.
 
 > 💡 **사실 `@ValueSource`/`@EnumSource`/`@CsvSource`/`@MethodSource`는 전부 내부적으로 `@ArgumentsSource` 위에 만들어진 특수화 버전이다.** (각각 전용 `ArgumentsProvider`를 메타 어노테이션으로 달고 있음) → `@ArgumentsSource`는 그 **토대이자 "기성 소스로 안 될 때 직접 만드는" 최종 확장점.**
 
@@ -168,6 +170,7 @@ void name_blank_fail(String name) {    // null, "", " ", "  " → 총 4번
 
 ## 5. 참고
 - [JUnit 5 - Parameterized Tests](https://docs.junit.org/current/user-guide/#writing-tests-parameterized-tests)
+- [JUnit - ArgumentsProvider 소스](https://github.com/junit-team/junit-framework/blob/main/junit-jupiter-params/src/main/java/org/junit/jupiter/params/provider/ArgumentsProvider.java) — `provideArguments(ExtensionContext)` `@Deprecated(since = "5.13")`
 - 관련 노트: [JUnit 라이프사이클·구조](./junit-lifecycle.md) · [AssertJ](./assertj.md)
 
 ---

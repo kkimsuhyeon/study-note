@@ -53,7 +53,8 @@ ws.onerror   = (e) => { ... };
 public class WsConfig implements WebSocketConfigurer {
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(new ChatHandler(), "/ws/chat").setAllowedOrigins("*");
+        registry.addHandler(new ChatHandler(), "/ws/chat")
+                .setAllowedOrigins("https://app.example.com");   // "*"는 Origin 검사를 끈다 — 아래 ⚠️
     }
 }
 
@@ -73,6 +74,7 @@ WebSocket은 "메시지가 오간다"까지만 정의하고 **의미(누구에�
 - **인프라 통과**: 프록시/LB가 `Upgrade` 헤더를 지원·전달하도록 설정 필요 (nginx `proxy_set_header Upgrade/Connection`). L7 방화벽·구형 프록시가 ws를 끊는 경우도 있어 wss 권장.
 - **스케일아웃 시 세션 공유 문제**: WebSocket 세션은 **특정 서버 인스턴스의 메모리에 붙어 있다.** 서버가 2대 이상이면 A서버에 붙은 사용자에게 B서버가 직접 보낼 수 없음 → Redis pub/sub이나 외부 메시지 브로커(RabbitMQ 등)로 인스턴스 간 브로드캐스트 필요. ([scaling.md](../scaling.md)의 무상태 원칙이 깨지는 대표 지점)
 - **인증**: 브라우저 WebSocket API는 커스텀 헤더를 못 붙인다 → 쿠키, URL 쿼리 토큰, 또는 연결 직후 첫 메시지로 토큰 전달 후 검증하는 패턴.
+- **핸드셰이크는 CORS가 막아 주지 않는다 → Origin을 서버가 검사한다.** 브라우저는 다른 사이트 페이지에서도 `new WebSocket(우리 주소)`를 쿠키와 함께 보내고, 연결이 열리면 그 페이지가 메시지를 읽고 쓴다(Cross-Site WebSocket Hijacking — 쿠키 인증일 때 CSRF의 WebSocket판). 브라우저가 핸드셰이크에 붙이는 `Origin`이 유일한 단서다([Origin 헤더](./origin-header.md)). Spring은 4.1.5부터 **같은 origin만 허용이 기본**이고, `setAllowedOrigins("*")`는 이 보호를 해제한다 — 예제의 `"*"`를 그대로 복사하지 말 것.
 - **커넥션 수 = 메모리**: 연결당 세션 객체·버퍼가 상주. 대량 접속이면 이벤트 루프 기반(Netty/WebFlux)이 유리.
 
 ## 💡 판단 기준
@@ -84,7 +86,8 @@ WebSocket은 "메시지가 오간다"까지만 정의하고 **의미(누구에�
 - RFC 6455 The WebSocket Protocol: https://datatracker.ietf.org/doc/html/rfc6455
 - MDN WebSocket: https://developer.mozilla.org/en-US/docs/Web/API/WebSocket
 - Spring WebSocket/STOMP: https://docs.spring.io/spring-framework/reference/web/websocket.html
+- Spring WebSocket — Allowed Origins(기본 same-origin): https://docs.spring.io/spring-framework/reference/web/websocket/server.html#websocket-server-allowed-origins
 
 ---
-학습 날짜: 2026-07-07
+학습 날짜: 2026-07-07 (2026-10-02 Origin 검사·CSWSH 보강)
 계기: LLM 채팅 스트리밍 MR이 SSE를 쓴 이유를 이해하려고 "그럼 WebSocket이었다면 뭐가 달랐나"를 반대편에서 정리.

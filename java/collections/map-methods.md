@@ -86,20 +86,20 @@ for (var e : map.entrySet()) if (e.getValue().equals(1)) return e.getKey();
 ### ① 캐시 패턴 — computeIfAbsent
 루프 안에서 같은 키의 비싼 로드(DB 조회 등)를 1회로 줄인다.
 ```java
-// 한 달(31일) 루프에서 근로제(wkSysId)가 2종이면 buildPolicy(DB 조회)는 딱 2번만 실행
-Map<String, WorkSystemPolicy> policyByWkSys = new HashMap<>();
+// 한 달(31일) 루프에서 요금제(planId)가 2종이면 buildPolicy(DB 조회)는 딱 2번만 실행
+Map<String, PricingPolicy> policyByPlan = new HashMap<>();
 for (LocalDate date : allDates) {
-    WorkSystemPolicy policy = policyByWkSys.computeIfAbsent(
-            wkSysId, id -> workSystemPolicyLoader.buildPolicy(orgId, id, maxWorkDate));
+    PricingPolicy policy = policyByPlan.computeIfAbsent(
+            planId, id -> pricingPolicyLoader.buildPolicy(orgId, id, maxDate));
     ...
 }
 ```
 아래 3줄과 동일하다:
 ```java
-WorkSystemPolicy policy = map.get(wkSysId);
+PricingPolicy policy = map.get(planId);
 if (policy == null) {
-    policy = load(wkSysId);
-    map.put(wkSysId, policy);
+    policy = load(planId);
+    map.put(planId, policy);
 }
 ```
 
@@ -180,7 +180,7 @@ stream.collect(Collectors.toMap(Record::getDate, Function.identity()));
 
 // 3인자 — merge 함수가 충돌 시 승자를 결정
 stream.collect(Collectors.toMap(Record::getDate, Function.identity(), (a, b) -> a));        // 먼저 것 승리
-stream.collect(Collectors.toMap(Emp::getEmpNo, Function.identity(), (before, after) -> after)); // 나중 것 승리
+stream.collect(Collectors.toMap(Product::getSku, Function.identity(), (before, after) -> after)); // 나중 것 승리
 
 // 4인자 — 맵 구현체까지 지정 (순서 유지 등)
 stream.collect(Collectors.toMap(k, v, merge, LinkedHashMap::new));
@@ -214,7 +214,7 @@ Map.ofEntries(Map.entry("a", 1), ...);   // 쌍이 많을 때
 
 ## 💡 판단 기준
 
-- **`get → if(null) → put` 3줄이 보이면 compute류 1줄로.** 근태 마감 rewrite에서 근로제 정책 캐시(`policyByWkSys`)를 이 패턴으로 정리 — "없으면 만들어 넣고 있으면 꺼내라"는 의도가 이름 그대로 드러난다.
+- **`get → if(null) → put` 3줄이 보이면 compute류 1줄로.** 날짜 루프 안의 요금제 정책 캐시(`policyByPlan`)를 이 패턴으로 정리 — "없으면 만들어 넣고 있으면 꺼내라"는 의도가 이름 그대로 드러난다.
 - 값 생성이 **비싸면 computeIfAbsent**(지연), 싸면 아무거나. **누적/카운팅은 merge**, **있을 때만 갱신은 computeIfPresent**.
 - **카운팅에 `computeIfAbsent`를 쓰려다 막히면 방향이 틀린 것** — computeIfAbsent엔 "있을 때" 분기가 **아예 없다**(있으면 아무것도 안 함). "없으면 초기화 + 있으면 누적"이 필요하면 `merge`(합치는 규칙이 단순 이항연산일 때) 또는 `compute`(없음/있음을 비대칭으로 다뤄야 할 때). *computeIfAbsent = 없을 때만 / merge·compute = 있든 없든.*
 - 단, 람다에서 null이 나올 수 있는 로드는 "실패가 반복 실행된다"를 알고 쓰기 — 실패까지 캐싱해야 하면 수동 get/put + try-catch가 오히려 명확하다.
@@ -227,7 +227,7 @@ Map.ofEntries(Map.entry("a", 1), ...);   // 쌍이 많을 때
 
 ---
 학습 날짜: 2026-07-03
-계기: 근태 마감 rewrite 중 `policyByWkSys.computeIfAbsent(...)` 캐시 패턴을 보고 "이건 어떤 함수?"에서 출발
+계기: 월간 계산 로직 rewrite 중 루프 안의 `computeIfAbsent(...)` 정책 캐시 패턴을 보고 "이건 어떤 함수?"에서 출발 (예시 이름은 요금제로 일반화)
 보강: 2026-07-08 — SSE emitter 교체 코드의 `remove(key, value)` 조건부 제거에서 막혀, 토대(기본 put/get/remove·remove 2종 대비)와 조건부(CAS) 형제·`Map.of` 중복 예외를 추가. (관련: [SseEmitter 노트](../spring/sse-emitter.md))
 보강: 2026-07-14 — merge 심화(두 번째 인자 = 초기값 겸 함수 2번째 인자 / 갱신 함수는 `BiFunction` 2인자라 `(v)->v+1` 1인자 불가 / 감소는 `-1` 넘겨 `Integer::sum` / 초기값≠증분이면 `compute`)와 `Integer::sum` 아닌 커스텀 람다 예시(쉼표 join·상한 카운터) 추가. `forEach`가 `void`(`BiConsumer`)라 값 못 뽑고 break도 없는 함정을 순회 절에 보강 (실제 `merge((v)->v+1)` 컴파일 에러·`forEach`에서 `return key` 시도에서 출발).
 보강: 2026-07-14 — 크기 계열(`size`·`isEmpty`) 절 추가. **`size()` = 키 개수(종류)이지 값의 합(총량)이 아니다**는 구분이 핵심 — 카운팅 맵에선 동명이인 때문에 둘이 갈라진다. (코테 "종류가 몇 개" 유형에서 바로 쓰임)

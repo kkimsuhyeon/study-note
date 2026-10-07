@@ -65,9 +65,13 @@ JOIN 결과는 자식 수만큼 row가 늘어나 있으므로, `LIMIT 10`은 "�
 
 ### 3. 부모·자식의 동명 컬럼은 alias 필수
 
-부모와 자식 테이블에 같은 이름 컬럼(FK 등)이 있으면 alias 없이 `column="promotion_id"`로는 어느 쪽 값인지 보장되지 않는다. `pub.promotion_cd AS pub_promotion_cd`처럼 접두사 alias를 붙이는 게 관례 (`columnPrefix`도 같은 문제의 해법).
+부모와 자식 테이블에 같은 이름 컬럼(FK 등)이 있으면 alias 없이 `column="author_id"`로는 어느 쪽 값인지 보장되지 않는다(위 예시에서 blog와 post가 둘 다 `author_id`를 가진 경우). `P.author_id AS post_author_id`처럼 접두사 alias를 붙이는 게 관례 (`columnPrefix`도 같은 문제의 해법).
 
-### 4. 기타 메커니즘
+### 4. 중첩 매핑을 추가하는 순간 부모의 자동 매핑이 꺼진다
+
+`autoMappingBehavior` 기본값 `PARTIAL`은 **중첩 resultMap(`<association>`/`<collection>`)이 없는 결과만** 자동 매핑한다. 그래서 컬럼명이 필드명과 같아 자동 매핑에 기대던 resultMap에 `<association>` 하나를 추가하면, `<result>`로 명시하지 않은 부모 필드가 **전부 null**이 된다. 쿼리는 그대로인데 "왜 다른 값이 비지?"가 된다 → 그 resultMap에 `autoMapping="true"`를 주거나 필요한 컬럼을 `<result>`로 명시한다 (전역 `FULL`은 중첩 쪽까지 이름이 겹쳐 엉뚱하게 채워질 수 있어 공식 문서도 주의를 준다).
+
+### 5. 기타 메커니즘
 
 - setter가 없어도 **필드 직접 접근**으로 매핑된다 (`@Getter`만 있는 불변형 entity 가능). protected 기본 생성자도 리플렉션으로 생성.
 - resultMap 정의가 참조하는 select보다 **문서상 뒤에 있어도 된다** — 파서가 resultMap을 statement보다 먼저 처리.
@@ -75,11 +79,13 @@ JOIN 결과는 자식 수만큼 row가 늘어나 있으므로, `LIMIT 10`은 "�
 
 ## 💡 판단 기준
 
-- **"연관 데이터가 필요한데 그 테이블을 이미 JOIN하고 있다면, 새 쿼리를 만들지 말고 컬럼+매핑을 추가한다."** — 실제 케이스: `FOR UPDATE` 락 조회가 발행 코드 테이블을 이미 JOIN하고 있었는데, 상태 변경용 entity가 필요해서 별도 조회를 고민하다가 SELECT에 컬럼 2개 + `<association>` 추가로 해결. 잠긴 row가 그대로 entity로 로드되니 "조회 → 인스턴스 메서드로 상태 전이 → 범용 update" 흐름이 추가 쿼리 0회로 완성됐다. (락 관점은 [SELECT FOR UPDATE](../../database/select-for-update.md))
+- **"연관 데이터가 필요한데 그 테이블을 이미 JOIN하고 있다면, 새 쿼리를 만들지 말고 컬럼+매핑을 추가한다."** — 실제 케이스: `FOR UPDATE` 락 조회가 자식(쿠폰 코드) 테이블을 이미 JOIN하고 있었는데, 그 자식 row의 상태를 바꿀 entity가 필요해서 별도 조회를 고민하다가 SELECT에 컬럼 2개 + `<association>` 추가로 해결. 잠긴 row가 그대로 entity로 로드되니 "조회 → 인스턴스 메서드로 상태 전이 → 범용 update" 흐름이 추가 쿼리 0회로 완성됐다. (이때 함정 4 — 부모 resultMap이 자동 매핑에 기대고 있었다면 `<association>` 추가와 함께 부모 필드가 null이 된다) (락 관점은 [SELECT FOR UPDATE](../../database/select-for-update.md))
 - **단수/복수는 테이블 관계가 아니라 "이 쿼리가 뭘 반환하나"로 정한다.** — 1:N 테이블이라도 특정 자식을 코드로 찍어 조회하는 쿼리는 결과가 항상 1건 → `<collection>`으로 받아 `get(0)` 하지 말고 `<association>` 단수 필드로. List는 "전체 목록"이라는 오해를 부른다.
 
 ## 참고
 
 - [MyBatis 공식: Mapper XML — Result Maps](https://mybatis.org/mybatis-3/sqlmap-xml.html#Result_Maps) — id&result, Nested Results for Association/Collection
+- [MyBatis 공식: Configuration — settings `autoMappingBehavior`](https://mybatis.org/mybatis-3/configuration.html#settings) — `PARTIAL`(기본)은 중첩 결과 매핑이 없는 결과만 자동 매핑
+- 관련 노트: [SELECT FOR UPDATE](../../database/select-for-update.md) · [N+1과 fetch 전략](../jpa/n-plus-one-fetch.md)
 
-학습 날짜: 2026-08-06 · 계기: 프로모션 코드 등록 작업에서 락 조회 쿼리에 발행 코드 row를 `<association>`으로 매핑하며 — `<id>`의 역할("id는 필요 없나?"), association vs collection 선택("collection으로 묶으면 편할 것 같은데")을 검토
+학습 날짜: 2026-08-06 · 계기: 쿠폰 코드 등록 로직에서 락 조회 쿼리에 코드 row를 `<association>`으로 매핑하며 — `<id>`의 역할("id는 필요 없나?"), association vs collection 선택("collection으로 묶으면 편할 것 같은데")을 검토 (2026-10-02 이름 일반화·자동 매핑 함정 추가)

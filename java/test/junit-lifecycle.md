@@ -101,7 +101,8 @@ class UserRepositoryAdapterTest {
 ## 4. ⚠️ 함정
 
 - **`@BeforeAll`은 `static`** — 안 붙이면 `JUnitException`. 인스턴스가 아직 없는 시점이라.
-- **`@DataJpaTest`는 매 테스트 롤백** → 셋업은 `@BeforeEach`. `@BeforeAll`로 한 번 심으면 롤백으로 사라져 안 맞음. ([JPA repository 테스트](./jpa-repository-test.md))
+- **`@DataJpaTest`는 매 테스트 롤백** → 셋업은 `@BeforeEach`. `@BeforeEach`/`@AfterEach`는 테스트 트랜잭션 **안**에서 돌아 같이 롤백되지만, `@BeforeAll`/`@AfterAll`은 트랜잭션 **밖**이다 — 거기서 리포지토리로 심으면 **commit돼서 남아** 다른 테스트·다른 클래스까지 오염시키고, `TestEntityManager`로 심으면 활성 트랜잭션이 없어 실패한다. (static이라 `@Autowired` 필드도 못 쓴다.) ([JPA repository 테스트](./jpa-repository-test.md))
+- **롤백이 없는 테스트는 `@AfterEach`로 치운다** — `@Transactional` 없는 `@SpringBootTest`(동시성 테스트 등)는 commit된 데이터가 그대로 쌓인다 → `@AfterEach`에서 `deleteAll()`/truncate로 정리해 테스트 순서에 따라 결과가 바뀌지 않게 한다. ([동시성 테스트 §4](./concurrency-test.md))
 - **`@BeforeEach` 범위** — 클래스 최상단에 두면 그 클래스 **모든 테스트**에 셋업이 적용됨. 일부 테스트엔 노이즈(개수 세기 등)가 될 수 있음 → **셋업 필요한 것만 `@Nested`로 묶고 그 안에 `@BeforeEach`**.
 - **`@BeforeAll`을 non-static으로 쓰고 싶다** → 클래스에 `@TestInstance(Lifecycle.PER_CLASS)`를 붙이면 인스턴스를 클래스당 1개로 유지해 가능(상태 공유도 됨). 단 테스트 간 격리가 약해지니 주의.
 
@@ -122,6 +123,7 @@ class UserRepositoryAdapterTest {
 
 ## 6. 참고
 - [JUnit 5 User Guide - Test Lifecycle](https://junit.org/junit5/docs/current/user-guide/#writing-tests-test-instance-lifecycle)
+- [Spring Framework - Test-managed Transactions](https://docs.spring.io/spring-framework/reference/testing/testcontext-framework/tx.html) — `@BeforeAll`/`@AfterAll`은 테스트 트랜잭션 밖에서 실행
 - 관련 노트: [JPA repository 테스트](./jpa-repository-test.md) · [테스트 픽스처](./test-fixtures.md)
 
 ---

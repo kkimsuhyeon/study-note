@@ -22,9 +22,9 @@
 | 종류 | 자기 상태로 판단? | 예 | 위치 |
 |---|---|---|---|
 | **단일 엔티티 불변식** | ✅ 가능 | 잔액 ≥ 0, 상태 전이(RESERVING→RESERVED) | **엔티티 안** |
-| **집합/교차 규칙** | ❌ 불가 (다른 행을 봐야) | 이메일 **유니크**, 계좌 간 이체 | **도메인 서비스** |
+| **집합/교차 규칙** | ❌ 불가 (다른 행을 봐야) | 이메일 **유니크**, 계좌 간 이체 | **도메인 계층** — 결과·체커 주입, 무거우면 도메인 서비스 (§5, 방법 선택 기준 → [애그리거트 소유권 §2.1](./aggregate-ownership.md)) |
 
-이 프로젝트 `User`는 이미 단일 불변식을 rich하게 처리한다:
+예: `User`가 단일 불변식을 rich하게 처리하는 모습:
 ```java
 public void deductBalance(BigDecimal amount) {
     if (this.balance.compareTo(amount) < 0)        // 자기 잔액만 보면 판단 가능 → 엔티티 안
@@ -41,11 +41,11 @@ public void deductBalance(BigDecimal amount) {
 | 층 | 검증 | 성격 |
 |---|---|---|
 | 웹 `@Valid` (Request DTO) | 형식·**비번 정책**(길이·특수문자) | **입력 거부선** — 빠른 400, UX용 |
-| 팩토리 `User.create` | null/빈값, 이메일 형식 등 **값만 보고 판단 가능한 것** | **최후 방어선** — 어디서 부르든 깨진 객체 생성 불가(우회 불가능한 강제) |
+| 팩토리 `User.create` | null/빈값, 이메일 형식 등 **값만 보고 판단 가능한 것** | **생성 경로의 방어선** — 웹을 안 거치는 배치·테스트도 `create`를 타면 걸린다 (단 `of`·생성자가 열려 있으면 우회, §2-3·§7) |
 | 도메인 서비스 `register` | 이메일 **유니크** (옆 행 필요) | 집합 규칙 — 약속 기반(우회 가능) |
 
 - 웹 `@Valid`와 팩토리 검증은 **중복이 아니다** — 웹은 UX(친절한 에러), 팩토리는 무결성(웹 안 거치는 배치·내부 호출·테스트에서도 방어).
-- 강제 수준이 층마다 다름: **팩토리 검증 = 컴파일/런타임 강제**(우회 불가), **도메인 서비스 검증 = 약속**(`User.create` 직접 호출 시 우회됨, §7).
+- 강제 수준이 층마다 다름: **팩토리 검증 = 런타임 강제**(`create`를 타는 한 빠지지 않음), **도메인 서비스 검증 = 약속**(`User.create` 직접 호출 시 우회됨). 컴파일러 강제는 팩토리 시그니처가 체커를 요구할 때만 생긴다(§7).
 - ⚠️ 유니크 검증 로직만으로는 동시성(check-then-act 레이스)에 뚫린다 → **DB 유니크 제약 병행 필수** (상세 → §6).
 
 > ⚠️ **변환되는 값은 검증 가능 지점이 앞으로 당겨진다 — 비밀번호 정책은 `User.create`에서 못 한다.** `create`에 도착하는 비번은 **이미 해시**(bcrypt는 60자 고정)라 "8자 이상·특수문자" 같은 정책 검증은 원본이 사라져 물리적으로 불가능. raw가 존재하는 마지막 지점(웹 `@Valid`/앱 서비스, 인코딩 **전**)에서 해야 한다. `create`가 할 수 있는 건 null/빈값 가드뿐. 반면 **이메일은 변환 없이 원본 그대로** 들어오므로 형식 검증까지 `create`에서 가능 — 같은 "필수값"이라도 **중간에 변환(해시)이 끼면 검증 위치가 갈린다.**
@@ -90,7 +90,7 @@ String encoded = passwordEncoder.encode(raw.value());     // 인코딩(메커니
 | **Application Service** | 흐름 조합·트랜잭션 경계 | ❌ (오케스트레이션만) |
 | **Repository** | 영속화 추상(포트) | ❌ |
 
-> 유니크가 엔티티 밖에 있는 건 "DDD 위반"이 아니라, **엔티티가 구조상 못 하는 일**이라 도메인 서비스가 맡는 것. (Vaughn Vernon "Implementing DDD"도 유니크를 도메인 서비스 케이스로 다룸)
+> 유니크가 엔티티 밖에 있는 건 "DDD 위반"이 아니라, **엔티티가 구조상 못 하는 일**이라 도메인 서비스가 맡는 것. (Vaughn Vernon "Implementing DDD"도 유니크를 도메인 서비스 케이스로 다룬다는 설명이 흔하다 — 원문 위치 확인 필요)
 
 ---
 
@@ -108,7 +108,7 @@ String encoded = passwordEncoder.encode(raw.value());     // 인코딩(메커니
 ### ⚠️ 그래서 입력 검증을 `of`에 두면 안 된다 (concrete: `Payment`)
 
 ```java
-// 현재 코드 — 검증이 of(복원 경로)에 있다
+// ❌ 검증이 of(복원 경로)에 있는 코드
 public static Payment create(String reservationId, BigDecimal amount) {
     return Payment.of(null, PENDING, amount, reservationId, null);   // create가 of에 위임
 }
@@ -120,7 +120,7 @@ public static Payment of(String id, PaymentStatus status, BigDecimal amount, Str
 ```
 
 - **의미 충돌** — `INVALID_INPUT`은 "사용자 입력이 틀림"(보통 400 Bad Request) 뜻이다. 그런데 `of`는 **DB에 이미 저장된 결제를 `toModel()`로 되살릴 때도** 불린다 → *결제를 조회하는데 400 "입력 오류"가 터지는* 꼴. 깨진 DB 행은 "잘못된 입력"이 아니라 **데이터 정합성 문제**라 던질 예외의 종류부터 다르다.
-- **중복** — `reservation_id`는 이미 `@Column(nullable = false)`라 DB가 not-null을 보장. 복원 시 재검증은 군더더기.
+- **중복** — DB 스키마에 `reservation_id NOT NULL` 제약이 있으면 깨진 행은 애초에 저장되지 않는다. 복원 시 재검증은 군더더기. (⚠️ `@Column(nullable = false)`는 컬럼을 *기술*하는 매핑 메타데이터 — 주로 DDL 생성에 쓰이고, 실제 보장은 운영 스키마의 NOT NULL 제약이 한다. 마이그레이션 도구로 스키마를 관리하면 어노테이션만으론 아무것도 안 막는다)
 - **역할 위반** — 복원 팩토리는 *"있는 상태를 그대로 재조립"*하는 역할이지 거부하는 역할이 아니다. (cf. [변환 계층](./transform-layers.md): Factory는 "만든다", 복원도 그 일종)
 
 → **입력 검증은 "새 객체가 입력으로부터 태어나는 생성 경로"에 둔다.**
@@ -148,8 +148,6 @@ public static Payment of(String id, PaymentStatus status, BigDecimal amount, Str
 ```
 
 > ⚠️ 생성 팩토리를 더 추가할 계획(`Payment.fail()` 등)이면 (B)를 택한다. **"단일 choke point에 불변식"** 이점은 살리되, 그 choke point를 **복원(`of`)과 분리**하는 게 요지. `create`에만 넣으면 나중에 만든 `fail`이 검증을 조용히 빠뜨린다.
-
-이 프로젝트 `User`도 `create`/`of`가 둘 다 있고 **`of`는 검증하지 않는다**(`toModel`이 부르는 복원 경로라서) — 같은 패턴. 즉 `Payment`의 현재 코드가 컨벤션에서 벗어난 쪽이다.
 
 > 💡 **입력 검증은 "복원 팩토리(`of`/`toModel` 경로)"가 아니라 "생성 팩토리(`create`) 경로"에 둔다.** `of`가 영속성 복원에 쓰이면 거기서 던지는 `INVALID_INPUT`은 "DB 읽다가 400" 식 의미 충돌 + `nullable` 제약과 중복이다. 생성 팩토리가 여러 개거나 늘어날 거면, 검증은 **복원과 분리된 private 생성 통로**에 모아 모든 신규 객체가 거치게 한다. (강제까지 원하면 §7 — 무검증 생성자를 private으로 닫아 "유효하지 않은 객체는 존재 불가"로.)
 
@@ -272,14 +270,15 @@ entity:  if (command.isEmailExists()) throw ...
 | application | **Application Service** | 단일 도메인 흐름·트랜잭션 (예: `UserCommandService`, `AuthService`) |
 | domain | **Domain Service** | 한 엔티티에 안 담기는 **도메인 규칙**(유니크·이체) — 조율/트랜잭션 없음, 도메인 개념에 이름 |
 | domain | Entity / VO | 단일 엔티티 로직 (`User`) |
-| infra | Repository | 영속화 포트 |
+| port / infra | Repository | 영속화 포트(인터페이스는 안쪽) + 어댑터(구현은 infra) |
 
 - **UseCase / Application Service = 조율**(load→도메인→save, 트랜잭션). 컨트롤러가 직접 호출하는 그 계층.
 - **Domain Service = 규칙 자체**(조율 아님). 도메인 계층에 둠.
 - 차이: Application Service는 "이 작업을 위해 **조율한다**", Domain Service는 "**도메인 규칙을 표현한다**".
-- 현실: 작은 프로젝트는 Domain Service를 **안 만들고** 그 로직을 Application Service에 합치기도 함(지금 `AuthService`가 그럼) — 실용적 선택, 틀린 것 아님.
+- 현실: 작은 프로젝트는 Domain Service를 **안 만들고** 그 로직을 Application Service에 합치기도 함(예: 인증 서비스 `AuthService`가 중복 검증까지 들고 있는 경우) — 실용적 선택, 틀린 것 아님.
+- 📖 UseCase(교차 도메인)와 Application Service(단일 애그리거트)를 **별도 클래스로 나누는 건 한 가지 관례**다. 헥사고날 교과서에서 UseCase는 보통 in port **인터페이스**(`CreateUserUseCase`)이고 Application Service가 그걸 구현한다 → [포트와 어댑터 §3](./ports-and-adapters.md).
 
-### 호출 흐름 — 직선이 아니라 트리 (signup, Option 1 기준)
+### 호출 흐름 — 직선이 아니라 트리 (signup 예시)
 
 ```
 Controller (web)
@@ -343,7 +342,6 @@ public Payment pay(String reservationId, BigDecimal amount) {
 ```
 
 - 빈약 서비스 = **Repository 위 얇은 래퍼**(`create`/`update`처럼 위임만). 흩어져 있던 `Payment.create + payment.pay + save`를 **도메인 동사로 이름 붙인 한 메서드(`pay`)**로 모으면 응집이 생긴다.
-- 위임만 하던 `create`/`update`는 `pay`가 흡수하면 **호출처가 사라져 제거 가능**(실패 이력·상태변경 등 다른 용도 없으면).
 - ⚠️ §5-3 "미리 쪼개지 마라"와 충돌 아님 — **판단 축은 "그게 이 도메인의 의미 있는 연산이라 이름값을 하나 + 재사용/응집"**. 결제·충전처럼 핵심 연산이면 이름값을 하니 빼고, 정말 사소한 한 줄이면 UseCase에 둬도 된다.
 
 > 💡 **UseCase = 교차 도메인 조율 / App Service = 단일 애그리거트 조율(load/create→도메인 호출→save) / Entity = 상태 전이.** App Service가 `create`/`update` 같은 CRUD 위임만 갖고 있으면 빈약 신호 — 애그리거트의 의미 있는 연산(`pay`)을 줘서 UseCase에 흩어진 조율을 끌어내린다. (단 사소하면 YAGNI로 UseCase에 둬도 무방)
@@ -367,10 +365,10 @@ public Payment pay(String reservationId, BigDecimal amount) {
 
 ## 5-5. 도메인 서비스 만들 때 — 실전 판단 모음
 
-`UserRegistration`을 실제로 빼보며 나온 질문들. (이 프로젝트: 유니크 검증을 `AuthService`에서 도메인 서비스로 추출 시도)
+유니크 검증을 앱 서비스(`AuthService`)에서 도메인 서비스(`UserRegistration`)로 빼보면 나오는 질문들.
 
 ### (a) 폴더로는 도메인서비스 / 앱서비스 구분이 안 된다
-이 프로젝트는 포트(`UserRepository`)도 서비스도 전부 `application/`에 둔다 → 도메인 서비스도 `application/service`에 살게 되어 **위치로는 구분 불가.** 구분 신호:
+포트(`UserRepository`)도 서비스도 전부 `application/`에 두는 구조라면 → 도메인 서비스도 `application/service`에 살게 되어 **위치로는 구분 불가.** 구분 신호:
 - **이름**: 앱서비스 = 애그리거트+작업(`UserCommandService`) / 도메인서비스 = 도메인 개념(`UserRegistration`)
 - **`@Transactional` 유무**: 붙으면 앱(경계 소유), 안 붙으면 "규칙만"인 도메인 서비스 신호
   - ⚠️ 도메인 서비스에 `@Transactional`이 **없어도** 호출자(앱서비스) 트랜잭션 안에서 돈다 — 스프링 트랜잭션은 **스레드 바인딩 + 기본 전파 `REQUIRED`**라 새로 안 열고 *합류*. 그래서 register 안의 `existsByEmail`도 호출자 트랜잭션에 참여. **없는 게 정상이자 권장**(경계는 앱이 소유, 안 붙어야 "규칙만"이 드러남). ⚠️ 단 "검증+저장을 한 트랜잭션으로 묶기"는 **호출하는 앱서비스 책임** — 도메인 서비스를 트랜잭션 밖에서 단독 호출하면 그 조회는 auto-commit이라 저장과의 atomicity가 안 보장된다.
@@ -385,7 +383,7 @@ public Payment pay(String reservationId, BigDecimal amount) {
 → "등록"처럼 **액션마다 서비스 클래스를 만들면 폭발한다.** 등록의 조율은 `UserCommandService.createUser` **메서드**로 들어가지, 클래스가 따로 안 생긴다.
 
 ### (c) 도메인 서비스는 메서드가 보통 1개 — 정상이다
-도메인 서비스는 "연산/규칙 하나"를 표현하니 단일 메서드(`register`)가 자연스럽다. 늘릴지는 **개수가 아니라 응집도(같은 개념이냐)**로 — 억지로 채우면 앱서비스로 퇴화. ⚠️ 단일 메서드가 *사소하면*(우리 `existsByEmail` 한 줄) "클래스로 뺄 값어치 있었나"(YAGNI) 의심 신호. 무거운 규칙 덩어리면 메서드 하나라도 정당.
+도메인 서비스는 "연산/규칙 하나"를 표현하니 단일 메서드(`register`)가 자연스럽다. 늘릴지는 **개수가 아니라 응집도(같은 개념이냐)**로 — 억지로 채우면 앱서비스로 퇴화. ⚠️ 단일 메서드가 *사소하면*(예: `existsByEmail` 호출 한 줄) "클래스로 뺄 값어치 있었나"(YAGNI) 의심 신호. 무거운 규칙 덩어리면 메서드 하나라도 정당.
 
 ### (d) 이름 — 애그리거트명 금지, 규칙명으로 좁게
 - `UserPolicy` / `UserManager` ❌ — 범위가 너무 넓어 온갖 규칙이 빨려드는 god class.
@@ -395,13 +393,13 @@ public Payment pay(String reservationId, BigDecimal amount) {
 ### (e) model/엔 repo가 필요한 검증을 두지 마라
 `model/`은 순수(프레임워크 무관, `new`로 찍는 객체) 자리다. repo가 필요한 검증(유니크)을 `UserValidation`이라며 model/에 두면 순수 레이어가 인프라 포트에 오염된다 — **그건 이미 도메인 서비스**다(→ `application/service`). **repo가 필요 없는 순수 검증**(이메일 형식·비번 길이·잔액≥0)만 엔티티 메서드 / VO로 model/에 둔다.
 
-> 💡 한 줄: **클래스는 애그리거트 단위로 묶고(앱서비스), 구분은 메서드 이름으로. 도메인 서비스는 "규칙이 메서드 하나에 안 담길 만큼 무거울 때"만 꺼내는 카드 — 이름은 규칙명으로 좁게, repo 부르면 Policy가 아니라 도메인 서비스, 위치는 (이 프로젝트선) application/service.**
+> 💡 한 줄: **클래스는 애그리거트 단위로 묶고(앱서비스), 구분은 메서드 이름으로. 도메인 서비스는 "규칙이 메서드 하나에 안 담길 만큼 무거울 때"만 꺼내는 카드 — 이름은 규칙명으로 좁게, repo 부르면 Policy가 아니라 도메인 서비스, 위치는 포트를 둔 계층(예: application/service).**
 
 ---
 
 ## 6. 현실 — 유니크 최종 보장은 DB 제약
 
-`existsByEmail` 체크 → save는 **check-then-act 레이스**가 있다. 두 명이 동시에 같은 이메일로 가입하면 둘 다 `exists=false` 통과 후 둘 다 save 시도. **엔티티에서 검증하든 도메인 서비스로 하든 이 레이스는 못 막는다** — `@Column(unique=true)` DB 제약(또는 락)만 막는다. 코드 검증은 "친절한 에러 메시지"용, DB 제약이 "진짜 방어선". (같은 구조의 JVM 버전 — Atomic도 못 막는 확인+행동 틈: [jvm-concurrency-tools §7-2](../concurrency/jvm-concurrency-tools.md))
+`existsByEmail` 체크 → save는 **check-then-act 레이스**가 있다. 두 명이 동시에 같은 이메일로 가입하면 둘 다 `exists=false` 통과 후 둘 다 save 시도. **엔티티에서 검증하든 도메인 서비스로 하든 이 레이스는 못 막는다** — DB의 유니크 제약(또는 락)만 막는다. (`@Column(unique=true)`는 DDL 생성용 표시일 뿐 — 운영 스키마에 실제 유니크 인덱스가 있어야 한다) 코드 검증은 "친절한 에러 메시지"용, DB 제약이 "진짜 방어선". (같은 구조의 JVM 버전 — Atomic도 못 막는 확인+행동 틈: [jvm-concurrency-tools §7-2](../concurrency/jvm-concurrency-tools.md))
 
 ---
 
@@ -410,17 +408,17 @@ public Payment pay(String reservationId, BigDecimal amount) {
 | 검증 | 위치 |
 |---|---|
 | 자기 상태로 판단 가능 (잔액·상태전이) | **엔티티** (rich) |
-| 집합/교차 (유니크·이체) | **도메인 서비스 / 체커 주입** (도메인 계층) |
+| 집합/교차 (유니크·이체) | **도메인 계층** — 결과·체커 주입, 무거우면 도메인 서비스 ([방법 선택](./aggregate-ownership.md)) |
 | 흐름 조합·트랜잭션 | 앱 서비스 (로직 아님) |
 | 동시성 유니크 최종 보장 | **DB 제약** |
 
 > 한 줄: **"엔티티에 넣어라"의 진짜 뜻은 "빈약 모델 만들지 마라"다.** 엔티티가 *할 수 있는* 건 엔티티가, *구조상 못 하는*(여러 행을 봐야 하는) 건 도메인 서비스가. 그때도 **규칙은 도메인, 조회는 인프라**로 가른다.
 
-> 현재 프로젝트는 유니크를 `AuthService`(앱 서비스)에서 체크한다 — 실용적이고 멀쩡한 선택. 도메인 순수성을 더 원하면 위 체커 주입으로 규칙을 도메인에 내릴 수 있다(트레이드오프: 포트·주입 증가). "틀린 것"은 아니다.
+> 유니크를 앱 서비스(`AuthService`)에서 체크하는 것도 실용적이고 멀쩡한 선택이다. 도메인 순수성을 더 원하면 위 체커 주입으로 규칙을 도메인에 내릴 수 있다(트레이드오프: 포트·주입 증가). "틀린 것"은 아니다.
 
 ### "체커를 엔티티에 주입" vs "서비스에서 create 전에 체크" — 차이는?
 
-| | (A) 엔티티에 체커 주입 | (B) 서비스에서 create 전 체크 (현재) |
+| | (A) 엔티티에 체커 주입 | (B) 서비스에서 create 전 체크 |
 |---|---|---|
 | 쿼리·예외·레이스 | 동일 | 동일 (**런타임 결과 같음**) |
 | 규칙 소유 | 엔티티(도메인) | 앱 서비스 |
@@ -445,6 +443,7 @@ Domain Service를 만들어도 `User.create(email, password)`가 **여전히 pub
 
 ## 8. 참고
 - [Martin Fowler - Anemic Domain Model](https://martinfowler.com/bliki/AnemicDomainModel.html)
+- [Jakarta Persistence `@Column` Javadoc](https://jakarta.ee/specifications/persistence/3.1/apidocs/jakarta.persistence/jakarta/persistence/column) — `nullable`·`unique`는 컬럼을 기술하는 속성
 - 관련 노트: [Read-Modify-Write와 트랜잭션 경계](../jpa/read-modify-write.md) · [Mockito 서비스 테스트](../test/mockito-service-test.md)
 
 ---
@@ -455,3 +454,5 @@ Domain Service를 만들어도 `User.create(email, password)`가 **여전히 pub
 **추가(2026-06-25)**: §2-3 생성(`create`) vs 복원(`of`) 팩토리 — 입력 검증은 복원 경로(`of`/`toModel`)가 아니라 생성 경로에 둔다. `Payment.of`에 `INVALID_INPUT` 검증이 들어가 있는데 그 `of`를 `PaymentEntity.toModel()`이 복원에 쓰는 걸 보고 정리.
 
 **추가(2026-06-25)**: §5-3에 "빈약한 App Service" 보강 — `PaymentCommandService`가 `create`/`update` 위임만 가진 걸 보고, 애그리거트 연산(`pay`=생성→도메인호출→저장)을 줘서 UseCase(교차 도메인)에 흩어진 조율을 끌어내리는 판단. UseCase=교차 도메인 / App Service=단일 애그리거트 조율 경계 정리.
+
+**보강(2026-10-02)**: 프로젝트 한정 문장 일반화·리뷰 메모 삭제, 팩토리 검증의 강제 수준(런타임 강제, 컴파일 강제는 §7) 정리, `@Column` 속성은 스키마 제약이 아니라는 점 정정, 집합 규칙의 방법 선택 기준을 [애그리거트 소유권 §2.1](./aggregate-ownership.md)로 일원화, UseCase 구분이 관례임을 표시.

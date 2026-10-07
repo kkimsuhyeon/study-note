@@ -70,7 +70,11 @@ public class GlobalExceptionHandler {
 }
 ```
 
-컨트롤러마다 try-catch를 두지 않고 공통 처리한다. 가장 **구체적인 예외 타입의 핸들러가 우선 매칭**되므로, `Exception.class` fallback은 위의 `BusinessException` 핸들러를 가리지 않는다. 단 fallback에서 **원인을 잃지 않게 반드시 로그를 남긴다**(§7 함정) — 안 그러면 500만 보이고 stack trace가 사라진다.
+컨트롤러마다 try-catch를 두지 않고 공통 처리한다. **한 advice 클래스 안에서는** 가장 구체적인 예외 타입의 핸들러가 우선 매칭되므로, `Exception.class` fallback은 위의 `BusinessException` 핸들러를 가리지 않는다. 단 fallback에서 **원인을 잃지 않게 반드시 로그를 남긴다**(§7 함정) — 안 그러면 500만 보이고 stack trace가 사라진다.
+
+⚠️ **`Exception.class` fallback은 스프링 MVC 자체 예외까지 500으로 바꾼다.** 405(`HttpRequestMethodNotSupportedException`), 415, 400(`MissingServletRequestParameterException`·`HandlerMethodValidationException`), 6.1+의 정적 리소스 404(`NoResourceFoundException`)도 `Exception`의 하위라, 스프링 기본 처리(`DefaultHandlerExceptionResolver`)보다 먼저 이 핸들러에 잡힌다. 표준 해법은 advice가 **`ResponseEntityExceptionHandler`를 상속**하는 것 — 내장 웹 예외를 올바른 상태 코드의 RFC 9457 `ProblemDetail`로 바꿔 주고, 필요한 것만 오버라이드한다(Boot는 `spring.mvc.problemdetails.enabled=true`로 이걸 자동 등록).
+
+⚠️ **advice가 여러 개면 "구체성"보다 "순서"가 먼저다.** 스프링은 `@Order` 순으로 advice를 훑어 **매칭되는 핸들러가 하나라도 있는 첫 advice**의 것을 쓴다. 우선순위가 높은 advice에 `Exception.class` 핸들러가 있으면, 뒤 advice의 더 구체적인 핸들러는 호출되지 않는다. fallback은 한 advice에 모으거나 가장 낮은 순서의 advice에 둔다.
 
 ---
 
@@ -92,7 +96,11 @@ public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidExce
 }
 ```
 
-> ⚠️ **검증 위치에 따라 터지는 예외가 다르다.** 위 `MethodArgumentNotValidException`은 `@RequestBody @Valid`(본문 객체) 케이스다. **`@RequestParam`/`@PathVariable`에 `@Validated`로 건 제약**(`@Min` 등)이 깨지면 `ConstraintViolationException`(스프링 6.1+는 `HandlerMethodValidationException`)으로 **다른 예외**가 뜬다 → 핸들러를 따로 등록하지 않으면 400이 아니라 500으로 샌다. (어떤 어노테이션이 무엇을 트리거하나 → [@Valid · @Validated](./validation.md))
+> ⚠️ **검증 위치에 따라 터지는 예외가 다르다.** 위 `MethodArgumentNotValidException`은 `@RequestBody @Valid`(본문 객체) 케이스다. `@RequestParam`/`@PathVariable`에 직접 건 제약(`@Min` 등)이 깨지면 **다른 예외**가 뜬다.
+> - Spring 6.1+ 기본(컨트롤러 클래스에 `@Validated` 없음): `HandlerMethodValidationException` — 스프링이 기본으로 **400**을 내지만, 위 핸들러 형식과 다른 기본 오류 본문이 나간다. 같은 메서드의 `@Valid @RequestBody` 오류도 이 예외로 바뀔 수 있다.
+> - 컨트롤러 클래스에 `@Validated`(AOP 경로, 6.0 이하는 이것뿐): `ConstraintViolationException` — 핸들러를 따로 등록하지 않으면 **500으로 샌다.**
+>
+> 어떤 어노테이션이 무엇을 트리거하나 → [@Valid · @Validated §4](./validation.md)
 
 ---
 
@@ -104,6 +112,8 @@ public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidExce
 | 도메인 생성자/메서드 | 불변식, 값 객체 규칙 |
 | 도메인 서비스 | 여러 엔티티나 저장소 조회가 필요한 규칙 |
 | DB 제약 | 유니크, FK, 최종 무결성 |
+
+배치 기준("그 검증에 필요한 정보가 어디 있나")은 [도메인 검증 위치](../design/domain-validation.md).
 
 ---
 
@@ -156,5 +166,13 @@ void c() { throw new RuntimeException(); }
 
 ## 8. 참고
 
-- Spring Framework Exception Handling
-- Bean Validation
+- [Spring MVC — Controller Advice](https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-advice.html) (전역 `@ExceptionHandler`는 로컬 다음에 적용)
+- [Spring MVC — Error Responses (ProblemDetail·`ResponseEntityExceptionHandler`)](https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-ann-rest-exceptions.html) (Boot `spring.mvc.problemdetails.enabled`, Boot 핸들러의 order 0)
+- [Spring MVC — Validation](https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-validation.html) (`MethodArgumentNotValidException`과 `HandlerMethodValidationException`을 둘 다 처리하라)
+- 소스 — `ExceptionHandlerExceptionResolver.getExceptionHandlerMethod`(advice를 순서대로 훑어 첫 매칭 반환) · `HandlerMethodValidationException`(입력 검증 400, 반환값 검증 500)
+- 관련 노트: [@Valid · @Validated](./validation.md) · [도메인 검증 위치](../design/domain-validation.md)
+
+---
+
+**학습 날짜**: 2026-06-08 (보강 2026-06-26 · 2026-10-02)
+**계기**: `@ControllerAdvice`·ErrorCode 기반 공통 예외 응답 구조를 정리하다, 검증 예외와 필터 예외가 같은 흐름을 타지 않는 이유를 파고듦

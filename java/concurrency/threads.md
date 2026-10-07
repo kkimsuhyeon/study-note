@@ -55,7 +55,7 @@ Thread 객체                       OS 스레드
 - **얇은 wrapper** = Thread 객체는 일을 안 한다. `interrupt()`/`join()` 등은 전부 "짝인 OS 스레드에게 전달"하는 리모컨 조작.
 - **1:1** = Thread 객체 하나 ↔ OS 스레드 하나, 평생 고정 짝. 자바 스레드 1,000개 = OS 스레드 1,000개.
 - → 그래서 비용(스택 1MB·컨텍스트 스위칭·생성)이 전부 **OS 스레드의 비용** — 자바가 최적화할 수 없다. [가상 스레드](./virtual-threads.md)가 바로 이 1:1을 깨는 것(M:N).
-- **스택 메모리 ~1MB** 고정 할당 → 수만 개 만들면 메모리 폭발.
+- **스택 ~1MB**(`-Xss` 기본값, 64bit Linux 기준) — 정확히는 스레드마다 **예약하는 최대 크기**이고, 물리 메모리는 실제로 쓴 페이지만큼만 잡힌다(OS 지연 할당). 그래서 "1MB × 스레드 수"만큼 RAM이 바로 사라지진 않지만, 수만 개면 주소 공간·커널 자원·OS 스레드 수 제한·스위칭 비용이 먼저 한계가 된다.
 - **컨텍스트 스위칭** 비용 — OS가 스레드를 바꿔 끼울 때 CPU 레지스터·캐시 교체 → 많아질수록 오버헤드.
 - 그래서 **현실적으로 수천 개가 한계.** "요청당 스레드"가 동시 접속 폭증 시 무너지는 이유. (→ 이 한계를 깨려고 나온 게 [가상 스레드](./virtual-threads.md))
 
@@ -83,7 +83,7 @@ Runnable task = () -> System.out.println("hi");
 new Thread(task).start();          // 직접 생성 (저수준, 잘 안 씀)
 
 // (2) ExecutorService — 풀로 관리 (실무 기본)
-ExecutorService pool = Executors.newFixedThreadPool(10);  // 스레드 10개 미리 생성
+ExecutorService pool = Executors.newFixedThreadPool(10);  // 최대 10개 — 작업이 올 때 만들어 재사용(미리 생성 X)
 pool.submit(task);                 // "할 일"만 제출 → 노는 스레드가 실행
 pool.shutdown();
 ```
@@ -101,13 +101,13 @@ NEW → RUNNABLE ⇄ (BLOCKED / WAITING / TIMED_WAITING) → TERMINATED
 | 상태 | 의미 |
 |---|---|
 | NEW | 생성됐지만 `start()` 전 |
-| RUNNABLE | 실행 중 또는 실행 가능(OS 스케줄 대기 포함) |
-| BLOCKED | `synchronized` 락을 기다리는 중 |
-| WAITING | `join()`/`wait()`/`await()`로 무기한 대기 |
-| TIMED_WAITING | `sleep(ms)`/타임아웃 대기 |
+| RUNNABLE | 실행 중 또는 실행 가능(OS 스케줄 대기 포함). **소켓 읽기 등 OS에서 I/O를 기다리는 중에도 RUNNABLE** |
+| BLOCKED | **`synchronized` 모니터** 진입을 기다리는 중 (이것만 BLOCKED) |
+| WAITING | `join()`/`wait()`/`LockSupport.park()`로 무기한 대기 — `ReentrantLock.lock()`·`CountDownLatch.await()` 대기도 여기(내부가 park) |
+| TIMED_WAITING | `sleep(ms)`/타임아웃 버전(`tryLock(t)`, `await(t)` 등) 대기 |
 | TERMINATED | 실행 종료 |
 
-> 락 노트의 "비관락 = 대기(blocking)"가 여기 **BLOCKED**와 연결. 락을 못 얻으면 BLOCKED로 멈춰 기다린다.
+> ⚠️ "락을 못 얻으면 BLOCKED"는 `synchronized`에만 맞다. 스레드 덤프를 읽을 때: **JVM 모니터 대기 = BLOCKED**, **j.u.c 락·래치 대기 = WAITING**, **DB `FOR UPDATE` 행 락 대기 = RUNNABLE**(JVM 입장에선 JDBC 소켓 응답을 기다리는 중이라). 그래서 DB 락 경합은 덤프에서 "다 RUNNABLE인데 안 끝난다"로 보인다.
 
 ---
 
@@ -153,6 +153,9 @@ ExecutorService pool = Executors.newFixedThreadPool(2, r -> {
 
 ## 9. 참고
 - [Oracle - Java Threads](https://docs.oracle.com/javase/tutorial/essential/concurrency/)
+- [Thread.State (Javadoc)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Thread.State.html) — BLOCKED는 모니터 대기, WAITING은 `LockSupport.park` 포함
+- [ThreadPoolExecutor (Javadoc)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ThreadPoolExecutor.html) — "even core threads are initially created and started only when new tasks arrive"
+- [foojay - Exploring the impact of stack size on JVM thread creation](https://foojay.io/today/exploring-the-impact-of-stack-size-on-jvm-thread-creation-a-myth-debunked/) — 예약(가상) vs 실제 사용(RSS)
 - 관련 노트: [JVM 동시성 도구](./jvm-concurrency-tools.md) · [락 개념](./locks.md) · [가상 스레드](./virtual-threads.md)
 
 ---

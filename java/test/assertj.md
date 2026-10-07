@@ -41,7 +41,7 @@ assertThat(user.getBalance()).isEqualByComparingTo("500");  // 문자열도 받�
 | 내부 비교 | `expected.equals(actual)` | `expected.compareTo(actual) == 0` |
 | `"500"` vs `"500.0"` | **실패** (scale 0 ≠ 1) | **통과** (값만 같으면 OK) |
 
-> BigDecimal 단언은 거의 항상 `isEqualByComparingTo`. (이유는 [BigDecimal §5](../bigdecimal/bigdecimal.md)) — `AbstractBigDecimalAssert`에 정의된 오래된 메서드라 버전 걱정 없음.
+> BigDecimal 단언은 거의 항상 `isEqualByComparingTo`. (이유는 [BigDecimal §5](../bigdecimal/bigdecimal.md)) — 본체는 `AbstractComparableAssert`(Comparable 공통)에 있는 오래된 메서드라 버전 걱정 없고, `LocalDate` 등 다른 Comparable에도 쓸 수 있다. 문자열을 받는 `isEqualByComparingTo("500")`만 `AbstractBigDecimalAssert` 전용.
 
 ---
 
@@ -223,6 +223,8 @@ assertThat(actual)
 assertThat(value).asString().startsWith("ka");
 ```
 
+> ⚠️ **`usingRecursiveComparison`도 BigDecimal scale에 걸린다.** 사용자 클래스는 필드 단위로 내려가지만 **java 타입(`BigDecimal` 등)은 `equals`로 비교**한다 → 필드에 `500`과 `500.0`이 있으면 실패(§2와 같은 함정). `.withComparatorForType(BigDecimal::compareTo, BigDecimal.class)`를 체인에 넣는다.
+
 > 💡 실무 빈출 3개: **`extracting`**(필드/리스트 뽑아 비교), **`usingRecursiveComparison`**(DTO 비교 — `equals` 없이 필드 단위, id 등 제외 가능), **`singleElement`/`filteredOn`**("조건 맞는 1개"). navigation 뒤엔 **대상이 바뀌었다**는 걸 의식하면 체인이 안 꼬인다.
 
 ---
@@ -310,8 +312,8 @@ assertThat(value).as("잔액은 충전 후 500이어야 함").isEqualByComparing
 ---
 
 ## 6. 참고
-- [AssertJ 공식 - Core 단언 가이드](https://assertj.github.io/doc/)
-- 관련 노트: [테스트 작성 가이드](./test-writing-guide.md) · [BigDecimal](../bigdecimal/bigdecimal.md) · [@Lock 실무 패턴(동시성 테스트)](../jpa/lock-practical.md)
+- [AssertJ 공식 - Core 단언 가이드](https://assertj.github.io/doc/) — recursive comparison의 java 타입 `equals` 비교·`withComparatorForType`
+- 관련 노트: [테스트 작성 가이드](./test-writing-guide.md) · [BigDecimal](../bigdecimal/bigdecimal.md) · [동시성 테스트](./concurrency-test.md)
 
 ---
 

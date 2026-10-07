@@ -7,6 +7,7 @@
 - **read-then-act 패턴**: 조회해서 검증한 뒤 그 결과를 근거로 INSERT/UPDATE 하는 로직 (재고 차감, 쿠폰 사용 처리, 한도 검증, 순번 채번 등). 일반 SELECT는 아무것도 잠그지 않아서 검증과 변경 사이에 다른 트랜잭션이 끼어들 수 있다.
 - 특정 row를 **DB 레벨 뮤텍스**처럼 써서 같은 자원을 놓고 경쟁하는 트랜잭션들을 한 줄로 세울 때.
 - JPA에서는 `@Lock(PESSIMISTIC_WRITE)`이 이 SQL을 생성한다 → [@Lock 기본](../java/jpa/lock.md). MyBatis/raw SQL에서는 쿼리 끝에 직접 붙인다. 락 분류 전체 그림은 [락 개념 종합](../java/concurrency/locks.md).
+- ⚠️ 잠글 row가 **아직 없으면**(멱등 생성, 첫 접근에서 만드는 카운터) `FOR UPDATE`는 아무것도 잠그지 않아 두 요청이 함께 통과한다 → [advisory lock](./postgres-advisory-lock.md).
 
 ## 사용 예시
 
@@ -46,13 +47,13 @@ FOR UPDATE OF c, cc   -- c, cc 양쪽 row 잠금. OF 생략 시 FROM의 모든 �
 대기 제어 옵션:
 
 - `NOWAIT` — 잠긴 row를 만나면 대기하지 않고 **즉시 에러**. 락 경합 시 빠른 실패가 필요할 때.
-- `SKIP LOCKED` — 잠긴 row는 **건너뛰고** 나머지만 조회. 여러 워커가 같은 테이블에서 작업을 나눠 가져가는 **작업 큐 패턴**의 표준 도구 (데이터 정합 관점에선 일관성 없는 뷰이므로 일반 조회엔 부적합).
+- `SKIP LOCKED` — 잠긴 row는 **건너뛰고** 나머지만 조회. 여러 워커가 같은 테이블에서 작업을 나눠 가져가는 **작업 큐 패턴**의 표준 도구 (데이터 정합 관점에선 일관성 없는 뷰이므로 일반 조회엔 부적합). 큐 설계 전체는 → [DB 작업 큐](../infra/db-job-queue.md).
 
 ## ⚠️ 함정/메커니즘
 
 ### 1. 락에서 풀려나면 "쿼리 재실행"이 아니라 "그 row만 재평가"다
 
-READ COMMITTED(PostgreSQL·Spring 기본)에서 `SELECT FOR UPDATE`가 잠긴 row를 만나 대기하다 풀려나면:
+READ COMMITTED(PostgreSQL 기본. Spring은 `Isolation.DEFAULT`로 DB 기본값을 그대로 따르므로 MySQL InnoDB라면 REPEATABLE READ)에서 `SELECT FOR UPDATE`가 잠긴 row를 만나 대기하다 풀려나면:
 
 | 락 잡았던 트랜잭션이... | 대기하던 쪽의 동작 |
 |---|---|
@@ -112,5 +113,6 @@ REPEATABLE READ/SERIALIZABLE에서는 잠긴 row가 **변경된 채** 커밋되�
 - [PostgreSQL 공식: Transaction Isolation (13.2)](https://www.postgresql.org/docs/current/transaction-iso.html) — READ COMMITTED 재평가 동작
 - [PostgreSQL 공식: SELECT — The Locking Clause](https://www.postgresql.org/docs/current/sql-select.html) — `OF`·NOWAIT·SKIP LOCKED 문법
 - [PostgreSQL 공식: Explicit Locking (13.3.2 Row-Level Locks)](https://www.postgresql.org/docs/current/explicit-locking.html) — 락 강도 4종·충돌 표
+- [Spring — Isolation.DEFAULT (DB 기본 격리 수준 사용)](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/transaction/annotation/Isolation.html)
 
-학습 날짜: 2026-08-06 · 계기: 백오피스 API의 쿠폰 코드 등록 동시성 리뷰 중, 부모 테이블만 잠그는 `FOR UPDATE OF`가 자식 row 상태 변경을 못 막는 문제를 분석하며 락 범위와 READ COMMITTED 재평가 동작을 학습
+학습 날짜: 2026-08-06 · 계기: 쿠폰 코드 등록 API의 동시성 리뷰 중, 부모 테이블만 잠그는 `FOR UPDATE OF`가 자식 row 상태 변경을 못 막는 문제를 분석하며 락 범위와 READ COMMITTED 재평가 동작을 학습 (함정 2는 2026-10-02 PG17에서 재현 확인: `OF c`만이면 B가 옛 `used_yn='N'`을 보고 통과, `OF c, cc`면 0건)

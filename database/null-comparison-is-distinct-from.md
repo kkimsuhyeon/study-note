@@ -18,7 +18,7 @@ SELECT NULL = NULL,        -- NULL (같다고 하지 않음!)
 
 -- NULL 안전 비교
 SELECT NULL IS DISTINCT FROM NULL,       -- false (둘 다 NULL = 같다)
-       NULL IS DISTINCT FROM 'COMPAS',   -- true  (한쪽만 NULL = 다르다)
+       NULL IS DISTINCT FROM 'PARTNER',  -- true  (한쪽만 NULL = 다르다)
        NULL IS NOT DISTINCT FROM NULL;   -- true  (NULL-safe 같음)
 ```
 
@@ -50,16 +50,16 @@ SELECT NULL IS DISTINCT FROM NULL,       -- false (둘 다 NULL = 같다)
 
 ### 1. JOIN 조건의 부등 비교가 행을 조용히 날린다 (실무 사고)
 
-두 종류의 기관 테이블(일반 `org`, 컴패스 `cps_org`)을 이력의 채널값으로 갈라 붙이는 쿼리:
+두 종류의 기관 테이블(일반 `org`, 제휴사 `partner_org`)을 이력의 채널값으로 갈라 붙이는 쿼리:
 
 ```sql
--- ❌ frnc_id가 NULL인 과거 이력은 양쪽 다 매칭 실패 → 기관 정보가 전부 빈 행
-LEFT JOIN org     o ON o.org_id = h.org_id AND h.frnc_id != 'COMPAS'   -- NULL → unknown → 매칭 X
-LEFT JOIN cps_org c ON c.org_id = h.org_id AND h.frnc_id  = 'COMPAS'   -- NULL → unknown → 매칭 X
+-- ❌ channel_cd가 NULL인 과거 이력은 양쪽 다 매칭 실패 → 기관 정보가 전부 빈 행
+LEFT JOIN org         o ON o.org_id = h.org_id AND h.channel_cd != 'PARTNER'   -- NULL → unknown → 매칭 X
+LEFT JOIN partner_org p ON p.org_id = h.org_id AND h.channel_cd  = 'PARTNER'   -- NULL → unknown → 매칭 X
 
--- ✅ NULL을 "COMPAS가 아닌 것"으로 분류
-LEFT JOIN org     o ON o.org_id = h.org_id AND h.frnc_id IS DISTINCT FROM 'COMPAS'
-LEFT JOIN cps_org c ON c.org_id = h.org_id AND h.frnc_id = 'COMPAS'
+-- ✅ NULL을 "PARTNER가 아닌 것"으로 분류
+LEFT JOIN org         o ON o.org_id = h.org_id AND h.channel_cd IS DISTINCT FROM 'PARTNER'
+LEFT JOIN partner_org p ON p.org_id = h.org_id AND h.channel_cd = 'PARTNER'
 ```
 
 INNER JOIN이었다면 행 자체가 사라지고, LEFT JOIN이면 행은 남되 컬럼이 전부 NULL이 된다. **둘 다 에러가 아니라서 "데이터가 없네?"로 오해하기 쉽다.**
@@ -85,37 +85,42 @@ WHERE org_id NOT IN (SELECT org_id FROM blacklist)   -- blacklist.org_id에 NULL
 
 ### 5. 인덱스 관점
 
-`IS DISTINCT FROM`은 일반 비교와 달리 **B-tree 인덱스를 잘 못 탄다**(PostgreSQL이 인덱스 조건으로 잘 변환하지 못함). JOIN 조건 보조로 쓰는 정도는 괜찮지만, 대량 테이블의 주 필터로 쓴다면 실행 계획을 확인하고 `(col IS NULL OR col <> 'X')` 형태나 부분 인덱스를 검토한다.
+B-tree 인덱스 조건이 될 수 있는 연산자는 `< <= = >= >`(+ `IS NULL`)뿐이다. 그래서 **`<>`·`IS DISTINCT FROM`·`IS NOT DISTINCT FROM`은 셋 다 인덱스 조건이 못 되고 필터로만 처리된다.** PG17에서 `enable_seqscan=off`로 강제해도 `<>`, `IS DISTINCT FROM`, `(col IS NULL OR col <> 'X')`, `IS NOT DISTINCT FROM` 모두 Seq Scan이었다.
+
+- `!=` → `IS DISTINCT FROM` 교체는 인덱스 손해가 **없다**(원래부터 둘 다 필터).
+- 손해가 생기는 건 `=` → `IS NOT DISTINCT FROM` 교체다. 같음 조건이 인덱스를 잃는다.
+- 부등 조건이 대량 테이블의 주 필터라면 부분 인덱스(`WHERE col IS DISTINCT FROM 'X'`)를 검토한다. JOIN의 보조 조건이면 인덱스는 다른 조건(`org_id = ...`)이 타므로 신경 쓸 필요가 없다.
 
 ## 실무 패턴 — 이종 테이블 두 개를 COALESCE로 병합
 
-같은 의미의 데이터가 테이블 두 곳에 나뉘어 있고 **컬럼명까지 다를 때**(예: `reg_dt` vs `reg_dtm`, `usr_eml` vs `mngr_mail`), 조건부 LEFT JOIN 2개 + `COALESCE`로 한 줄에 합칠 수 있다:
+같은 의미의 데이터가 테이블 두 곳에 나뉘어 있고 **컬럼명까지 다를 때**(예: `joined_on` vs `created_at`, `email` vs `contact_email`), 조건부 LEFT JOIN 2개 + `COALESCE`로 한 줄에 합칠 수 있다:
 
 ```sql
-SELECT COALESCE(o.org_nm,  c.org_nm)          AS org_nm,
-       COALESCE(o.reg_dt,  c.reg_dtm::DATE)   AS join_dt,   -- 타입까지 맞춰줘야 함
-       COALESCE(o.usr_eml, c.mngr_mail)       AS usr_eml
+SELECT COALESCE(o.org_name,  p.org_name)            AS org_name,
+       COALESCE(o.joined_on, p.created_at::DATE)    AS joined_on,   -- 타입까지 맞춰줘야 함
+       COALESCE(o.email,     p.contact_email)       AS email
 FROM   history h
-LEFT   JOIN org     o ON o.org_id = h.org_id AND h.frnc_id IS DISTINCT FROM 'COMPAS'
-LEFT   JOIN cps_org c ON c.org_id = h.org_id AND h.frnc_id = 'COMPAS'
-WHERE  ...
-  AND  COALESCE(o.org_nm, c.org_nm) ILIKE '%' || :srchTxt || '%'   -- 검색 조건도 같이 감싸야 함
+LEFT   JOIN org         o ON o.org_id = h.org_id AND h.channel_cd IS DISTINCT FROM 'PARTNER'
+LEFT   JOIN partner_org p ON p.org_id = h.org_id AND h.channel_cd = 'PARTNER'
+WHERE  h.campaign_id = :campaignId                                    -- 상위 조건으로 먼저 좁힘
+  AND  COALESCE(o.org_name, p.org_name) ILIKE '%' || :keyword || '%'  -- 검색 조건도 같이 감싸야 함
 ```
 
 - 장점: 쿼리 하나로 끝나고, 채널이 늘면 LEFT JOIN + COALESCE 인자만 추가
-- 대가: **검색·정렬 조건도 전부 `COALESCE`로 감싸야 하고 그 순간 인덱스를 못 탄다.** 상위 조건(위 예의 `promotion_id`)으로 이미 좁혀진 뒤라면 실무상 무해하지만, 전체 스캔에 얹으면 위험
+- 대가: **검색·정렬 조건도 전부 `COALESCE`로 감싸야 하고 그 순간 인덱스를 못 탄다.** 상위 조건(위 예의 `campaign_id`)으로 이미 좁혀진 뒤라면 실무상 무해하지만, 전체 스캔에 얹으면 위험
 - 대안: `UNION ALL`로 두 테이블을 공통 스키마로 정규화한 서브쿼리, 또는 MyBatis `<choose>`로 쿼리를 통째 분기(대상 채널이 파라미터로 확정될 때 가장 빠름)
 
 ## 💡 판단 기준
 
 - **"이 컬럼이 NULL일 수 있나?"를 부등 비교(`!=`, `NOT IN`)를 쓸 때마다 묻는다.** 가능성이 있으면 `IS DISTINCT FROM` / `NOT EXISTS`로 바꾼다 — NULL이 섞였을 때 **에러가 아니라 "행이 조용히 사라지는" 형태**로 터지기 때문에 테스트 데이터로는 잘 안 잡힌다
-- **컬럼이 NOT NULL로 보장돼 있으면 `!=`로 충분하다.** `IS DISTINCT FROM`을 습관적으로 쓰면 인덱스 활용만 나빠진다 — "NULL이 실제로 가능한가"가 갈림길
+- **컬럼이 NOT NULL로 보장돼 있으면 `!=`로 충분하다.** 부등 쪽은 `IS DISTINCT FROM`으로 바꿔도 인덱스 손해가 없지만, 같음 쪽을 습관적으로 `IS NOT DISTINCT FROM`으로 바꾸면 인덱스를 잃는다(함정 5) — "NULL이 실제로 가능한가"가 갈림길
 - 값 하나 채우는 정도는 `COALESCE`, **행을 살릴지 말지가 걸린 조건이면 `IS DISTINCT FROM`.** 조건부 LEFT JOIN 2개로 이종 테이블을 가를 때는 "어느 쪽에도 안 붙는 값(NULL)"을 어디로 보낼지 반드시 정하고 쓴다
 
 ## 참고
 
 - [PostgreSQL: Comparison Functions and Operators (9.2)](https://www.postgresql.org/docs/current/functions-comparison.html) — `IS DISTINCT FROM` 정의, unknown 반환 규칙, `!=`는 `<>` 별칭
 - [PostgreSQL: CREATE TABLE — UNIQUE NULLS NOT DISTINCT](https://www.postgresql.org/docs/current/sql-createtable.html)
+- [PostgreSQL: Index Types — B-Tree가 지원하는 연산자](https://www.postgresql.org/docs/current/indexes-types.html)
 - 관련 노트: [LATERAL 조인과 top-N per group](./lateral-join-top-n-per-group.md) · [LEFT JOIN 자식 조건 ON vs WHERE](./left-join-on-vs-where.md) · [SELECT FOR UPDATE](./select-for-update.md)
 
-학습 날짜: 2026-08-10 · 계기: 백오피스 프로모션 이력 조회에서 일반 기관/컴패스 기관 테이블을 채널값으로 갈라 LEFT JOIN하다가, `frnc_id != 'COMPAS'`가 NULL 행을 양쪽 모두에서 탈락시킨다는 걸 확인하며 정리
+학습 날짜: 2026-08-10 · 계기: 이력 조회에서 일반 기관/제휴 기관 테이블을 채널값으로 갈라 LEFT JOIN하다가, `channel_cd != 'PARTNER'`가 NULL 행을 양쪽 모두에서 탈락시킨다는 걸 확인하며 정리 (함정 5의 인덱스 동작은 2026-10-02 PG17에서 실행으로 확인)

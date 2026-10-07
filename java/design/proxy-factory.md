@@ -65,9 +65,9 @@ proxyClass=class com.sun.proxy.$Proxy13
 proxyClass=class hello.proxy.common.service.ConcreteService$$EnhancerBySpringCGLIB$$2bbf51ab
 ```
 
-> 참고: JDK 프록시 클래스명은 Java 8까지 `com.sun.proxy.$ProxyN`, Java 9+ 모듈 환경에서는 `jdk.proxy2.$ProxyN` 형태로 나올 수 있다.
+> 참고: JDK 프록시 클래스명은 JDK 15까지 `com.sun.proxy.$ProxyN`, **JDK 16+** 에서는 `jdk.proxy2.$ProxyN`처럼 named module 안에 생성된다. CGLIB 이름도 위 출력은 Spring 5 기준이고, Spring 6+는 `ConcreteService$$SpringCGLIB$$0` 형태다.
 
-> **주의**: Spring Boot는 기본적으로 `proxyTargetClass=true`로 설정되어 있어서, 인터페이스가 있어도 **항상 CGLIB**를 사용한다. 이유는 바로 아래.
+> **주의**: Spring Boot의 `spring.aop.proxy-target-class=true` 기본값은 **자동 프록시 생성기(AOP·`@Transactional` 등)** 에만 적용된다. 그 경우엔 인터페이스가 있어도 CGLIB가 쓰인다. 반면 `new ProxyFactory(target)`로 직접 만든 팩토리는 `proxyTargetClass=false`가 기본이라 위 규칙(인터페이스 있으면 JDK)을 그대로 따른다 — 아래 §6 V1 실행 결과가 Boot 앱인데도 `$Proxy`인 이유. 부트가 AOP 기본을 CGLIB로 바꾼 이유는 바로 아래.
 
 ### ⚠️ 왜 스프링 부트는 CGLIB를 기본으로 바꿨나 — 캐스팅 문제
 
@@ -81,7 +81,7 @@ ServiceImpl impl = (ServiceImpl) proxy;   // ❌ ClassCastException!
 
 프록시는 `ServiceInterface`를 구현한 별도의 클래스일 뿐, `ServiceImpl`을 상속한 게 아니다. 이것이 의존관계 주입에서도 동일하게 문제가 된다 — 구체 클래스 타입으로 주입받으려면 실패한다.
 
-CGLIB는 **구체 클래스를 상속**해서 프록시를 만들기 때문에 둘 다 된다. 그래서 스프링 부트는 일관성을 위해 CGLIB를 기본으로 선택했다. (자세한 내용은 Ch.13 실무 주의사항)
+CGLIB는 **구체 클래스를 상속**해서 프록시를 만들기 때문에 둘 다 된다. 그래서 스프링 부트는 자동 프록시 생성기의 기본을 CGLIB로 선택했다. (자세한 내용은 Ch.13 실무 주의사항)
 
 ### ⚠️ 내부 구조 — Advice가 호출되는 원리
 
@@ -252,14 +252,14 @@ public interface MethodMatcher {
 
 | | `isRuntime() == false` (정적) | `isRuntime() == true` (동적) |
 |---|---|---|
-| 호출되는 메서드 | 2인자 `matches(method, targetClass)` | 3인자 `matches(method, targetClass, args)` |
+| 호출되는 메서드 | 2인자 `matches(method, targetClass)`만 (3인자는 절대 안 불림) | 2인자로 먼저 거르고(통과해야), **3인자 `matches(…, args)`를 매 호출 직전**에 |
 | 판단 재료 | 클래스/메서드 **메타정보만** | 메타정보 + **실제 인자 값** |
-| 평가 시점 | 프록시 생성 시 한 번 → **캐싱** | 매 호출마다 |
+| 평가 시점 | 메서드별 **첫 호출 때 한 번 → 캐싱** | 2인자 결과는 캐싱, 3인자는 매 호출마다 |
 | 성능 | 빠름 | 느림 |
 
-인자 값을 보지 않고도 판단되는 포인트컷은 `isRuntime()`을 `false`로 둔다. 그러면 스프링이 결과를 캐싱해서 매 호출마다 다시 평가하지 않는다. 대부분의 포인트컷은 여기 해당한다.
+인자 값을 보지 않고도 판단되는 포인트컷은 `isRuntime()`을 `false`로 둔다. 그러면 스프링이 메서드별 결과를 캐싱해서(`AdvisedSupport`의 method cache) 매 호출마다 다시 평가하지 않는다. 대부분의 포인트컷은 여기 해당한다.
 
-> 💡 뒤 챕터의 AspectJ 포인트컷 지시자 중 `args`, `@args`, `this`, `target`이 **동적 매칭**에 해당한다. 그것들이 단독으로 쓰이기 어려운 이유가 여기서 출발한다 — 매 호출마다 모든 빈의 모든 메서드를 평가해야 하므로.
+> 💡 뒤 챕터의 AspectJ 포인트컷 지시자 중 `args`, `@args`, `@target`이 **런타임에야 판단되는** 지시자다. 이것들을 단독으로 쓰면 안 되는 이유(프록시 생성 여부를 로딩 시점에 못 정해서 모든 빈에 프록시를 시도 → `final` 내부 빈에서 기동 실패)는 [AOP 포인트컷 노트의 "args, @args, @target은 단독 사용 금지" 절](./aop-pointcut.md)에 정리돼 있다.
 
 ### 직접 만든 Pointcut 예시
 
@@ -360,10 +360,10 @@ void multiAdvisorTest1() {
 
 > 📝 **[챕터 4](./proxy-decorator-pattern.md)의 데코레이터 체이닝과 같은 구조**다. 거기서는 프록시 클래스를 손으로 만들어 `target` 자리에 다른 프록시를 넣었다:
 > ```java
-> RealComponent real = new RealComponent();
-> TimeDecorator timeDecorator = new TimeDecorator(real);
-> MessageDecorator messageDecorator = new MessageDecorator(timeDecorator);
-> // messageDecorator → timeDecorator → real
+> Component realComponent = new RealComponent();
+> Component messageDecorator = new MessageDecorator(realComponent);
+> Component timeDecorator = new TimeDecorator(messageDecorator);
+> // client → timeDecorator → messageDecorator → realComponent
 > ```
 > 만드는 방법(수작업 vs ProxyFactory)만 다를 뿐 **"프록시를 겹겹으로 쌓는다"**는 발상은 동일하다.
 
@@ -416,7 +416,7 @@ ServiceImpl - save 호출
 
 **결과는 같고 성능은 더 좋다.** `addAdvisor()` **등록 순서대로** advisor가 호출된다.
 
-> ⚠️ **순서 제어 방식이 상황마다 다르다.** 직접 `ProxyFactory`를 쓸 땐 **등록 순서**가 실행 순서지만, 뒤 챕터의 자동 프록시 생성기를 쓰면 Advisor 빈의 등록 순서를 신뢰할 수 없어서 `@Order` / `Ordered` 인터페이스로 명시해야 한다.
+> ⚠️ **순서 제어 방식이 상황마다 다르다.** 직접 `ProxyFactory`를 쓸 땐 **등록 순서**가 실행 순서지만, 뒤 챕터의 자동 프록시 생성기를 쓰면 Advisor 빈의 등록 순서를 신뢰할 수 없어서 순서를 명시해야 한다. 이때 `DefaultPointcutAdvisor`는 이미 `Ordered`를 구현하고 있어서(값을 안 주면 `LOWEST_PRECEDENCE`) **`@Bean` 메서드나 클래스에 `@Order`를 붙여도 무시되고 `advisor.setOrder(n)`으로 줘야 한다** — 정렬기(`AnnotationAwareOrderComparator`)는 `Ordered` 인터페이스를 `@Order`보다 먼저 보기 때문. `@Aspect`는 클래스 레벨 `@Order`가 먹는다([AOP 구현](./aop-implementation.md)).
 
 > 💡 이 "프록시 1개 + Advisor N개" 구조가 다음 챕터의 자동 프록시 생성기에서 그대로 쓰인다. 빈 하나가 advisor1, advisor2의 포인트컷을 모두 만족해도 **프록시는 1개**만 생성되고 그 안에 둘 다 들어간다.
 
@@ -589,8 +589,11 @@ Advisor 없이 `getProxy()`를 호출하면 부가 기능이 없는 프록시가
 ## 참고
 
 - 김영한, 스프링 핵심 원리 고급편 — Ch.6 스프링이 지원하는 프록시
-- [Spring Framework Reference — ProxyFactory](https://docs.spring.io/spring-framework/reference/core/aop-api/pfb.html)
+- [Spring Framework Reference — Creating AOP Proxies Programmatically with the ProxyFactory](https://docs.spring.io/spring-framework/reference/core/aop-api/prog.html)
 - [Spring AOP API — Pointcut](https://docs.spring.io/spring-framework/reference/core/aop-api/pointcuts.html)
+- [`MethodMatcher` Javadoc](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/aop/MethodMatcher.html) (`isRuntime()=false`면 3인자 `matches`는 절대 안 불림 / `true`면 2인자 통과 후 매 호출 직전 3인자)
+- [`AbstractPointcutAdvisor` 소스](https://github.com/spring-projects/spring-framework/blob/main/spring-aop/src/main/java/org/springframework/aop/support/AbstractPointcutAdvisor.java) (`getOrder()` — order 미설정 시 advice의 `Ordered` 또는 `LOWEST_PRECEDENCE`) · [`AnnotationAwareOrderComparator` 소스](https://github.com/spring-projects/spring-framework/blob/main/spring-core/src/main/java/org/springframework/core/annotation/AnnotationAwareOrderComparator.java) (`Ordered`를 먼저, 없을 때만 `@Order`)
+- [JDK 16 Release Notes](https://www.oracle.com/java/technologies/javase/16-relnote-issues.html) (JDK 16부터 프록시 클래스가 named module의 exported package에 생성)
 - [AOP Alliance — `org.aopalliance.intercept`](http://aopalliance.sourceforge.net/) (Advice/MethodInterceptor 인터페이스 출처)
 
-**학습 날짜**: 2026-08-14 · **계기**: 김영한 고급편 Ch.6 수강 후 Claude 소크라테스 복습 세션 — 5문항 중 ① 3가지 문제점 중 "핸들러 중복 작성" 문제는 힌트 후 도달 ② **ProxyFactory 내부에서 Advice를 호출하는 전용 InvocationHandler/MethodInterceptor가 자동 생성된다는 구조를 전혀 기억 못 함** (이 세션에서 가장 약했던 부분) ③ Advisor의 필요 이유를 "addAdvice가 내부에서 만들어주니까 왜 필요한지 모르겠다"고 답함 → 여러 부가 기능의 Pointcut-Advice 짝 보장 역할로 이해 ④ "프록시 1개"는 기억했으나 동작을 "어드바이저를 갈아끼우는 식"으로 오해 → 리스트로 들고 있다가 순회하는 구조로 정정 ⑤ 세션 끝에 "챕터 4 체이닝이 어떤 모양이었는지" 직접 질문해 두 방식(여러 프록시 vs 프록시 1개)의 연결을 스스로 확인함
+**학습 날짜**: 2026-08-14 · **계기**: 김영한 고급편 Ch.6 복습 — ProxyFactory가 내부에서 Advice 전용 핸들러를 쓰는 구조, Advisor가 짝을 보장하는 이유, "프록시 1개 + Advisor 리스트"와 Ch.4 데코레이터 체이닝의 연결을 정리

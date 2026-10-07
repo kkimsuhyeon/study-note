@@ -106,11 +106,16 @@ public class Member {
 
     // 편의 메서드 — 원자적으로 양쪽 동기화 (한쪽에만 두기. 양쪽에 두면 무한루프)
     public void changeTeam(Team team) {
+        if (this.team != null) {
+            this.team.getMembers().remove(this);   // 이전 팀 컬렉션에서 빼기
+        }
         this.team = team;
         team.getMembers().add(this);
     }
 }
 ```
+
+> ⚠️ 이전 팀에서 빼는 줄이 없으면 팀을 바꾼 뒤에도 **옛 팀의 `members`에 그 회원이 남는다.** DB(FK)는 주인 기준이라 맞게 바뀌지만, 같은 영속성 컨텍스트에서 `oldTeam.getMembers()`를 읽으면 떠난 회원이 보인다 — §4의 "객체 그래프가 깨진 상태" 그대로다.
 
 > 편의 메서드를 어느 엔티티에 둘지는 설계 판단(주로 주도하는 쪽) — [애그리거트 소유권](../design/aggregate-ownership.md) 참고.
 
@@ -176,4 +181,4 @@ ToOne을 기본값대로 두면 조회마다 연관 엔티티를 즉시 끌고 �
 ---
 
 **학습 날짜**: 2026-08-12
-**계기**: 김영한 JPA 기본편 05·06장 수강 — mappedBy가 왜 필요한지(객체 양방향 = 단방향 2개 vs 테이블 FK 1개)와, 역방향에만 값 넣어 FK가 null로 들어가는 최다 실수를 정리
+**계기**: 김영한 JPA 기본편 05·06장 수강 — mappedBy가 왜 필요한지(객체 양방향 = 단방향 2개 vs 테이블 FK 1개)와, 역방향에만 값 넣어 FK가 null로 들어가는 최다 실수를 정리 (2026-10-02 편의 메서드에 이전 팀 제거 추가)

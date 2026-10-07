@@ -1,6 +1,6 @@
 # 리스트 생성 — singletonList · List.of · Arrays.asList (불변 × 원소 개수)
 
-> **한 줄 요약**: `Collections.singletonList(x)`의 "singleton"은 **불변이 아니라 "원소 1개"**라는 뜻이다 — 불변은 크기가 1로 고정되면서 *딸려오는* 성질. 작은 리스트를 만드는 방법들(`singletonList`/`List.of`/`Arrays.asList`/`new ArrayList`)은 **가변성 · null 허용 · 크기 고정**이 제각각이라, "어느 성질이 필요한가"로 고른다. 가장 큰 함정: 불변 리스트에 `add()` 하면 **컴파일 에러가 아니라 런타임 `UnsupportedOperationException`**.
+> **한 줄 요약**: `Collections.singletonList(x)`의 "singleton"은 **불변이 아니라 "원소 1개"**라는 뜻이다 — 불변은 이름이 아니라 Javadoc이 따로 약속한 성질("Returns an immutable list"). 작은 리스트를 만드는 방법들(`singletonList`/`List.of`/`Arrays.asList`/`new ArrayList`)은 **가변성 · null 허용 · 크기 고정**이 제각각이라, "어느 성질이 필요한가"로 고른다. 가장 큰 함정: 불변 리스트에 `add()` 하면 **컴파일 에러가 아니라 런타임 `UnsupportedOperationException`**.
 
 ---
 
@@ -15,7 +15,7 @@ list.add("B");      // ❌ UnsupportedOperationException
 list.set(0, "B");   // ❌ UnsupportedOperationException
 ```
 
-- **핵심 의미 = 원소 정확히 1개.** 크기가 1로 고정 → 그 결과로 불변이 된다.
+- **이름의 뜻 = 원소 정확히 1개.** 불변(`add`·`set` 모두 ❌)은 Javadoc이 별도로 명시한 성질이다 — 크기 고정만으로는 불변이 안 된다(`Arrays.asList`는 크기 고정인데 `set`이 된다, §5).
 - **경량**: `ArrayList`처럼 내부 배열·용량 관리를 하지 않고 **값 하나만 필드로 들고 있는 전용 구현** → 생성/메모리 비용이 더 작다.
 - 이름에 "1개"라는 **의도가 드러난다** — 읽는 사람이 "이 리스트는 항상 1개구나"를 바로 안다.
 
@@ -63,22 +63,22 @@ list.set(0, "B");   // ❌ UnsupportedOperationException
 
 ### (a) 단건 → List 어댑트: "주는 쪽은 1개, 받는 쪽은 List"
 ```java
-// factory는 단건을 주는데 merger는 List를 받을 때
-WorkAttendanceTrace trace = AttendanceTraceFactory.fromWorkSystem(exp, ...);
-ExpectedWorkTime r = AttendanceTraceMerger.merge(Collections.singletonList(trace));
+// factory는 단건을 주는데 calculator는 List를 받을 때
+OrderLine line = OrderLineFactory.fromCartItem(item, ...);
+Money total = PriceCalculator.sum(Collections.singletonList(line));
 ```
 
 ### (b) Optional → List 변환
 ```java
 // 값 있으면 [그 값], 없으면 [] — Optional을 0~1개짜리 리스트로 펼친다
-List<WorkAttendanceTrace> traces = factory.fromWorkSystem(...)   // Optional<T>
+List<OrderLine> lines = factory.fromCoupon(...)   // Optional<T>
         .map(Collections::singletonList)
         .orElse(Collections.emptyList());
 ```
 
 ### (c) 테스트 입력 — 1개짜리 입력을 간결·불변으로
 ```java
-merger.merge(Collections.singletonList(holiday));   // "입력은 이 1개" 가 한눈에
+calculator.sum(Collections.singletonList(giftLine));   // "입력은 이 1개" 가 한눈에
 ```
 불변이라 **테스트 대상이 입력 리스트를 몰래 수정하면 즉시 예외** → 입력 불변 보장이 공짜로 따라온다.
 
@@ -107,7 +107,7 @@ merger.merge(Collections.singletonList(holiday));   // "입력은 이 1개" 가 
 | 만들고 나서 add/remove 할 것 | `new ArrayList<>(...)` |
 | 받은 리스트의 불변 스냅샷 | `List.copyOf(src)` (10+) |
 
-> 💡 한 줄: **`singletonList`를 보면 "불변 리스트"가 아니라 "원소 1개짜리"로 읽어라** — 불변은 결과지 이름의 뜻이 아니다. 그리고 작은 리스트 생성법은 전부 **(원소 개수 × 가변성 × null 허용)** 세 성질의 조합 — 이름이 아니라 필요한 성질로 고른다.
+> 💡 한 줄: **`singletonList`를 보면 "불변 리스트"가 아니라 "원소 1개짜리"로 읽어라** — 불변은 이름의 뜻이 아니라 명세(Javadoc)가 따로 약속한 성질이다. 그리고 작은 리스트 생성법은 전부 **(원소 개수 × 가변성 × null 허용)** 세 성질의 조합 — 이름이 아니라 필요한 성질로 고른다.
 
 ---
 
@@ -118,4 +118,5 @@ merger.merge(Collections.singletonList(holiday));   // "입력은 이 1개" 가 
 ---
 
 **학습 날짜**: 2026-06-10
-**계기**: `AttendanceTraceFactory.fromWorkSystem`(단건/Optional 리턴) 결과를 `AttendanceTraceMerger.merge(List)`에 넘기는 테스트에서 `.map(Collections::singletonList).orElse(emptyList())`를 보고 "왜 이렇게 썼지?"에서 출발 — singletonList가 **불변이라는 뜻인 줄 알았는데, 핵심은 "원소 1개"고 불변은 딸려오는 성질**임을 잡음. 김에 List.of/Arrays.asList/copyOf까지 생성법 지도를 정리.
+**계기**: 단건/Optional을 돌려주는 팩토리 결과를 List를 받는 메서드에 넘기는 테스트에서 `.map(Collections::singletonList).orElse(emptyList())`를 보고 "왜 이렇게 썼지?"에서 출발 — singletonList가 **불변이라는 뜻인 줄 알았는데, 이름의 뜻은 "원소 1개"고 불변은 Javadoc이 따로 약속한 성질**임을 잡음. 김에 List.of/Arrays.asList/copyOf까지 생성법 지도를 정리.
+**보강(2026-10-02)**: "크기 고정 → 불변"이라는 설명 정정(Arrays.asList 반례), 예시 도메인 일반화.

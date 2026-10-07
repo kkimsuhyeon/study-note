@@ -25,7 +25,7 @@ CREATE TABLE rate_buckets (
 ```java
 @Transactional   // 생성 유즈케이스 전체가 한 묶음
 public Response create(...) {
-    // ... 멱등 키 확인 (재전송이면 여기서 기존 결과 반환 → 아래 한도 소비 안 함)
+    // ... 멱등 키 확인 (재전송이면 여기서 기존 결과 반환 → 아래 한도 소비 안 함. 직렬화는 advisory lock 노트)
     Instant hour = now.truncatedTo(HOURS), day = now.truncatedTo(DAYS);   // Instant 기준 = UTC 경계
     String session = hmac("session-rate", ownerId);
     String ip      = hmac("ip-rate:" + day, clientIp);                     // 날짜를 purpose에 넣어 IP 추적 방지
@@ -49,6 +49,34 @@ void consume(Bucket b) {
 - 하나라도 초과해서 예외가 나면 묶음이 롤백되므로 **앞에서 이미 올린 버킷도 함께 되돌아간다.** 동시 6건 중 1건이 429가 나도 카운터는 6이 아니라 5로 남는다 — 테스트로 확인할 만한 성질.
 - 빈 행을 먼저 만들고 `FOR UPDATE`하는 패턴의 동시성 설명은 [advisory lock 노트](../database/postgres-advisory-lock.md) 판단 기준 2번.
 - 응답은 `429 Too Many Requests` + `Retry-After: <초>`(창이 끝날 때까지 남은 시간, 올림).
+
+**같은 일을 PostgreSQL 한 문장으로도 할 수 있다.**
+
+```sql
+INSERT INTO rate_buckets (subject_hash, window_start, window_kind, request_count)
+VALUES (:subject, :start, :kind, 1)
+ON CONFLICT (subject_hash, window_start, window_kind)
+DO UPDATE SET request_count = rate_buckets.request_count + 1
+WHERE rate_buckets.request_count < :limit      -- 한도에 닿았으면 올리지 않음
+RETURNING request_count;                        -- 아무 행도 안 돌아오면 한도 초과
+```
+
+| 방식 | 왕복 | 장점 | 단점 |
+| --- | --- | --- | --- |
+| 세 단계(INSERT 무시 → `FOR UPDATE` → 엔티티 수정) | 버킷당 3번 | 한도 판단·`Retry-After` 계산을 자바 엔티티에 둠. 읽기 쉽고 테스트하기 쉬움 | 문장이 많고 행 락을 트랜잭션 끝까지 쥠 |
+| upsert 한 문장(`DO UPDATE ... WHERE ... RETURNING`) | 버킷당 1번 | 빠르고 경쟁이 DB 한 문장 안에서 끝남 | 규칙이 SQL로 감. JPA 엔티티·더티 체킹을 안 씀 |
+| Redis `INCR` + `EXPIRE` | 1번 | rate limit에 가장 흔함. 만료 정리가 자동 | Redis 운영 필요. DB 트랜잭션과 묶이지 않아 "하나라도 초과면 전부 되돌리기"를 따로 구현 |
+
+**"동시에 만들거나 바꾸는" 상황별로 흔히 쓰는 방법.**
+
+| 상황 | 흔한 방법 |
+| --- | --- |
+| 행이 이미 있고 값을 늘리거나 줄임(재고·잔액) | 조건부 UPDATE 한 문장: `UPDATE stock SET qty = qty - 1 WHERE id = ? AND qty > 0` → 0건이면 부족 |
+| 없으면 만들고 숫자를 올림(카운터·한도) | Redis `INCR`, upsert 한 문장, 또는 세 단계 |
+| 딱 한 번만 만들어야 함(중복 가입·멱등 키) | 유니크 제약 + `ON CONFLICT DO NOTHING RETURNING`. 만들기 전에 다른 검사가 필요하면 [advisory lock](../database/postgres-advisory-lock.md) |
+| 판단 로직이 복잡해 자바에서 해야 함 | 행을 먼저 만들고 `FOR UPDATE` 후 엔티티로 처리 |
+
+💡 **트래픽이 적고 규칙을 코드로 읽히게 두고 싶으면 세 단계, 요청이 많아져 왕복 수가 부담이면 upsert 한 문장, 이미 Redis가 있거나 한도 종류가 많으면 Redis.** 어느 쪽이든 "확인 후 쓰기"를 두 문장으로 나누고 락 없이 두는 것만은 피한다.
 
 ## 무엇이 세지고 무엇이 안 세지나
 
@@ -78,8 +106,11 @@ void consume(Bucket b) {
 - **프록시 뒤에서는 모든 사용자가 같은 IP.** `getRemoteAddr()`는 직접 연결한 peer(=프록시)를 준다. `X-Forwarded-For`를 믿으려면 신뢰 프록시 판별이 먼저다 — 아무나 헤더를 위조해 IP 한도를 우회할 수 있다.
 - **세션 축의 주체는 세션 ID가 아니라 세션 안의 소유자 값**이어야 한다. 세션 ID 회전(세션 고정 방지)마다 한도가 리셋되면 안 된다([HMAC과 해시](../java/security/hmac-and-hashing.md) 6절).
 - **창 경계의 시간대.** `Instant.truncatedTo(DAYS)`는 **UTC 자정**이다. 한국 사용자에겐 오전 9시에 일 한도가 리셋된다. 의도라면 문서에 적고, 아니면 `ZonedDateTime`으로 자른다.
+- **`Retry-After`는 "창 길이"가 아니라 "창이 끝날 때까지 남은 시간"이다.** 14:40에 시간 창(14:00~15:00)이 넘치면 3600초가 아니라 1200초. 계산은 `max(1, ceil(남은 ms / 1000))` — 내림하면 0.3초 남았을 때 0이 되어 클라이언트가 즉시 재시도해 또 거절되고, 0이면 헤더 자체를 생략하는 핸들러도 많아 최소 1을 둔다.
+- **여러 버킷이 동시에 넘치면 "먼저 걸린 버킷"의 `Retry-After`가 나간다.** 첫 초과에서 바로 예외를 던지는 구조라 정렬 순서가 답을 정한다. 같은 주체 안에선 시작 시각 순 정렬로 일 창이 먼저 검사돼 긴 값이 나가지만, 주체끼리(세션 vs IP)는 해시 문자열 순이라 사실상 무작위 — 세션 시간 창(20분)과 IP 일 창(18시간)이 함께 넘쳤는데 "20분 뒤"라고 안내할 수 있다. 차단은 정확하고 안내만 짧다. 정확히 하려면 소비 메서드가 예외 대신 `boolean`을 돌려주고, 호출부가 실패한 버킷들의 남은 시간 중 **최댓값**으로 예외를 만든다(어차피 예외로 롤백되므로 뒤 버킷을 더 세도 카운트는 남지 않는다). 부수 효과로 "실패할 때만 필요한 값"을 저장 계층까지 넘기지 않게 된다.
 - **만료된 버킷 행 정리.** 창이 지난 행은 쓸모없지만 스스로 사라지지 않는다(PostgreSQL엔 TTL 없음). `window_start` 인덱스 + 주기적 DELETE.
 - **여러 버킷을 잠글 땐 순서를 고정한다.** 요청마다 다른 순서로 잠그면 교착([데드락](../java/concurrency/deadlock.md)).
+- **DB 카운터는 같은 버킷의 요청을 줄 세운다.** 같은 IP(회사망·NAT)에서 몰리면 그 버킷 행 하나의 `FOR UPDATE`에서 전부 대기하고, 요청마다 쓰기가 버킷 수만큼 생긴다. DB 방식의 장점은 "생성 트랜잭션이 실패하면 카운트도 함께 롤백된다"는 정합성이다. 트래픽이 커서 이 대기가 보이기 시작하면 Redis `INCR`나 게이트웨이 한도로 옮기고, 롤백 대신 "실패 시 되돌리기"를 직접 설계한다.
 
 ## 💡 판단 기준
 
@@ -92,4 +123,4 @@ void consume(Bucket b) {
 - [IETF draft — RateLimit header fields](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/)
 - [Stripe — Scaling your API with rate limiters](https://stripe.com/blog/rate-limiters)
 - [Bucket4j](https://bucket4j.com/)
-- 학습일: 2026-09-30. 계기: 익명 생성 API에서 "세션별·IP별로 카운트를 다 재고 있는 건가?"라는 질문. 멱등 재전송·캐시 적중·롤백이 카운트에 어떻게 작용하는지와 두 축을 거는 이유를 정리. 예시는 일반화했고 코드는 실행하지 않았다.
+- 학습일: 2026-09-30. 계기: 로그인 없는 생성 API에서 "세션별·IP별로 카운트를 다 재고 있는 건가?"라는 질문. 멱등 재전송·캐시 적중·롤백이 카운트에 어떻게 작용하는지와 두 축을 거는 이유를 정리. 예시는 일반화했고 코드는 실행하지 않았다.

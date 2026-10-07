@@ -70,14 +70,14 @@ spring:
 | 구현체 (RequestFactory) | 의존성 | HTTP/2 | 커넥션 풀 제어 | 특징 |
 |---|---|---|---|---|
 | **JDK `java.net.http.HttpClient`** (`JdkClientHttpRequestFactory`) | 없음 (JDK 11+) | 기본 HTTP/2 협상, 1.1 폴백 | 내부 풀, 크기 조절 API 없음 | 멱등 요청 자동 1회 재시도. JDK 21+ `AutoCloseable`. 가상 스레드와 잘 맞음 |
-| **Apache HttpComponents 5** (`HttpComponentsClientHttpRequestFactory`) | `httpclient5` 추가 | 옵션으로 가능 (기본은 1.1, ❓확인 필요) | `PoolingHttpClientConnectionManager`로 route별 최대 연결 등 세밀 제어 | 재시도 전략 교체 가능(`HttpRequestRetryStrategy`). 소켓 read timeout은 "바이트 사이 idle 시간" 의미(❓확인 필요) |
+| **Apache HttpComponents 5** (`HttpComponentsClientHttpRequestFactory`) | `httpclient5` 추가 | **HTTP/1.1만** — 이 factory는 classic API를 쓰고, HC5의 HTTP/2는 async API 전용 | `PoolingHttpClientConnectionManager`로 route별 최대 연결 등 세밀 제어 | 재시도 전략 교체 가능(`HttpRequestRetryStrategy`). `setReadTimeout`은 `RequestConfig.responseTimeout`으로 들어가 소켓 비활성 시간 의미 |
 | **Jetty** (`JettyClientHttpRequestFactory`) | `jetty-client` 추가 | 가능 | 있음 | Jetty 서버 쓰는 팀이 통일 목적으로 선택 |
 | **Reactor Netty** (`ReactorClientHttpRequestFactory`) | WebFlux 쓰면 이미 있음 | 가능 | 있음 | `WebClient`와 같은 엔진. MVC 프로젝트에서 굳이 넣을 이유는 적음 |
 | **Simple `HttpURLConnection`** (`SimpleClientHttpRequestFactory`) | 없음 (레거시) | 1.1 | 없음, 시스템 프로퍼티로 전역 영향 | 오류 상태(401 등) 응답 접근 시 예외가 날 수 있다고 공식 문서가 경고. `RestTemplate`의 기본값 |
 
 **자동 감지 순서**
 - Spring Boot 4: Apache → Jetty → Reactor Netty → JDK → Simple. 여러 개 있으면 앞쪽 우선.
-- Spring Framework 단독(`RestClient.create()`): Apache/Jetty 있으면 그것, 없으면 `java.net.http` 모듈이 있을 때 JDK, 마지막 Simple.
+- Spring Framework 단독(`RestClient.create()`): 소스(`DefaultRestClientBuilder.initRequestFactory`) 기준 Apache → Jetty → Reactor Netty → JDK → Simple로 Boot와 같은 순서. 공식 문서 본문은 Reactor Netty를 빼고 "Apache/Jetty → JDK → Simple"로만 적는다.
 - `RestTemplate` 기본은 Simple. 공식 문서가 "RestTemplate → RestClient 이전 시 HTTP 수준의 미묘한 동작 차이" 원인으로 이 기본값 차이를 꼽는다.
 
 즉 MVC 프로젝트에 별도 HTTP 라이브러리를 안 넣었다면 자동 감지 결과도 JDK다. 그래도 명시하는 이유는 리다이렉트·타임아웃을 코드로 고정하고, 나중에 누가 Apache를 의존성에 넣어도 동작이 안 바뀌게 하기 위해서다.
@@ -115,7 +115,7 @@ spring:
 - `HttpRequest.Builder.timeout(d)`: 응답 **헤더**가 올 때까지의 제한 (JDK 자체 기능)
 - `JdkClientHttpRequest.TimeoutHandler`: 요청 시작 시점부터 `CompletableFuture.completeOnTimeout(d)`로 카운트하고, 시간이 되면 **본문 스트림을 강제로 닫는다**
 
-그래서 5초 read timeout이면 "느리지만 꾸준히 6초 걸리는 다운로드"도 실패한다. Apache의 socket timeout은 바이트 사이 침묵 시간이라 같은 6초 다운로드가 성공한다(❓Apache 쪽은 확인 필요). 작은 XML/JSON 응답이면 차이가 없고, 대용량 스트리밍이면 구현체 선택이 곧 타임아웃 의미 선택이다.
+그래서 5초 read timeout이면 "느리지만 꾸준히 6초 걸리는 다운로드"도 실패한다. Apache는 같은 설정이 응답 타임아웃(classic I/O에서는 소켓 비활성 시간)으로 들어가 같은 6초 다운로드가 성공한다. 작은 XML/JSON 응답이면 차이가 없고, 대용량 스트리밍이면 구현체 선택이 곧 타임아웃 의미 선택이다.
 
 **3. 오류 응답 본문은 "안 읽어도" close 때 drain된다.**
 `JdkClientHttpResponse.close()`가 `StreamUtils.drain(body)`를 먼저 호출한다. 연결을 재사용하려면 본문을 소진해야 하기 때문이다. `RestClient`의 상태 핸들러가 본문을 읽지 않고 예외를 던져도, try-with-resources가 닫는 순간 본문을 끝까지 읽는다.
@@ -134,11 +134,11 @@ spring:
 - **MVC 프로젝트에서 외부 API 몇 개 부르는 정도면 JDK 클라이언트로 시작한다.** 의존성이 늘지 않고, Boot 자동 감지 결과와도 같다. 커넥션 풀 크기를 만져야 하거나 바이트 간 idle 타임아웃이 필요해질 때 Apache로 간다. 그때도 `ClientHttpRequestFactoryBuilder`로 만들었다면 `.jdk()`를 `.httpComponents()`로 바꾸는 것으로 끝난다.
 - **"Apache가 기능이 더 많다"와 "Apache가 더 낫다"는 다르다.** 기능 목록만 보면 Apache가 압도하지만, 그 기능이 필요한 조건이 실제로 있는지 먼저 센다.
 
-  | Apache가 이기는 조건 | 필요한 상황 | 외부 공공 API 1회 호출 어댑터에서는 |
+  | Apache가 이기는 조건 | 필요한 상황 | 저빈도·소용량 외부 API 어댑터에서는 |
   |---|---|---|
-  | 풀 세밀 제어(route별 최대 연결, 큐잉) | 같은 호스트에 동시 수십 요청 | 요청당 1회, rate limit 5회/시간 → 동시성 거의 0 |
-  | idle 기준 read timeout | 대용량·스트리밍 응답 | 응답 128KiB 제한, 실제 수 KB XML |
-  | 재시도 전략 교체 | 정교한 백오프·상태코드별 정책 | 자체 루프로 이미 처리. Apache도 기본 재시도가 켜져 있고(`DefaultHttpRequestRetryStrategy`, ❓기본 1회·1초, 429·503 응답 재시도 포함으로 기억) "429는 재시도 금지" 정책과 충돌해 어차피 꺼야 함 |
+  | 풀 세밀 제어(route별 최대 연결, 큐잉) | 같은 호스트에 동시 수십 요청 | 요청이 드물고 rate limit도 낮아 동시성 거의 0 |
+  | idle 기준 read timeout | 대용량·스트리밍 응답 | 응답 크기를 제한하고 실제로도 수 KB |
+  | 재시도 전략 교체 | 정교한 백오프·상태코드별 정책 | 자체 루프로 이미 처리. Apache도 기본 재시도가 켜져 있고(`DefaultHttpRequestRetryStrategy` 기본 생성자 = 최대 1회·1초 간격, 429·503 응답도 재시도) "429는 재시도하지 않는다" 같은 정책이 있으면 어차피 꺼야 함 |
   | 프록시 인증·쿠키·고급 TLS | 사내 프록시, mTLS | 없음 |
 
   비용 쪽은 의존성 2개(`httpclient5`·`httpcore5`)와 CVE 추적, 검증해야 할 표면적 증가, 그리고 **라이브러리 자체 재시도라는 함정은 그대로**라는 점. 결국 "JDK의 단점(자동 1회 재시도, 총시간 타임아웃, close 시 drain)이 이 워크로드에서 실제 문제인가"를 물으면 셋 다 문서화·read timeout으로 관리 가능해서 JDK가 남는다.
@@ -153,7 +153,8 @@ spring:
 - [Spring Boot 4.1: Calling REST Services](https://docs.spring.io/spring-boot/reference/io/rest-client.html) — 자동 감지 순서, `spring.http.clients.*`, `HttpClientSettings`, `ClientHttpRequestFactoryBuilder`
 - [JDK `java.net.http.HttpClient` Javadoc](https://docs.oracle.com/en/java/javase/25/docs/api/java.net.http/java/net/http/HttpClient.html) — 리다이렉트 기본 NEVER, 버전 기본 HTTP_2
 - JDK 25 소스 `jdk.internal.net.http.MultiExchange` — `retryOnFailure`, `retriedOnce`, `jdk.httpclient.*` 프로퍼티
-- spring-web 7.0.9 소스 `JdkClientHttpRequest`(`TimeoutHandler`), `JdkClientHttpResponse.close()`
+- spring-web 7.0.9 소스 `JdkClientHttpRequest`(`TimeoutHandler`), `JdkClientHttpResponse.close()`, `DefaultRestClientBuilder.initRequestFactory`(자동 선택 순서), `HttpComponentsClientHttpRequestFactory`(classic `HttpClient`, `setReadTimeout` → `responseTimeout`)
+- httpclient5 소스 `DefaultHttpRequestRetryStrategy`(기본 1회·1초, 429·503) · [HttpClient 5.x 마이그레이션 가이드](https://hc.apache.org/httpcomponents-client-5.5.x/migration-guide/) (classic API는 HTTP/1.1 전용)
 - 관련 노트: [@Bean 등록과 타입 기반 주입](./bean-registration-and-injection.md) · [포트와 어댑터](../design/ports-and-adapters.md) · [가상 스레드](../concurrency/virtual-threads.md)
 
-학습 날짜: 2026-09-19. 계기: 외부 공공 API 어댑터가 `JdkClientHttpRequestFactory`를 명시하는 코드를 보고 "다른 구현체와 뭐가 다른가"를 물음. 같은 날 fake 서버 테스트에서 호출 횟수 4회, 오류 본문 대기 타임아웃 실패가 나왔고 원인이 각각 JDK 자동 재시도와 close 시 drain이었다. JDK·spring-web 소스와 Spring/Boot 공식 문서로 확인했고, Apache HttpClient 5의 기본 재시도·소켓 타임아웃 세부는 확인하지 않았다(❓ 표시).
+학습 날짜: 2026-09-19. 계기: 외부 공공 API 어댑터가 `JdkClientHttpRequestFactory`를 명시하는 코드를 보고 "다른 구현체와 뭐가 다른가"를 물음. 같은 날 fake 서버 테스트에서 호출 횟수 4회, 오류 본문 대기 타임아웃 실패가 나왔고 원인이 각각 JDK 자동 재시도와 close 시 drain이었다. JDK·spring-web 소스와 Spring/Boot 공식 문서로 확인했다. 2026-10-02: Apache HttpClient 5의 HTTP/2 지원 범위·기본 재시도·read timeout 의미를 소스로 확인해 ❓ 표시를 정리.

@@ -26,7 +26,8 @@
 
 | N 크기 | 허용 복잡도 | 신호 |
 |---|---|---|
-| N ≤ 10~20 | O(2ⁿ), O(n!) | 완전탐색/백트래킹 OK |
+| N ≤ 10 | O(n!) | 순열 완전탐색 OK (10! ≈ 360만, 12!부터 4.8억) |
+| N ≤ 20 | O(2ⁿ) | 부분집합 완전탐색/백트래킹 OK (2²⁰ ≈ 100만) — 이 크기에서 n!은 불가 |
 | N ≤ 500 | O(n³) | 삼중 for도 됨 |
 | N ≤ 5,000 | O(n²) | 이중 for OK |
 | N ≤ 100,000 | O(n log n) | **정렬·이분탐색·힙**으로 가야 함 |
@@ -41,7 +42,8 @@
 - **자료구조를 "고급"으로 바꿔도 차수는 안 바뀐다.** `String[]`을 `ArrayList`로 바꿔봐야 `contains()`는 여전히 O(n) → 이중 루프면 여전히 O(n²) → 여전히 시간 초과. **차수를 바꾸는 건 자료구조의 "연산 복잡도"이지 "격"이 아니다** (예: 조회를 O(n)→O(1)로 만드는 HashMap).
 - **스트림 vs for는 상수 배수 차이일 뿐**, 차수를 바꾸지 못한다. 시간 초과의 원인은 거의 항상 "스트림을 써서"가 아니라 **"O(n²)로 짜서"**다. → 최적화 방향을 잘못 잡으면 시간만 낭비.
 - **"큰 입력에서만 실패 = 성능 문제"가 항상 참은 아니다.** 값이 커지면서 동작이 바뀌는 코드(래퍼 캐시 등)일 수도 있다 → [오토박싱 & 래퍼 캐시](../java/basics/autoboxing-wrapper-cache.md)
-- 평균과 최악이 다른 경우: HashMap 조회는 **평균** O(1)이지만 해시 충돌이 심하면 최악 O(n) (Java 8+는 트리화로 O(log n)).
+- **가장 흔한 "큰 입력에서만 오답"은 int 오버플로다.** 합·곱이 `Integer.MAX_VALUE`(2³¹−1 ≈ 21억)를 넘으면 예외 없이 엉뚱한 값(주로 음수)으로 돌아간다. N·값 범위를 곱해 21억을 넘을 수 있으면 누적 변수는 처음부터 `long`.
+- 평균과 최악이 다른 경우: HashMap 조회는 **평균** O(1)이지만 해시 충돌이 심하면 최악 O(n). Java 8+는 한 버킷에 8개 이상 몰리고 테이블이 64칸 이상이면 트리로 바꿔 최악 O(log n)을 노리는데, 이 보장은 **키의 해시가 서로 다르거나 키가 `Comparable`일 때**만 성립한다(JDK `HashMap` 구현 주석).
 
 ## 💡 판단 기준
 
@@ -58,6 +60,8 @@
 ## 참고
 
 - 관련 노트: [자료구조 선택 — 신호별 매핑](./data-structure-selection.md), [Map 주요 메서드](../java/collections/map-methods.md)
+- [OpenJDK `HashMap` 소스](https://github.com/openjdk/jdk/blob/master/src/java.base/share/classes/java/util/HashMap.java) — `TREEIFY_THRESHOLD = 8`, `MIN_TREEIFY_CAPACITY = 64`, 트리 bin의 최악 O(log n)은 "keys either have distinct hashes or are orderable"일 때
+- [Java SE API — `Integer.MAX_VALUE`](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/Integer.html#MAX_VALUE) — 2³¹−1
 
 ---
 학습 날짜: 2026-07-14

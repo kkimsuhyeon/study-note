@@ -15,8 +15,7 @@
 public void addBalance(String userId, BigDecimal amount) {
     User user = repository.findByIdForUpdate(userId).orElseThrow();  // ① 락 걸고 읽기
     user.addBalance(amount);                                          // ② 메모리에서 변경
-    repository.save(user);                                            // ③ 저장
-}
+}   // ③ 저장 — commit 시 더티 체킹으로 UPDATE (영속 상태라 save() 불필요)
 ```
 
 ①②③이 **한 트랜잭션 안에서 연속으로** 일어난다. 그리고 읽기를 `QueryService`에 맡기지 않고 **자기가 직접** 한다. 이게 "(쓰기 서비스가) 읽기 서비스에 의존하지 않는다"의 의미다.
@@ -59,7 +58,7 @@ POST /users/1 → 수정 (tx2) — tx1에서 본 1000 기준으로 덮어씀
 > **누가 트랜잭션을 가르나로 묶으면**: **②만 클라이언트가 요청을 쪼개서**(GET→POST, 무상태 HTTP라 그 사이 락 유지 불가), **①③④는 서버 코드 구조/설정이** 가른다.
 > 참고로 `REQUIRES_NEW`는 스프링 전파 옵션 — 바깥 트랜잭션을 멈추고 **독립된 새 트랜잭션**을 시작한다(기본값 `REQUIRED`는 합류). 전파·롤백 전파 상세는 [@Transactional](../spring/transactional.md).
 
-> 한 줄: **"다른 트랜잭션에서 읽음" = 읽기와 쓰기가 같은 트랜잭션 우산 아래 있지 않은 모든 경우.** 합류(REQUIRED)되는 경우는 해당 없음. ②처럼 요청이 갈리면 비관적 락으로는 못 막고 **낙관적 락(`@Version`)**으로 푼다. (낙관락 충돌 시 재시도 패턴 → [@Lock 실무 패턴 §6](../jpa/lock-practical.md))
+> 한 줄: **"다른 트랜잭션에서 읽음" = 읽기와 쓰기가 같은 트랜잭션 우산 아래 있지 않은 모든 경우.** 합류(REQUIRED)되는 경우는 해당 없음. ②처럼 요청이 갈리면 비관적 락으로는 못 막고 **낙관적 락(`@Version`)**으로 푼다 — 단 **GET에서 받은 version을 클라이언트가 들고 와** 저장 때 비교해야 한다. POST 트랜잭션이 새로 읽은 version끼리 비교하면 항상 일치해서 충돌을 감지하지 못한다 → [Optimistic Offline Lock](../concurrency/locks.md). (충돌 시 재시도 vs 통지 → [@Lock 실무 패턴 §6](./lock-practical.md))
 
 ---
 
@@ -97,7 +96,7 @@ B: 이제 읽음(1500) → 2000 저장
 |---|------|------|
 | 1 | **Lost Update** | §2 예시. 제일 치명적. 읽고 변경하는 사이 남의 변경이 덮여 사라진다. |
 | 2 | **락 조기 해제** | 비관적 락은 **그 트랜잭션이 끝나면(커밋) 풀린다.** 읽기를 먼저 끝난 트랜잭션에서 하면, 정작 쓸 때쯤엔 락이 이미 풀려서 무방비. |
-| 3 | **JPA dirty checking 무력화** | 더티 체킹은 **같은 영속성 컨텍스트(=같은 트랜잭션)** 안에서만 동작. 다른 트랜잭션에서 읽어온 엔티티는 **detached 상태**라 `addBalance()` 해도 자동 반영이 안 된다. |
+| 3 | **JPA dirty checking 무력화** (OSIV off 기준) | 더티 체킹은 **같은 영속성 컨텍스트** 안에서만 동작. OSIV off면 다른 트랜잭션에서 읽어온 엔티티는 **detached 상태**라 `addBalance()` 해도 자동 반영이 안 된다. |
 
 > **1번과 2번은 동전의 양면(하나의 사슬)이다.**
 > "조기 해제"는 락을 *일부러 먼저 푼다*는 뜻이 아니라, **읽기 트랜잭션이 정상적으로 끝나면(커밋) 그 순간 락이 풀린다**는 뜻. 나중에 올 쓰기 입장에선 "너무 일찍" 풀린 것이다.
@@ -108,6 +107,8 @@ B: 이제 읽음(1500) → 2000 저장
 > 즉 **락의 생명주기 = 트랜잭션의 생명주기.** "읽을 때 잠깐 락 걸고 트랜잭션 끝, 그 다음 다른 트랜잭션에서 수정"은 보호가 안 된다. 락이 필요한 읽기와 그 값을 쓰는 행위는 반드시 한 트랜잭션이어야 한다.
 
 > **3번은 결이 다른 별개 문제.** 다른 함수(트랜잭션)에서 엔티티를 받아오면 그 엔티티가 **detached**라, 값만 바꿔선 자동 UPDATE가 안 나가고 `save()`/`merge()`를 명시적으로 불러야 한다. (managed/detached·더티 체킹 상세는 [영속성 컨텍스트](./persistence-context.md))
+>
+> ⚠️ **스프링 부트 기본값(OSIV on)에선 반대로 동작한다.** 웹 요청 안이면 영속성 컨텍스트가 요청 끝까지 살아 있어 ①의 `u`는 **여전히 managed**다. 그러면 뒤의 `commandService.save(u)` 트랜잭션이 같은 컨텍스트에 합류해 commit 때 **트랜잭션 밖에서 바꾼 값까지 flush**한다. 어느 쪽이든 1·2번(Lost Update)은 그대로 남는다 → [OSIV §4](./osiv.md).
 
 ---
 
@@ -138,10 +139,12 @@ Spring 기본 전파(`REQUIRED`)라 **inner 트랜잭션이 outer에 합류**해
 
 ---
 
-## 6. 정리
+## 6. 정리 · 💡 판단 기준
 
+- 💡 **"읽은 값으로 쓰기를 결정하나?"** — 예(잔액 충전·재고 차감)면 같은 트랜잭션 안에서 직접(필요하면 락 걸어) 읽는다. 아니오(화면 표시)면 `QueryService`로 분리해도 안전.
+- 💡 **요청이 둘로 갈리는 편집(GET 폼 → POST 저장)이면 락이 아니라 version 왕복**으로 지킨다(§1-1).
 - read-modify-write는 **읽기·쓰기가 한 트랜잭션** 안에 있어야 한다 → 그래서 **쓰기 서비스는 읽기를 직접** 한다.
-- 다른 트랜잭션에서 읽으면 → ① Lost Update ② 락 조기 해제 ③ dirty checking 무력화(detached).
+- 다른 트랜잭션에서 읽으면 → ① Lost Update ② 락 조기 해제 ③ dirty checking 무력화(detached, OSIV off 기준).
 - **락의 생명주기 = 트랜잭션 생명주기.** 보호가 필요한 읽기와 그 값을 쓰는 행위를 쪼개면 안 된다.
 - 단순 조회(보여주기)는 read-modify-write가 아니므로 `QueryService`로 분리해도 안전.
 - `QueryService` 재호출은 전파로 트랜잭션은 합쳐지지만 **락이 따라오지 않으므로** 명령 로직엔 부적합.
@@ -149,9 +152,11 @@ Spring 기본 전파(`REQUIRED`)라 **inner 트랜잭션이 outer에 합류**해
 ---
 
 ## 7. 참고
-- 관련 노트: [@Lock 기본](./lock.md) · [@Lock 실무 패턴](./lock-practical.md) · [영속성 컨텍스트](./persistence-context.md) · [락 개념 종합](../concurrency/locks.md)
+- [Spring Framework - Transaction Propagation (REQUIRED 합류·REQUIRES_NEW)](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/tx-propagation.html)
+- [Martin Fowler - Optimistic Offline Lock](https://martinfowler.com/eaaCatalog/optimisticOfflineLock.html)
+- 관련 노트: [@Lock 기본](./lock.md) · [@Lock 실무 패턴](./lock-practical.md) · [영속성 컨텍스트](./persistence-context.md) · [락 개념 종합](../concurrency/locks.md) · [OSIV](./osiv.md)
 
 ---
 
 **학습 날짜**: 2026-05-27
-**계기**: 공부 중 "쓰기 서비스가 조회 서비스에 의존하면 안 된다"는 말을 접하고, 왜 read-modify-write는 같은 트랜잭션에서 읽어야 하는지(Lost Update·락 조기 해제·dirty checking) 정리
+**계기**: 공부 중 "쓰기 서비스가 조회 서비스에 의존하면 안 된다"는 말을 접하고, 왜 read-modify-write는 같은 트랜잭션에서 읽어야 하는지(Lost Update·락 조기 해제·dirty checking) 정리 (2026-10-02 OSIV 조건·version 왕복·💡 보강)

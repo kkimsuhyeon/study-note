@@ -9,32 +9,32 @@
 
 ## 사용 예시
 
-데이터 — 방: 매출분석(1)·세금문의(2)·새채팅(3) / 질문: 방1=TAX·GENERAL, 방2=REPORT, 방3=없음
-요구사항: **"방 목록을 다 보여주되, TAX 질문이 있으면 옆에 붙여줘"**
+데이터 — 방: 결제문의(1)·배송문의(2)·새채팅(3) / 질문: 방1=BILLING·GENERAL, 방2=SHIPPING, 방3=없음
+요구사항: **"방 목록을 다 보여주되, BILLING 질문이 있으면 옆에 붙여줘"**
 
 ```sql
 -- ✅ ON에: 매칭만 제한 → 방 3개 전부 유지
-SELECT cr.chat_room_name, q.mode
+SELECT cr.chat_room_name, q.category
 FROM chat_room cr
-LEFT JOIN user_question q
+LEFT JOIN question q
     ON  q.chat_room_id = cr.chat_room_id
-    AND q.mode = 'TAX'
--- 결과: 매출분석-TAX / 세금문의-NULL / 새채팅-NULL (3줄)
+    AND q.category = 'BILLING'
+-- 결과: 결제문의-BILLING / 배송문의-NULL / 새채팅-NULL (3줄)
 ```
 
 ```sql
 -- ❌ WHERE에: NULL 행이 걸러짐 → 사실상 INNER JOIN
-SELECT cr.chat_room_name, q.mode
+SELECT cr.chat_room_name, q.category
 FROM chat_room cr
-LEFT JOIN user_question q
+LEFT JOIN question q
     ON  q.chat_room_id = cr.chat_room_id
-WHERE q.mode = 'TAX'
--- 결과: 매출분석-TAX (1줄) — 세금문의·새채팅 증발!
+WHERE q.category = 'BILLING'
+-- 결과: 결제문의-BILLING (1줄) — 배송문의·새채팅 증발!
 ```
 
 메커니즘은 실행(논리 처리) 순서다: **JOIN(ON)이 먼저 완료 → 그 결과에 WHERE 적용**.
-1. 조인 결과: 방1-TAX, 방1-GENERAL, 방2-REPORT, 방3-**NULL**
-2. `WHERE q.mode = 'TAX'`: 방3의 `NULL = 'TAX'`는 **NULL(unknown)** → WHERE는 TRUE만 통과 → 방3 탈락. 방2도 REPORT라 탈락
+1. 조인 결과: 방1-BILLING, 방1-GENERAL, 방2-SHIPPING, 방3-**NULL**
+2. `WHERE q.category = 'BILLING'`: 방3의 `NULL = 'BILLING'`는 **NULL(unknown)** → WHERE는 TRUE만 통과 → 방3 탈락. 방2도 SHIPPING이라 탈락
 
 ## ON vs WHERE 비교
 
@@ -46,9 +46,9 @@ WHERE q.mode = 'TAX'
 ## ⚠️ 함정/메커니즘
 
 - **실무 단골 사고 — soft delete**: `LEFT JOIN q ... WHERE q.deleted_yn = 'N'` → 자식이 0건인 부모가 목록에서 증발. 자식 조건이니 `ON ... AND q.deleted_yn = 'N'`이 맞는 자리
-- **WHERE로 살리는 우회도 있긴 하다**: `WHERE (q.mode = 'TAX' OR q.pk IS NULL)` — 동작은 하지만 의도가 안 읽히고 조건 늘수록 지저분. ON으로 옮기는 게 정석
+- **WHERE로 살리는 우회도 있긴 하다**: `WHERE (q.category = 'BILLING' OR q.pk IS NULL)` — 동작은 하지만 의도가 안 읽히고 조건 늘수록 지저분. ON으로 옮기는 게 정석
 - **INNER JOIN에서는 이 구분이 없다**: 매칭 안 되면 어차피 행이 없으므로 ON이든 WHERE든 결과 동일. 이 함정은 **OUTER(LEFT/RIGHT) JOIN + 자식 조건** 조합에서만 발생
-- **부모(왼쪽) 테이블 조건은 반대로 WHERE가 맞다**: `WHERE cr.usr_id = :usrId`는 목록 자체를 거르는 의도이므로 WHERE. 이걸 ON에 넣으면 다른 사용자의 방도 (자식만 NULL인 채로) 살아남는 반대 방향 버그가 된다
+- **부모(왼쪽) 테이블 조건은 반대로 WHERE가 맞다**: `WHERE cr.user_id = :userId`는 목록 자체를 거르는 의도이므로 WHERE. 이걸 ON에 넣으면 다른 사용자의 방도 (자식만 NULL인 채로) 살아남는 반대 방향 버그가 된다
 - **LATERAL과의 연결**: [LATERAL 조인](./lateral-join-top-n-per-group.md)의 서브쿼리 안 WHERE는 여기서 말하는 "ON 위치"에 해당(매칭만 제한, 바깥 행은 `LEFT ... ON TRUE`가 지킴) — 그래서 LATERAL 패턴에선 이 함정이 구조적으로 잘 안 생긴다
 
 ## 💡 판단 기준

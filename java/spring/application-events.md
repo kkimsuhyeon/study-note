@@ -88,10 +88,11 @@ public void handle(OrderCreatedEvent event) { ... }
 ## ⚠️ 함정
 
 1. **트랜잭션 없이 발행하면 `@TransactionalEventListener`는 조용히 침묵한다.** 예외도 로그도 없이 이벤트가 버려진다(정확히는 DEBUG 로그뿐). 트랜잭션 없이도 실행하려면 `fallbackExecution = true`. "트랜잭션 있는 발행"과 "없는 발행"이 섞이는 코드베이스면 이벤트 타입 자체를 둘로 나누고 리스너를 분리하는 게 명시적이다.
-2. **AFTER_COMMIT에서 DB 쓰기 증발.** 커밋 "후"지만 여전히 이미 끝난 트랜잭션의 리소스 위에서 돈다. 여기서 `@Transactional(REQUIRED)` 메서드를 부르면 이미 커밋된 트랜잭션에 참여한 걸로 처리돼 **새 변경이 커밋되지 않고 조용히 사라진다.** 이 phase에서 DB에 써야 하면 `REQUIRES_NEW` 필수.
-3. **"내 메서드의 끝" ≠ "트랜잭션의 끝".** REQUIRED 전파로 바깥 트랜잭션에 합류하면, 안쪽 메서드 마지막 줄의 `publishEvent()`도 물리 트랜잭션 한가운데다. `@EventListener`였다면 이후 바깥 로직이 실패해도 이미 실행됐다. `BEFORE_COMMIT`은 발행 위치와 무관하게 항상 전체 트랜잭션의 커밋 직전에 돈다 — **실행 시점을 코드 배치(관례)가 아니라 트랜잭션 경계(계약)에 묶는 것**이 이 어노테이션의 존재 이유.
+2. **AFTER_COMMIT에서 DB 쓰기 증발.** 커밋 "후"지만 여전히 이미 끝난 트랜잭션의 리소스 위에서 돈다. 여기서 `@Transactional(REQUIRED)` 메서드를 부르면 이미 커밋된 트랜잭션에 참여한 걸로 처리돼 **새 변경이 커밋되지 않고 조용히 사라진다.** 이 phase에서 DB에 써야 하면 `REQUIRES_NEW` 필수. **Spring 6.1+는 이걸 기동 시 강제한다** — BEFORE_COMMIT 외 리스너 메서드(또는 클래스)에 `REQUIRES_NEW`·`NOT_SUPPORTED`가 아닌 `@Transactional`이 붙어 있으면 `IllegalStateException`(`RestrictedTransactionalEventListenerFactory`). `@Async`를 같이 붙여도 예외는 아니다.
+3. **"내 메서드의 끝" ≠ "트랜잭션의 끝".** REQUIRED 전파로 바깥 트랜잭션에 합류하면, 안쪽 메서드 마지막 줄의 `publishEvent()`도 물리 트랜잭션 한가운데다. `@EventListener`였다면 이후 바깥 로직이 실패해도 이미 실행됐다. `BEFORE_COMMIT`은 발행 위치와 무관하게 **발행자가 참여 중인 물리 트랜잭션**의 커밋 직전에 돈다(REQUIRES_NEW 안에서 발행했다면 그 inner의 커밋 — 바깥은 나중에 롤백될 수 있다) — **실행 시점을 코드 배치(관례)가 아니라 트랜잭션 경계(계약)에 묶는 것**이 이 어노테이션의 존재 이유.
 4. **프록시 계열 공통 함정 그대로.** `@Async` 조합 시 `@EnableAsync` 없으면 조용히 동기로 돌고, 자기호출은 프록시를 안 탄다. ([@Transactional](./transactional.md)·[Spring Cache](./spring-cache.md)와 같은 메커니즘)
 5. **`@EventListener`의 예외는 발행자를 무너뜨린다.** 같은 콜스택이라 리스너 예외가 발행자의 트랜잭션을 롤백시킬 수 있다. "부가 기능의 실패가 핵심 업무를 죽여도 되는가"를 리스너마다 물어야 한다.
+6. **반대로 `AFTER_*` 리스너의 예외는 아무에게도 안 보인다.** `AFTER_COMMIT`·`AFTER_ROLLBACK`·`AFTER_COMPLETION`은 `TransactionSynchronization.afterCompletion` 콜백에서 돌고, 스프링은 여기서 난 예외를 ERROR 로그(`TransactionSynchronization.afterCompletion threw exception`)만 남기고 삼킨다 — `@Async`가 없어도 발행자·호출자는 실패를 모른다. 리스너 안에서 잡아 기록·알림을 남기거나, 반드시 처리돼야 하면 [outbox](./event-outbox-pattern.md).
 
 ## 💡 판단 기준
 
@@ -103,7 +104,9 @@ public void handle(OrderCreatedEvent event) { ... }
 
 - [Spring Framework — Transaction-bound Events](https://docs.spring.io/spring-framework/reference/data-access/transaction/event.html)
 - [Spring Framework — Standard and Custom Events](https://docs.spring.io/spring-framework/reference/core/beans/context-introduction.html#context-functionality-events)
+- [Javadoc — RestrictedTransactionalEventListenerFactory](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/transaction/annotation/RestrictedTransactionalEventListenerFactory.html) (6.1+, 리스너의 `@Transactional` 제약)
+- 소스 — `TransactionalApplicationListenerSynchronization`(AFTER_* phase를 `afterCompletion`에서 처리) · `TransactionSynchronizationUtils.invokeAfterCompletion`(예외를 ERROR 로그로 삼킴)
 - 관련 노트: [@Transactional](./transactional.md) · [트랜잭션 전파·롤백 예제](./transaction-rollback-example.md) · [스레드 풀 내부(@Async)](../concurrency/thread-pool.md) · [이벤트 유실 방지 — outbox](./event-outbox-pattern.md)
 
 ---
-*학습: 2026-08-18 — 회사 프로젝트의 도메인 이벤트 신뢰성 개선 MR을 읽으며. 한 이벤트를 BEFORE_COMMIT(이력 적재)과 AFTER_COMMIT(비동기 실행) 리스너 둘이 나눠 받는 구조에서 phase의 의미를 파고듦.*
+*학습: 2026-08-18 — 도메인 이벤트 신뢰성 개선 코드를 읽으며. 한 이벤트를 BEFORE_COMMIT(이력 적재)과 AFTER_COMMIT(비동기 실행) 리스너 둘이 나눠 받는 구조에서 phase의 의미를 파고듦.*

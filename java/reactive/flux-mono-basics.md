@@ -5,7 +5,7 @@
 ## 언제 만나나
 - **WebFlux 프로젝트**: 모든 곳. 단순 단건 조회 API도 `Mono<UserResponse>` 리턴이 기본.
 - **Spring MVC 프로젝트**(서블릿·블로킹): **가장자리에서만** —
-  - `WebClient` 호출 (RestTemplate 후계자가 리액티브 네이티브라서. 보통 받자마자 `.block()`으로 동기 세계 복귀)
+  - `WebClient` 호출 — 스트리밍·논블로킹이 필요할 때. 단순 동기 호출이라면 Spring 6.1+의 `RestClient`가 RestTemplate의 후계다(현재 문서는 RestTemplate을 RestClient로 대체되는 deprecated로 표기) → [HTTP 클라이언트 구현체](../spring/http-client-transports.md). 동기 호출에 WebClient를 쓰고 `.block()`으로 돌아오는 건 RestClient 이전의 관행
   - 스트리밍 relay (외부 SSE를 `bodyToFlux`로 구독해 흘려보내기 — 블로킹 모델로는 "조금씩 도착하는 걸 조금씩 전달"을 표현 못 함)
   - `Flux.interval` 같은 유틸 (heartbeat 타이머)
 
@@ -52,7 +52,7 @@ stream.subscribe(
 3. **콜백은 이벤트 루프(Netty) 스레드에서 돈다.**
    - **블로킹 금지**: 콜백에서 블로킹 DB I/O를 하면 그 이벤트 루프가 처리하던 다른 사용자 요청까지 멈춘다. 블로킹 작업은 `Mono.fromRunnable(...).subscribeOn(Schedulers.boundedElastic()).subscribe()`로 분리.
    - **ThreadLocal 없음**: 요청 스레드의 SecurityContext(`AuthUser.get()` 류)가 콜백에선 비어 있다. 필요한 값은 파라미터로 명시 전달. ([람다 실행 타이밍](../functional/lambda-execution-timing.md)의 "콜백 스레드엔 ThreadLocal 없음"과 같은 원리)
-4. **이벤트 루프 위에서 `.block()` 금지.** 자기가 처리해줄 결과를 자기가 기다리는 꼴 — 최악은 데드락. MVC 컨트롤러(서블릿 스레드)에서의 `.block()`은 허용되는 타협이지만, 리액티브 콜백 안에서는 절대 금지.
+4. **이벤트 루프 위에서 `.block()` 금지.** 자기가 처리해줄 결과를 자기가 기다리는 꼴이라, Reactor는 Netty 이벤트 루프·`parallel()` 같은 논블로킹 스레드에서 `block()`을 부르면 기다리지 않고 즉시 `IllegalStateException("block()/blockFirst()/blockLast() are blocking, which is not supported in thread reactor-http-nio-…")`을 던진다. MVC 컨트롤러(서블릿 스레드)에서의 `.block()`은 허용되는 타협이지만, 리액티브 콜백 안에서는 절대 금지.
 5. `doOn~` 계열(doOnNext/doOnError...)은 **구독이 아니라 관측**이다. 신호를 소비하지 않고 엿본 뒤 그대로 아래로 흘려보낸다. 로그용이지 에러 "처리"가 아니다.
 
 ## MVC vs WebFlux — 어디까지 알아야 하나
@@ -67,15 +67,17 @@ MVC 프로젝트라면 flatMap/zip 같은 조합 연산자나 백프레셔 세�
 
 ## 💡 판단 기준
 - **"Mono/Flux = 실시간용"이라고 기억하지 말 것 — "스레드가 기다리지 않게 하는 타입"이다.** 실시간 스트리밍은 응용 사례 중 하나일 뿐, WebFlux에선 평범한 단건 조회도 Mono다. 이렇게 잡아둬야 WebFlux 코드를 만났을 때 안 헷갈린다.
-- 리액티브 코드를 읽을 때 항상 두 가지를 물을 것: **"이 줄은 조립인가 실행(구독)인가"**, **"이 콜백은 어느 스레드에서 도는가"**. 구체 케이스: LLM 스트리밍 relay에서 라인 처리 콜백(이벤트 루프)에 블로킹 DB 저장이 섞이면 안 되는 이유도, 인증 헬퍼가 ThreadLocal을 버리고 orgId/usrId를 파라미터로 받게 리팩토링된 이유도 전부 두 번째 질문에서 나왔다.
+- 리액티브 코드를 읽을 때 항상 두 가지를 물을 것: **"이 줄은 조립인가 실행(구독)인가"**, **"이 콜백은 어느 스레드에서 도는가"**. 구체 케이스: LLM 스트리밍 relay에서 라인 처리 콜백(이벤트 루프)에 블로킹 DB 저장이 섞이면 안 되는 이유도, 인증 헬퍼가 ThreadLocal을 버리고 사용자 식별자를 파라미터로 받게 리팩토링된 이유도 전부 두 번째 질문에서 나왔다.
 
 ## 참고
 - Project Reactor 공식 레퍼런스: https://projectreactor.io/docs/core/release/reference/
 - Flux javadoc: https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Flux.html
 - Schedulers (boundedElastic): https://projectreactor.io/docs/core/release/reference/#schedulers
 - Spring WebClient: https://docs.spring.io/spring-framework/reference/web/webflux-webclient.html
+- Spring REST Clients (RestClient·WebClient·RestTemplate 선택지): https://docs.spring.io/spring-framework/reference/integration/rest-clients.html
+- Reactor `BlockingSingleSubscriber` 소스(논블로킹 스레드에서 block 시 IllegalStateException): https://github.com/reactor/reactor-core/blob/main/reactor-core/src/main/java/reactor/core/publisher/BlockingSingleSubscriber.java
 - 관련 노트: [SseEmitter 구현 패턴·스레드 모델](../spring/sse-emitter.md) · [람다 실행 타이밍](../functional/lambda-execution-timing.md) · [SSE 프로토콜](../../infra/network/sse.md)
 
 ---
-학습 날짜: 2026-07-08
+학습 날짜: 2026-07-08 (2026-10-02 RestClient 위치·block() 예외 정정)
 계기: MVC 프로젝트의 LLM 채팅 스트리밍 relay 코드에서 `WebClient.bodyToFlux` → `subscribe`로 이어지는 경로를 따라가며, "requestPost 안에 onNext가 왜 없지?"(조립/구독 분리), "catch가 왜 안 잡히지?"(에러=신호), "Flux는 실시간용인가?"(아니, 논블로킹용)를 차례로 정리.
