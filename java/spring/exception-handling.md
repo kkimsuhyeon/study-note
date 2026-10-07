@@ -132,6 +132,7 @@ public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidExce
 - 모든 예외를 `Exception.class` 하나로 잡으면 문제 원인을 잃는다.
 - validation 에러 응답 형식이 도메인 예외 응답 형식과 너무 다르면 프론트에서 다루기 어렵다.
 - `@ControllerAdvice` 테스트는 `@WebMvcTest`로도 충분한 경우가 많다.
+- **`@ExceptionHandler`가 잡은 예외는 기본으로 로그가 안 남는다.** "예외가 나면 콘솔에 스택 트레이스가 찍힌다"는 건 **아무도 처리하지 않은 예외**일 때의 이야기다. 처리되지 않은 예외는 `DispatcherServlet` 밖까지 올라가고, Tomcat이 `Servlet.service() for servlet [dispatcherServlet] … threw exception`을 ERROR로 남긴다. 반면 `@ExceptionHandler`가 응답으로 바꾸면 "해결된 예외"가 되어, Spring은 `Resolved [예외]`를 **DEBUG**로만 남긴다(`AbstractHandlerExceptionResolver`, `setWarnLogCategory`로 WARN 승격 가능). 그래서 공통 처리를 붙이는 순간 로그가 조용해진다. 다른 프로젝트에서 에러 로그가 보였다면 대개 그 핸들러 안에 `log.warn/error`가 있었던 것이다. 로컬에서 잠깐 보려면 `--logging.level.org.springframework.web=DEBUG`. 비즈니스 예외(400·404·409)는 안 남겨도 되지만, `Exception.class` fallback에는 반드시 직접 남긴다(바로 위 항목).
 - **필터에서 난 예외는 `@ControllerAdvice`가 못 잡는다.** `@ControllerAdvice`는 `DispatcherServlet` **안에서** 컨트롤러가 던진 예외를 처리한다. 필터는 `DispatcherServlet`보다 **바깥**에서 돌기 때문에, JWT 검증 필터 같은 곳에서 던진 예외는 거기까지 가지 못하고 컨테이너 기본 에러 응답이 나간다. 해법은 두 가지: (1) 필터 체인 맨 앞에 **예외를 잡는 필터**를 두거나, (2) 필터 안에서 `HandlerExceptionResolver`를 직접 불러 `@ControllerAdvice`와 같은 형식으로 응답을 쓴다.
 
 ### 앞의 필터가 뒤의 필터 예외를 잡는 원리 — 필터 체인은 중첩된 메서드 호출이다
