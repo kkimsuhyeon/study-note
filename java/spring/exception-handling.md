@@ -19,6 +19,27 @@ Controller
 
 서비스나 도메인에서 예외를 던지고, 웹 계층에서 HTTP 응답으로 변환한다. 도메인 계층이 HTTP 상태 코드를 직접 알 필요는 없다.
 
+### 1-1. 실제로 예외를 응답으로 바꾸는 주체 — `HandlerExceptionResolver`
+
+위 그림의 "@ControllerAdvice로 간다"는 사이에 `DispatcherServlet`과 **해결사(resolver)**가 끼어 있다.
+
+```java
+public interface HandlerExceptionResolver {
+    // 이 예외를 응답으로 바꿀 수 있으면 응답을 쓰고 ModelAndView를, 못 하면 null을 돌려준다
+    ModelAndView resolveException(HttpServletRequest req, HttpServletResponse res, Object handler, Exception ex);
+}
+```
+
+컨트롤러가 예외를 던지면 `DispatcherServlet`이 해결사들에게 차례로 "이거 처리할 수 있어?"를 묻고, 처음으로 `null`이 아닌 답을 준 해결사의 응답이 나간다. Spring MVC는 해결사 셋을 하나로 묶은 **`HandlerExceptionResolverComposite`**를 `handlerExceptionResolver`라는 이름의 빈으로 등록한다(`WebMvcConfigurationSupport.handlerExceptionResolver`).
+
+| 순서 | 해결사 | 맡는 것 |
+| --- | --- | --- |
+| 1 | `ExceptionHandlerExceptionResolver` | `@ExceptionHandler` 메서드 찾기(컨트롤러 안 → `@ControllerAdvice`). 우리 advice는 여기서 불린다 |
+| 2 | `ResponseStatusExceptionResolver` | `@ResponseStatus`가 붙은 예외, `ResponseStatusException` |
+| 3 | `DefaultHandlerExceptionResolver` | 아무도 안 잡은 스프링 MVC 내장 예외를 맞는 상태 코드로(`sendError`) |
+
+**필터에서 이 빈을 주입받을 때 `@Qualifier("handlerExceptionResolver")`가 필요한 이유:** 스프링 부트의 `DefaultErrorAttributes`도 `HandlerExceptionResolver`를 구현한다(예외를 `/error` 페이지용으로 기록만 하고 `null`을 반환). 같은 타입 빈이 둘이라 타입만으로 주입하면 "후보가 여럿"이라 실패하고, 이름으로 MVC 묶음을 집어야 한다. 필터에서 `resolver.resolveException(...)`을 직접 부르는 건 **컨트롤러 예외 때 `DispatcherServlet`이 하는 일을 손으로 대신 하는 것**이다(→ §7 필터 예외).
+
 ---
 
 ## 2. 도메인 예외 패턴
