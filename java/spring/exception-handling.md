@@ -74,7 +74,9 @@ public class GlobalExceptionHandler {
 
 ⚠️ **`Exception.class` fallback은 스프링 MVC 자체 예외까지 500으로 바꾼다.** 405(`HttpRequestMethodNotSupportedException`), 415, 400(`MissingServletRequestParameterException`·`HandlerMethodValidationException`), 6.1+의 정적 리소스 404(`NoResourceFoundException`)도 `Exception`의 하위라, 스프링 기본 처리(`DefaultHandlerExceptionResolver`)보다 먼저 이 핸들러에 잡힌다. 표준 해법은 advice가 **`ResponseEntityExceptionHandler`를 상속**하는 것 — 내장 웹 예외를 올바른 상태 코드의 RFC 9457 `ProblemDetail`로 바꿔 주고, 필요한 것만 오버라이드한다(Boot는 `spring.mvc.problemdetails.enabled=true`로 이걸 자동 등록).
 
-**상속하면 어떻게 동작하나.** 부모 클래스에 `@ExceptionHandler({내장 예외 20여 개})`가 붙은 `handleException` 하나가 있고, 예외 종류별로 `protected` 메서드(`handleHttpMessageNotReadable`·`handleMethodArgumentNotValid`·`handleHttpMediaTypeNotSupported`·`handleHttpRequestMethodNotSupported`·`handleTypeMismatch`·`handleNoResourceFoundException` 등)로 나눠 보낸다. 이 메서드들이 **오버라이드 지점**이다. 이미 알맞은 상태 코드(`status`)와 헤더(`headers`, 예: 415의 `Accept`)를 인자로 받으므로, 본문만 바꿔서 `handleExceptionInternal(ex, 내_본문, headers, status, request)`로 넘기면 상태·헤더는 스프링 것을 그대로 쓴다.
+**상속하면 어떻게 동작하나.** 부모 클래스에 `@ExceptionHandler({내장 예외 20여 개})`가 붙은 `handleException` 하나가 있고, 예외 종류별로 `protected` 메서드(`handleHttpMessageNotReadable`·`handleMethodArgumentNotValid`·`handleHttpMediaTypeNotSupported`·`handleHttpRequestMethodNotSupported`·`handleTypeMismatch`·`handleNoResourceFoundException` 등)로 나눠 보낸다. 이 메서드들이 **오버라이드 지점**이다. 이미 알맞은 상태 코드(`status`)와 헤더(`headers`, 예: 415의 `Accept`)를 인자로 받으므로, 본문만 바꿔서 `handleExceptionInternal(ex, 내_본문, headers, status, request)`로 넘기면 상태·헤더는 스프링 것을 그대로 쓴다. 즉 **상태 코드를 정하는 건 부모의 분기**이고, `handleExceptionInternal`은 이미 정해진 상태·헤더에 본문을 담아 `ResponseEntity`로 묶는 공통 출구다.
+
+⚠️ **상속한 클래스에서 부모가 이미 처리하는 예외에 `@ExceptionHandler`를 또 달면 기동이 실패한다.** 예: 상속하면서 `@ExceptionHandler(HttpMessageNotReadableException.class)`를 추가 → 같은 예외에 핸들러가 둘이 되어 `IllegalStateException: Ambiguous @ExceptionHandler method mapped for [...]`. 상속했다면 그 예외는 **`handleXxx` 오버라이드로만** 바꾼다. (상속하지 않는 advice는 반대로 `@ExceptionHandler`로 직접 단다 — 같은 목적, 다른 연결 방식.)
 
 ```java
 @Override
