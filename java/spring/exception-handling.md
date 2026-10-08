@@ -74,6 +74,18 @@ public class GlobalExceptionHandler {
 
 ⚠️ **`Exception.class` fallback은 스프링 MVC 자체 예외까지 500으로 바꾼다.** 405(`HttpRequestMethodNotSupportedException`), 415, 400(`MissingServletRequestParameterException`·`HandlerMethodValidationException`), 6.1+의 정적 리소스 404(`NoResourceFoundException`)도 `Exception`의 하위라, 스프링 기본 처리(`DefaultHandlerExceptionResolver`)보다 먼저 이 핸들러에 잡힌다. 표준 해법은 advice가 **`ResponseEntityExceptionHandler`를 상속**하는 것 — 내장 웹 예외를 올바른 상태 코드의 RFC 9457 `ProblemDetail`로 바꿔 주고, 필요한 것만 오버라이드한다(Boot는 `spring.mvc.problemdetails.enabled=true`로 이걸 자동 등록).
 
+**상속하면 어떻게 동작하나.** 부모 클래스에 `@ExceptionHandler({내장 예외 20여 개})`가 붙은 `handleException` 하나가 있고, 예외 종류별로 `protected` 메서드(`handleHttpMessageNotReadable`·`handleMethodArgumentNotValid`·`handleHttpMediaTypeNotSupported`·`handleHttpRequestMethodNotSupported`·`handleTypeMismatch`·`handleNoResourceFoundException` 등)로 나눠 보낸다. 이 메서드들이 **오버라이드 지점**이다. 이미 알맞은 상태 코드(`status`)와 헤더(`headers`, 예: 415의 `Accept`)를 인자로 받으므로, 본문만 바꿔서 `handleExceptionInternal(ex, 내_본문, headers, status, request)`로 넘기면 상태·헤더는 스프링 것을 그대로 쓴다.
+
+```java
+@Override
+protected ResponseEntity<Object> handleHttpMessageNotReadable(
+        HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+    return handleExceptionInternal(ex, ErrorResponse.of(INVALID_INPUT), headers, status, request);  // 400은 그대로, 본문만 우리 형식
+}
+```
+
+⚠️ **오버라이드하지 않은 예외는 `ProblemDetail` 형식으로 나간다.** 우리 형식(`{"error":{...}}`)으로 몇 개만 오버라이드하면, 나머지(405·406·타입 변환 실패·없는 경로 404 등)는 `application/problem+json`의 `{"type","title","status","detail","instance"}`로 나가 **응답 형식이 두 가지로 섞인다.** 프론트가 한 형식만 처리한다면 (a) 클라이언트가 실제로 받을 수 있는 예외는 전부 오버라이드하거나, (b) `handleExceptionInternal` 하나를 오버라이드해 `body`가 `ProblemDetail`이면 우리 형식으로 바꾸는 방법이 있다. (b)는 한 곳에서 끝나지만, 상태 코드에서 에러 코드를 매핑하는 규칙이 필요하다.
+
 ⚠️ **advice가 여러 개면 "구체성"보다 "순서"가 먼저다.** 스프링은 `@Order` 순으로 advice를 훑어 **매칭되는 핸들러가 하나라도 있는 첫 advice**의 것을 쓴다. 우선순위가 높은 advice에 `Exception.class` 핸들러가 있으면, 뒤 advice의 더 구체적인 핸들러는 호출되지 않는다. fallback은 한 advice에 모으거나 가장 낮은 순서의 advice에 둔다.
 
 ---
