@@ -135,6 +135,23 @@ public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidExce
 - **`@ExceptionHandler`가 잡은 예외는 기본으로 로그가 안 남는다.** "예외가 나면 콘솔에 스택 트레이스가 찍힌다"는 건 **아무도 처리하지 않은 예외**일 때의 이야기다. 처리되지 않은 예외는 `DispatcherServlet` 밖까지 올라가고, Tomcat이 `Servlet.service() for servlet [dispatcherServlet] … threw exception`을 ERROR로 남긴다. 반면 `@ExceptionHandler`가 응답으로 바꾸면 "해결된 예외"가 되어, Spring은 `Resolved [예외]`를 **DEBUG**로만 남긴다(`AbstractHandlerExceptionResolver`, `setWarnLogCategory`로 WARN 승격 가능). 그래서 공통 처리를 붙이는 순간 로그가 조용해진다. 다른 프로젝트에서 에러 로그가 보였다면 대개 그 핸들러 안에 `log.warn/error`가 있었던 것이다. 로컬에서 잠깐 보려면 `--logging.level.org.springframework.web=DEBUG`. 비즈니스 예외(400·404·409)는 안 남겨도 되지만, `Exception.class` fallback에는 반드시 직접 남긴다(바로 위 항목).
 - **필터에서 난 예외는 `@ControllerAdvice`가 못 잡는다.** `@ControllerAdvice`는 `DispatcherServlet` **안에서** 컨트롤러가 던진 예외를 처리한다. 필터는 `DispatcherServlet`보다 **바깥**에서 돌기 때문에, JWT 검증 필터 같은 곳에서 던진 예외는 거기까지 가지 못하고 컨테이너 기본 에러 응답이 나간다. 해법은 두 가지: (1) 필터 체인 맨 앞에 **예외를 잡는 필터**를 두거나, (2) 필터 안에서 `HandlerExceptionResolver`를 직접 불러 `@ControllerAdvice`와 같은 형식으로 응답을 쓴다.
 
+  (2)의 전형적인 모양:
+  ```java
+  // 주입: @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver
+  //  → MVC가 쓰는 '해결사 묶음' 빈. 안에 @ExceptionHandler를 찾는 해결사가 들어 있다.
+  private void reject(HttpServletRequest req, HttpServletResponse res, ErrorCode code) {
+      BusinessException ex = new BusinessException(code);
+      if (resolver.resolveException(req, res, null, ex) == null) {  // null = 아무도 처리 못 함
+          throw ex;                                                  // 조용히 삼키지 않고 원래대로 올림
+      }
+  }
+  // 호출부: reject(...); return;   ← chain.doFilter를 부르지 않아야 요청이 여기서 멈춘다
+  ```
+  - **`handler` 자리가 `null`인 이유:** 필터 단계라 아직 어느 컨트롤러로 갈지 정해지지 않았다. 그래서 컨트롤러 클래스 안의 `@ExceptionHandler`는 못 찾고, **전역 `@ControllerAdvice`의 핸들러만** 찾힌다.
+  - **반환값:** 처리했으면 (빈) `ModelAndView`, 못 했으면 `null`. `null`일 때 예외를 다시 던지거나 `sendError`로 최소한의 응답을 보내야 응답이 빈 200으로 나가는 사고를 막는다.
+  - **Spring Security에서도 같은 패턴을 쓴다.** 보안 필터(방화벽 거절 `RequestRejectedHandler`, 인증 실패 `AuthenticationEntryPoint`, 권한 거부 `AccessDeniedHandler`)도 전부 `DispatcherServlet` 앞에서 돈다. 이 핸들러들에 resolver를 주입해 같은 방식으로 부르면, 보안 거절도 컨트롤러 에러와 같은 JSON 형식이 된다.
+  - 이렇게 처리된 거절도 DEBUG 로그에는 `Using @ExceptionHandler …` / `Resolved [...]`로 찍히지만, `DispatcherServlet`의 `POST "/경로"` 줄은 없다 — 컨트롤러 앞에서 막혔다는 표시.
+
 ### 앞의 필터가 뒤의 필터 예외를 잡는 원리 — 필터 체인은 중첩된 메서드 호출이다
 
 `filterChain.doFilter(request, response)`는 "다음 필터를 실행하라"는 **메서드 호출**이다. 앞 필터는 이 줄에서 **멈춰서** 뒤의 필터·컨트롤러가 전부 끝나기를 기다린다. 그래서 뒤에서 던진 예외는 호출 스택을 거슬러 올라오다가, 아직 실행 중인 앞 필터의 `try`에 걸린다.
