@@ -88,6 +88,26 @@ protected ResponseEntity<Object> handleHttpMessageNotReadable(
 
 ⚠️ **advice가 여러 개면 "구체성"보다 "순서"가 먼저다.** 스프링은 `@Order` 순으로 advice를 훑어 **매칭되는 핸들러가 하나라도 있는 첫 advice**의 것을 쓴다. 우선순위가 높은 advice에 `Exception.class` 핸들러가 있으면, 뒤 advice의 더 구체적인 핸들러는 호출되지 않는다. fallback은 한 advice에 모으거나 가장 낮은 순서의 advice에 둔다.
 
+### 3-1. 상속 vs 직접 나열 — "HTTP 상태 코드를 쓰는 API인가"로 고른다
+
+`ResponseEntityExceptionHandler`를 상속하지 않고, MVC 내장 예외를 `@ExceptionHandler`로 **하나씩 직접 나열**하는 advice도 실무에 흔하다.
+
+| | 상속 + 필요한 것만 오버라이드 | 직접 나열 |
+| --- | --- | --- |
+| 상태 코드·헤더 | 스프링이 맞게 채움(405 `Allow`, 415 `Accept` 등) | 핸들러마다 직접 정함. 반환 타입이 DTO뿐이고 `@ResponseStatus`가 없으면 **전부 200**이 된다 |
+| 응답 형식 | 오버라이드 안 한 예외는 `ProblemDetail`로 섞임 | 나열한 것은 전부 내 형식 |
+| 빠뜨린 예외 | 부모가 받아 줌 | `Exception` fallback으로 떨어짐 → 서버 오류처럼 기록·알림될 수 있음. 그래서 MVC 예외 다수의 부모인 `ServletException` 핸들러를 중간 안전망으로 두기도 한다 |
+| 어울리는 API 규약 | **HTTP 상태 코드로 결과를 구분**(400/409/429 + `Retry-After`) | **"항상 200 + 본문의 결과 코드"** 규약. 이 규약에선 상속의 장점(상태·헤더)이 쓸모없어 나열이 자연스럽다 |
+
+둘 다 틀린 게 아니다. 결정 질문은 "클라이언트가 HTTP 상태 코드를 보고 분기하나, 본문 코드를 보고 분기하나"다. 상태 코드를 쓰는 API에서 직접 나열을 택하면 `ResponseEntity`로 상태를 직접 지정해야 하고, 스프링 버전이 올라가며 새로 생긴 내장 예외(예: 6.1의 `NoResourceFoundException`)를 따라 추가해야 한다.
+
+**어느 쪽이든 가져갈 만한 것 — 수준별 로그.**
+- 의도된 거부(검증 실패·권한 없음·비즈니스 규칙): **WARN + 짧은 위치 정보**. 전체 스택은 노이즈라 `getStackTrace()`에서 내 패키지 프레임만 골라 `A.method:12 > B.method:30`처럼 한 줄로 남기는 방식이 쓸 만하다(프록시 `$$`·필터 `doFilter` 프레임은 제외).
+- 비즈니스 예외라도 **원인 예외(`getCause()`)를 감싸고 있으면 ERROR** — 무언가 실제로 깨진 것이다.
+- 예상 못 한 예외: **ERROR + 전체 스택**(`log.error("…", ex)`처럼 마지막 인자로 예외). 운영 환경에서만 메신저 알림을 붙이기도 한다.
+- 클라이언트가 연결을 끊은 경우(`ClientAbortException`): DEBUG. 서버 문제가 아니다.
+- 로그에 남기는 `getMessage()`·요청 URI에 개인정보가 섞일 수 있는 서비스라면, 메시지 대신 예외 클래스 이름과 위치만 남기는 규칙을 따로 둔다.
+
 ---
 
 ## 4. Validation 예외
