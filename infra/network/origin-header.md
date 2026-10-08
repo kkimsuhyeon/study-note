@@ -102,6 +102,7 @@ Spring Security(7.0 기준)의 CSRF 방어는 **토큰 방식**이다. 문서에
 - **XSS가 있으면 CSRF 방어는 전부 소용없다.** 우리 페이지 안에서 도는 스크립트의 `fetch`는 Origin이 우리 주소이고 SameSite 쿠키도 실리며, 일부러 HttpOnly가 아닌 `XSRF-TOKEN`도 읽힌다. 그래서 순서는 "XSS를 먼저 막고, 그 위에 CSRF 방어"다 → [XSS와 CSP](./xss-and-csp.md).
 - **Origin 검사(와 CSRF 토큰)는 훔친 쿠키를 막지 못한다.** 쿠키 값을 손에 넣은 공격자는 Origin을 직접 적고 토큰도 새로 받아 온다. 이건 CSRF(값을 **모른 채** 피해자 브라우저가 붙이게 함)가 아니라 세션 탈취(값을 **알고** 직접 붙임)이고, 방어는 "못 훔치게" 하는 쪽이다 → [웹 공격 지도 §1](./web-attacks-map.md).
 - **GET에서 Origin을 필수로 요구하면 정상 요청이 막힌다.** 같은 origin GET에는 원래 안 붙는다. 그래서 Origin 검사는 상태를 바꾸는 메서드에만 건다. GET은 다른 origin에서 보내도 CORS 때문에 응답을 읽을 수 없어 CSRF로 얻는 게 적다 — 단 **GET이 상태를 바꾸지 않을 때만** 성립한다.
+- **GET을 예외로 둘 땐 HEAD도 같이 둔다.** HEAD는 "본문 없는 GET"이다. 서버는 GET과 똑같이 처리하고 상태 코드·헤더(`Content-Length`·`Content-Type`·`ETag` 등)만 돌려준다. 파일 크기 확인, 링크 생존 확인, 캐시 검증에 쓰인다. **Spring MVC는 `@GetMapping`에 HEAD를 자동으로 연결**하므로(본문은 버리고 `Content-Length`만 계산), HEAD로 보내도 같은 컨트롤러·같은 DB 조회가 실행된다. 둘 다 상태를 바꾸지 않는 **안전한 메서드**이고 같은 origin에서는 Origin이 안 붙는다. 필터가 GET만 빼고 HEAD를 빼지 않으면 정상 HEAD가 403이 되고, 반대로 HEAD에만 다른 규칙을 걸면 GET 검사를 HEAD로 돌아가는 구멍이 된다. 그래서 `method != GET && method != HEAD`처럼 짝으로 다룬다.
 - **허용 목록은 정확히 일치로 비교한다.** `startsWith("https://app.example.com")`이면 `https://app.example.com.evil.com`이 통과한다. 스킴·호스트·포트까지 문자열 전체가 같아야 한다.
 - **Host와 헷갈리지 말 것.** `Host`는 요청이 **도착하는** 서버 이름, `Origin`은 요청을 **출발시킨** 페이지의 주소다.
 - **Referer로 대신하지 말 것.** 경로까지 담아 개인정보가 새기 쉽고, `Referrer-Policy`로 아예 빠지는 경우가 많다.
