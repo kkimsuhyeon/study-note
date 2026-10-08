@@ -129,7 +129,22 @@ protected ResponseEntity<Object> handleHttpMessageNotReadable(
 - 비즈니스 예외라도 **원인 예외(`getCause()`)를 감싸고 있으면 ERROR** — 무언가 실제로 깨진 것이다.
 - 예상 못 한 예외: **ERROR + 전체 스택**(`log.error("…", ex)`처럼 마지막 인자로 예외). 운영 환경에서만 메신저 알림을 붙이기도 한다.
 - 클라이언트가 연결을 끊은 경우(`ClientAbortException`): DEBUG. 서버 문제가 아니다.
-- 로그에 남기는 `getMessage()`·요청 URI에 개인정보가 섞일 수 있는 서비스라면, 메시지 대신 예외 클래스 이름과 위치만 남기는 규칙을 따로 둔다.
+- 로그에 남기는 `getMessage()`·요청 URI에 개인정보가 섞일 수 있는 서비스라면, 메시지 대신 예외 클래스 이름과 위치만 남기는 규칙을 따로 둔다. 예외 메시지에는 입력값이 자주 섞인다(날짜 생성 실패의 날짜, JSON 파싱 오류의 원문 조각, DB 제약 위반의 키 값). 구현은 **메시지 없는 사본**을 만들어 로그에 넘기는 방식이 단순하다:
+  ```java
+  private static class RedactedException extends RuntimeException {
+      private final String originalClassName;
+      RedactedException(Throwable original, int depth) {
+          super(null, depth < 10 && original.getCause() != null            // 원인 체인도 사본으로, 순환 대비 깊이 제한
+                  ? new RedactedException(original.getCause(), depth + 1) : null,
+                false, true);                                              // suppressed 끔(그쪽 메시지도 새지 않게)
+          originalClassName = original.getClass().getName();
+          setStackTrace(original.getStackTrace());                         // 위치는 원본 그대로
+      }
+      @Override public String toString() { return originalClassName; }   // 첫 줄에 원래 종류만
+  }
+  // log.error("Unexpected exception", new RedactedException(ex, 0));
+  ```
+  ⚠️ 첫 줄이 `toString()`대로 찍히는 건 **로깅 구현에 달렸다.** Logback 1.5는 `toString()`이 기본 형식(`클래스: 메시지`)과 다르면 그걸 그대로 쓴다(`ThrowableProxy`의 overridingMessage — 스프링 부트 기본 콘솔 패턴 `%wEx`도 이 경로). 다른 구현에선 사본 클래스 이름이 찍힐 수 있다 — 메시지가 새지는 않지만 원래 종류가 안 보이니, 출력 캡처 테스트(`OutputCaptureExtension`)로 "원래 클래스 이름은 있고 메시지는 없다"를 고정해 둔다.
 
 ---
 
