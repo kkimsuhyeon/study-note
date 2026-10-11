@@ -100,6 +100,8 @@ private static boolean isValidName(String name) {
 - 동작은 같다(모두 같은 예외, 부작용 없는 검사라 순서 무관). 규칙을 추가·삭제할 때 한 줄만 건드린다.
 - `Objects.requireNonNull`은 `NullPointerException`을 던져 업무 예외 형식이 깨지니 이 용도엔 맞지 않다. Bean Validation(`@NotNull`·`@Size`)은 생성자에서 자동 실행되지 않고 도메인에 Jakarta 의존을 들인다.
 - 규칙이 여러 곳에서 반복되거나 값 자체가 의미를 가지면 그때 VO(`DisplayName`)로 올린다.
+- **`require`를 공용 유틸로 뺄까?** 흔한 패턴이긴 하다(Guava `Preconditions`, Spring `Assert`, 사내 `BizAssert.isTrue(cond, ErrorCode)`). 판단 기준은 **같은 지식이 반복되나**다. 클래스마다 던지는 예외가 다르면(업무 예외 / 명식 입력 예외 / 내부 버그용 `IllegalArgumentException`) 겉모양만 같은 3줄짜리라 공용화하면 오히려 호출마다 예외 인자가 붙어 시끄러워진다. 같은 종류(`ErrorCode` 기반 업무 예외) 가드가 여러 클래스에 쌓이면 그때 `require(boolean, ErrorCode)` 하나로 모은다.
+  - 놓을 곳: 도메인이 쓸 수 있는 패키지여야 한다. 도메인 의존을 "JDK·도메인·공통 예외"로 묶어 둔 구조라면 공통 예외 패키지(예: 업무 예외 클래스의 정적 메서드)가 자연스럽다. Spring `Assert`는 도메인에 Spring 의존을 들이고, 메시지 있는 `IllegalArgumentException`을 던져 업무 예외 형식·로그 정책과도 맞지 않는다.
 
 > 💡 **검증 분산이 불편하면 계층이 아니라 타입(VO)으로 모은다.** 경계에서 한 번 파싱해 "유효함이 보장된 타입"으로 바꾸면, 안쪽은 검증을 반복하지 않고 타입을 믿는다. 남는 분산(유니크)만이 진짜 구조적 분산.
 
