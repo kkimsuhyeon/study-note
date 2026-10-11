@@ -170,6 +170,10 @@ SELECT session_id,
 FROM spring_session;
 ```
 
+**왜 시각 열이 `TIMESTAMP`가 아니라 숫자(`BIGINT`)인가 — 스키마가 저장소 코드와 짝으로 고정돼 있다.** `JdbcIndexedSessionRepository`는 SQL 문자열과 값 바인딩·읽기 방식이 정해져 있다: 저장 때 `Instant.toEpochMilli()` 같은 long을 넣고, 읽을 때 `ResultSet.getLong`(생성·마지막 접근 시각)과 `getInt`(`MAX_INACTIVE_INTERVAL`, 초)로 꺼낸다. 정리 쿼리도 `WHERE EXPIRY_TIME < ?`에 현재 밀리초를 넣는다. 그래서 열 타입만 `TIMESTAMPTZ`로 바꾸면 PostgreSQL이 "bigint를 timestamp 열에 넣을 수 없다"로 거부한다.
+- 숫자를 쓰는 이유: MySQL·Oracle·H2 등 **DB마다 다른 시각 타입·시간대 처리를 피하고** 같은 스키마를 공유하려는 것. 밀리초 정수는 시간대 해석이 없고 인덱스 비교도 단순하다.
+- 바꿀 수는 있다: `setCreateSessionQuery`·`setGetSessionQuery`·`setDeleteSessionsByExpiryTimeQuery` 등으로 SQL을 전부 갈아 끼워 `to_timestamp(?/1000.0)`·`extract(epoch …)*1000`으로 변환하면 된다. 다만 쿼리 9개를 직접 유지하고 버전 업마다 원본과 맞춰야 해서 **보기 편하자고 할 일은 아니다.** 사람이 보는 용도라면 위 조회문을 저장해 두거나, 같은 변환을 담은 DB 뷰를 만드는 쪽이 싸다.
+
 쿠키만 먼저 사라지면 서버 행은 정리 전까지 아무도 못 찾는 고아가 되고, 서버 행만 먼저 만료되면 브라우저가 계속 보내는 ID를 서버가 무시한다(두 만료의 개념은 [세션과 쿠키](../../infra/network/sessions-and-cookies.md) 4절). 세션에 묶인 업무 자원의 수명을 세션 수명 이하로 맞추는 판단은 [HMAC과 해시](../security/hmac-and-hashing.md) 6절 💡 참고.
 
 ### 두 테이블이 나뉜 이유
