@@ -204,6 +204,39 @@ private List<AddressEntity> addressHistory = new ArrayList<>();
 
 ---
 
+## 5-1. 복합 키 — `@EmbeddedId`에 쓰는 `@Embeddable`
+
+여러 열이 함께 PK인 테이블은 키 열들을 `@Embeddable` 하나로 묶어 `@EmbeddedId`로 단다(다른 방식인 `@IdClass`는 엔티티에 `@Id` 필드를 따로 두고 키 클래스와 이름·타입을 맞춘다).
+
+```java
+@Entity
+public class RequestKeyEntity {
+    @EmbeddedId
+    private Key id;
+    // ...
+    @Embeddable
+    public record Key(@Column(nullable = false, length = 64) String ownerHash,
+                      @Column(nullable = false) UUID idempotencyKey) { }
+}
+// 저장소: JpaRepository<RequestKeyEntity, RequestKeyEntity.Key>
+```
+
+**키 클래스를 엔티티 안에 둘까, 파일을 따로 둘까 — 둘 다 흔하다.**
+
+| | 엔티티 안 중첩(`Entity.Key`) | 별도 파일(`XxxId`) |
+| --- | --- | --- |
+| 어울릴 때 | 그 엔티티와 저장소에서만 쓰는 작은 키 | 다른 엔티티가 참조(`@MapsId`로 FK를 겸하는 키 등)하거나 키가 커질 때, 팀 관례가 별도 파일일 때 |
+| 이름 | `Key`처럼 짧아도 `RequestKeyEntity.Key`로 읽혀 충분 | 단독으로 읽혀야 하니 `RequestKeyId`처럼 구체적으로 |
+| 주의 | **중첩 클래스는 `static`이어야 한다**(바깥 인스턴스 없이 생성돼야 함). 중첩 `record`는 자동으로 static이라 걱정 없다 | 패키지 공개 범위 맞추기 |
+
+**`record`가 중첩을 편하게 만들었다.** 예전엔 키 클래스마다 기본 생성자·`equals`/`hashCode`(필수)·`Serializable`을 손으로(또는 Lombok으로) 갖춰야 해서 따로 파일로 빼는 게 자연스러웠다. `record`는 값 기준 `equals`/`hashCode`와 불변을 자동으로 주니 짧게 끝나고, Jakarta Persistence 3.2 문서는 키 타입에 record를 허용하며 기본 생성자 요구에서도 뺀다(Hibernate 7.4 + `@EmbeddedId` record 조합이 실제로 동작하는 것을 확인함).
+
+⚠️ **함정 두 가지**
+- 예전 JPA 명세와 Hibernate 문서는 키 클래스가 **`Serializable`**이어야 한다고 적는다. Hibernate는 강제하지 않아 없어도 돌아가지만, 2차 캐시·세션 직렬화를 쓰면 필요하다. 명세를 따르려면 `implements Serializable`을 붙인다.
+- 키를 직접 채워 만드는 엔티티(`@Version` 없음)에 `save()`를 부르면 "기존 엔티티"로 판단해 **`merge` → SELECT 후 INSERT**가 된다(→ [JPQL 심화](./jpql-advanced.md)). 새로 넣는 게 확실하면 `persist`를 쓰거나 `Persistable.isNew()`를 구현한다.
+
+---
+
 ## 6. 💡 판단 기준
 
 - **첫 질문은 항상 "이거 식별자 갖고 추적해야 하나?"** — 그렇다면 엔티티. 아니고 값이 통째로 바뀌는 게 자연스러우면 값 타입. (주소 이력을 남겨라 → 이미 엔티티라는 신호)
