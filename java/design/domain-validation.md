@@ -80,6 +80,27 @@ String encoded = passwordEncoder.encode(raw.value());     // 인코딩(메커니
 - VO 후 남는 분산은 유니크(도메인 서비스)뿐 — 옆 행이 필요해서 어쩔 수 없는 정당한 분리.
 - ⚠️ 비용: 클래스 증가 + `.value()` 변환 노이즈. 필드 2개짜리 모델엔 과할 수 있다(도메인 서비스 때와 같은 YAGNI 결). 웹 `@Valid`는 UX용으로 중복 유지 OK.
 
+**생성자 안의 긴 `||` 가드 정리 — VO까지 가기 전 단계.** 같은 예외로 끝나는 조건을 한 `if`에 몰면 "무엇을 검사하는지"가 읽히지 않는다:
+```java
+// before: 무엇을 막는지 한눈에 안 보이고, 같은 계산(codePointCount)을 두 번
+if (name.codePointCount(0, name.length()) < 1 || name.codePointCount(0, name.length()) > 20
+        || !name.matches(NAME) || gender == null || birthDate == null || !birthDate.matches(DATE)) throw invalid();
+
+// after: 한 줄 = 규칙 하나, 이름 붙은 판단은 메서드로
+require(isValidName(name));
+require(gender != null);
+require(birthDate != null && birthDate.matches(DATE));
+
+private static void require(boolean valid) { if (!valid) throw new BusinessException(INVALID_INPUT); }
+private static boolean isValidName(String name) {
+    int length = name.codePointCount(0, name.length());
+    return length >= 1 && length <= 20 && name.matches(NAME);
+}
+```
+- 동작은 같다(모두 같은 예외, 부작용 없는 검사라 순서 무관). 규칙을 추가·삭제할 때 한 줄만 건드린다.
+- `Objects.requireNonNull`은 `NullPointerException`을 던져 업무 예외 형식이 깨지니 이 용도엔 맞지 않다. Bean Validation(`@NotNull`·`@Size`)은 생성자에서 자동 실행되지 않고 도메인에 Jakarta 의존을 들인다.
+- 규칙이 여러 곳에서 반복되거나 값 자체가 의미를 가지면 그때 VO(`DisplayName`)로 올린다.
+
 > 💡 **검증 분산이 불편하면 계층이 아니라 타입(VO)으로 모은다.** 경계에서 한 번 파싱해 "유효함이 보장된 타입"으로 바꾸면, 안쪽은 검증을 반복하지 않고 타입을 믿는다. 남는 분산(유니크)만이 진짜 구조적 분산.
 
 | 빌딩블록 | 역할 | 비즈니스 로직? |
