@@ -36,6 +36,25 @@ boolean expired = !checkedAt.isBefore(expiresAt); // true, 만료 순간부터 �
 
 한국 시각으로는 13:00 접수·13:10 만료·13:11 확인이지만 비교 대상은 같은 시간선 위의 순간이다. 화면 표시는 사용자나 서비스의 시간대를 적용해 별도로 만든다. `Instant`가 서버들의 물리적 시계를 자동 동기화해 주는 것은 아니다.
 
+### Instant를 숫자 하나로 저장하면 — epoch 밀리초
+
+DB 열에 `1791445710915` 같은 13자리 숫자가 있으면 대개 **같은 기준(1970-01-01T00:00Z)으로부터의 밀리초**, 즉 `Instant`를 숫자로 펼친 값이다. 여러 DB에서 같은 스키마를 쓰려는 라이브러리(예: Spring Session JDBC의 `CREATION_TIME`·`EXPIRY_TIME`)가 시각 타입 대신 이 형식을 쓴다 — 시간대 해석이 없고 비교가 정수 비교라서다.
+
+```java
+long millis = instant.toEpochMilli();            // Instant → 밀리초 (마이크로·나노초는 버려짐)
+Instant back = Instant.ofEpochMilli(millis);     // 밀리초 → Instant
+long now = clock.millis();                       // System.currentTimeMillis()와 같은 값을 시계에서
+```
+
+```sql
+SELECT to_timestamp(expiry_time / 1000.0) AT TIME ZONE 'Asia/Seoul' FROM spring_session;  -- 사람이 볼 때만 변환
+```
+
+- **자릿수로 단위를 의심한다.** 지금 시각 기준 초는 10자리, 밀리초는 13자리, 마이크로초는 16자리다. 초를 밀리초 함수에 넣으면 1970년 1월, 반대면 수만 년 뒤가 나온다.
+- **`/ 1000`은 정수 나눗셈이다.** SQL에서 `expiry_time / 1000`은 밀리초를 버린다. 정밀도가 필요하면 `/ 1000.0`.
+- **`int`에 담지 않는다.** 밀리초는 `int` 범위(약 21억)를 이미 넘었다 → `long`/`BIGINT`.
+- 숫자 열은 사람이 읽기 불편하다는 게 유일한 단점이고, 그건 조회할 때 변환으로 푼다. 직접 설계하는 테이블이라면 PostgreSQL에선 `TIMESTAMPTZ` + `Instant` 매핑이 기본 선택이다.
+
 ## 2. 하나의 순간을 시계에서 읽고 지역 시각으로 표시하기
 
 아래는 실행 가능한 형태로 작성한 학습 예시다. 주석의 값은 공식 API 규칙에 따른 예상값이며 이 노트를 작성하면서 빌드·실행하지는 않았다.
