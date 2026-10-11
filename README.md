@@ -128,6 +128,7 @@
 - [ ] [이벤트 유실 방지 - @Async 큐=메모리→흔적 없는 증발 / 이중 쓰기 문제 / Transactional Outbox / 하이브리드(BEFORE_COMMIT 적재+AFTER_COMMIT 실행+PENDING 재처리) / at-least-once→멱등 청구서 / Spring Modulith](./java/spring/event-outbox-pattern.md)
 
 ### 기본 / 박싱 (Basics)
+- [ ] [record 컴팩트 생성자 - 고치는 건 매개변수, 필드는 맨 끝에 대입 / 본문 안 접근자는 아직 null / 그래서 검증 헬퍼는 static + 매개변수 / 값을 만들면 validateX가 아니라 toX](./java/basics/record-compact-constructor.md)
 - [ ] [문자열 길이 - `length()`는 UTF-16 칸 수, 글자 수는 `codePointCount()` / 이모지·확장 한자는 2칸 / NFD 정규화로 같은 모양 다른 길이 / 사람 눈 글자는 BreakIterator](./java/basics/string-length-unicode.md)
 - [ ] [Java 시간 - Clock·Instant·LocalDateTime 구분 / 고정 시계로 테스트 / truncatedTo와 시간별 집계 / UTC 자정과 한국 자정](./java/basics/java-time-clock-instant-localdatetime.md)
 - [ ] [오토박싱 & 래퍼 캐시 - `Integer`·`Long`끼리 `==` 금지 / -128~127 캐시(JLS 5.1.7은 상수, `valueOf` Javadoc은 실행 중 값까지 보장) → 작은 값엔 우연히 맞고 커지면 조용히 틀림 / JPA `Long id` 비교도 같은 메커니즘](./java/basics/autoboxing-wrapper-cache.md)
