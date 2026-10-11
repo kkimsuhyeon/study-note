@@ -85,6 +85,17 @@ public class TimeExample {
 
 `Z`는 UTC 오프셋 0을 나타낸다. 위 예시에서 UTC 04:37과 한국 13:37은 **같은 순간의 다른 지역 표현**이다. `Instant` 자체가 `Asia/Seoul` 같은 지역 시간대를 저장하는 것은 아니다.
 
+**`Instant`에는 "몇 시"가 없다.** 안에 든 건 `getEpochSecond()`(기준 이후 초)와 `getNano()`뿐이라, `instant.get(ChronoField.HOUR_OF_DAY)`는 `UnsupportedTemporalTypeException`을 던진다. 시·분·날짜는 **지역을 정해야** 생긴다:
+
+```java
+Instant i = Instant.ofEpochMilli(1791445710915L);   // i.toString() → 2026-10-08T07:48:30.915Z (표시만 UTC)
+i.atZone(ZoneId.of("Asia/Seoul")).getHour();        // 16
+i.atZone(ZoneId.of("Europe/London")).getHour();     // 8  (10월은 영국 서머타임 +01:00 — 규칙은 ZoneId가 앎)
+i.atZone(ZoneOffset.UTC).getHour();                 // 7
+```
+
+`toString()`의 `…Z`는 사람이 읽으라고 UTC로 **보여 준** 것이지 값에 "7시"가 들어 있는 게 아니다. `truncatedTo(DAYS)`가 UTC 자정으로 자르는 것도 같은 이유다 — `Instant`에는 다른 지역이 없으니 UTC로 계산할 수밖에 없다.
+
 `LocalDateTime`에 `2026-09-29T13:37`만 있으면 한국 13:37인지 다른 지역의 13:37인지 알 수 없다. `Local`은 "자동으로 한국 시간"이라는 뜻이 아니다. 매개변수 없는 `LocalDateTime.now()`는 시스템 기본 시간대를 사용하지만, 만들어진 값에는 그 시간대가 남지 않는다.
 
 ### Clock을 따로 받는 이유
