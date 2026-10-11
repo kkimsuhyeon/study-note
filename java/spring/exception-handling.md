@@ -146,6 +146,10 @@ protected ResponseEntity<Object> handleHttpMessageNotReadable(
   ```
   ⚠️ 첫 줄이 `toString()`대로 찍히는 건 **로깅 구현에 달렸다.** Logback 1.5는 `toString()`이 기본 형식(`클래스: 메시지`)과 다르면 그걸 그대로 쓴다(`ThrowableProxy`의 overridingMessage — 스프링 부트 기본 콘솔 패턴 `%wEx`도 이 경로). 다른 구현에선 사본 클래스 이름이 찍힐 수 있다 — 메시지가 새지는 않지만 원래 종류가 안 보이니, 출력 캡처 테스트(`OutputCaptureExtension`)로 "원래 클래스 이름은 있고 메시지는 없다"를 고정해 둔다.
 
+  - `super(message, cause, enableSuppression, writableStackTrace)`는 `protected`라 하위 클래스에서만 부를 수 있는 생성자다. **`writableStackTrace`는 반드시 `true`** — `false`면 `setStackTrace()`가 아무 효과도 없어 원본 위치를 못 옮긴다(`true`라서 생성 시점 스택이 한 번 채워지지만 곧바로 덮어쓴다).
+  - **Lombok 생성자 어노테이션으로는 못 줄인다.** `@AllArgsConstructor`·`@RequiredArgsConstructor`는 "인자를 필드에 대입"만 만들고 부모는 인자 없는 `super()`로만 부른다 — 부모 생성자에 인자를 넘기거나, 인자로 필드 값을 계산하거나(`getClass().getName()`), 재귀·`setStackTrace` 같은 로직을 넣을 수 없다. 예외 전용 `@StandardException`도 표준 생성자 4개(없음·메시지·원인·메시지+원인)만 만들고, `@ToString`은 `RedactedException(originalClassName=…)` 형식이라 "클래스 이름만"을 못 낸다. 생성자에 로직이 있으면 손으로 쓰는 게 맞다.
+  - 코드 대신 **설정으로** 하는 길도 있다: Logback의 예외 변환기(`%ex`)를 메시지를 빼는 커스텀 `ThrowableProxyConverter`로 바꾸면, 우리 핸들러뿐 아니라 Tomcat·라이브러리가 남기는 모든 예외 로그에서 메시지가 빠진다. 범위가 넓은 대신 설정 파일(`logback-spring.xml`)과 변환기 클래스가 생기고, 메시지가 무해한 로그까지 전부 가린다.
+
 ---
 
 ## 4. Validation 예외
