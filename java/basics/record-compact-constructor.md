@@ -21,6 +21,8 @@ public record Member(String name, List<String> tags) {
 
 `this.name = …`처럼 필드에 직접 대입하면 컴파일 오류다. 바꾼 매개변수 값이 마지막에 필드로 들어간다.
 
+생성자는 원래 값을 돌려주지 않는다(객체는 `new`가 만들고 생성자는 초기화만). 컴팩트 생성자는 여기서 더 엄격해서 **값 없는 `return;`도 금지**다 — `compact constructor must not have return statements`. 중간에 빠져나가면 끝에 붙는 자동 필드 대입을 건너뛰기 때문이다. 그래서 검증 실패는 **예외로만** 표현한다. 반면 `from`·`of` 같은 정적 팩토리는 평범한 메서드라 `return new …`가 필요하다.
+
 ## 3. 본문 안에서 필드를 읽으면?
 
 ```java
