@@ -65,6 +65,32 @@ spring:
 
 클라이언트마다 다른 타임아웃이 필요하면(외부 공공 API 5초, LLM 서버 120초처럼) 전역 대신 2)로 각각 만든다.
 
+**어디서 조립하나 — 보통은 설정 클래스에서, Boot가 준 빌더로.**
+
+```java
+// 흔한 모양: 설정 클래스가 클라이언트를 만들고, 어댑터는 받아서 쓰기만 한다
+@Bean
+RestClient aiRestClient(RestClient.Builder builder,                      // Boot 자동 구성 빌더를 주입
+                        @Value("${ai.connect-timeout}") Duration connect,
+                        @Value("${ai.read-timeout}") Duration read) {
+    var settings = HttpClientSettings.defaults().withConnectTimeout(connect)
+            .withReadTimeout(read).withRedirects(HttpRedirects.DONT_FOLLOW);
+    return builder.baseUrl(…).requestFactory(ClientHttpRequestFactoryBuilder.jdk().build(settings)).build();
+}
+
+// 덜 흔한 모양: 어댑터 생성자 안에서 HttpClient·RequestFactory·RestClient.builder()를 직접 조립
+```
+
+| | 설정 클래스 + 주입받은 `RestClient.Builder` | 어댑터 안에서 `RestClient.builder()` |
+|---|---|---|
+| 역할 분리 | 어댑터는 호출·응답 해석만 맡고, 주소·키·타임아웃은 설정이 맡는다 | 어댑터 하나가 통신 설정까지 안고 있다 |
+| Boot 기능 | 자동 구성된 빌더에 붙는 customizer·관측(metrics/tracing)·메시지 변환기 설정이 함께 적용된다 | 정적 `RestClient.builder()`는 이것들을 거치지 않는다 |
+| 설정 값 | `application.yaml` 속성으로 한곳에 모인다 | 코드 상수나 생성자 인자로 흩어진다 |
+| 테스트 | 테스트용 `RestClient`(가짜 서버 주소·짧은 타임아웃)를 만들어 넘긴다 | 생성자 인자만 바꾸면 돼서 오히려 간단하다 |
+
+- 한 프로젝트 안에서 외부 클라이언트마다 조립 위치가 다르면, 하나를 고칠 때 다른 쪽을 놓치기 쉽다. 위치는 한 가지로 맞춘다.
+- 자동 구성된 `RestClient.Builder`는 주입될 때마다 새 복사본이라(Boot 문서상 prototype 범위, 기억 기준), 한 곳에서 `baseUrl`을 바꿔도 다른 클라이언트에 새지 않는다.
+
 ## 옵션 비교 — 구현체 5종
 
 | 구현체 (RequestFactory) | 의존성 | HTTP/2 | 커넥션 풀 제어 | 특징 |
