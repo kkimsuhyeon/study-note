@@ -100,6 +100,18 @@ private static boolean isValidName(String name) {
 - 동작은 같다(모두 같은 예외, 부작용 없는 검사라 순서 무관). 규칙을 추가·삭제할 때 한 줄만 건드린다.
 - `Objects.requireNonNull`은 `NullPointerException`을 던져 업무 예외 형식이 깨지니 이 용도엔 맞지 않다. Bean Validation(`@NotNull`·`@Size`)은 생성자에서 자동 실행되지 않고 도메인에 Jakarta 의존을 들인다.
 - 규칙이 여러 곳에서 반복되거나 값 자체가 의미를 가지면 그때 VO(`DisplayName`)로 올린다.
+  - **도입 전 점검 3가지:**
+    1. 그 묶음이 여러 경로로 돌아다니나? 한 흐름(입력 → 계산 1곳)에서만 쓰이면 얻는 건 인자 개수 감소 정도다.
+    2. 쓰는 쪽의 분기·조립이 사라지나?
+    3. 중복 지식이 실제로 한 곳으로 모이나?
+  - **⚠️ 태그 달린 record는 반쪽 VO다.** `record BirthDate(CalendarType type, int y, int m, int d, boolean leap)` 같은 모양을 말한다.
+    - 호출부는 여전히 `if (type == LUNAR)`로 분기한다.
+    - 그런데 `toLocalDate()` 안에서 `if (type != SOLAR) throw new IllegalStateException()`으로 같은 질문을 한 번 더 한다.
+    - "양력인데 윤달 true" 같은 불가능한 조합도 표현할 수 있어서 검사로 막아야 한다.
+  - 종류마다 데이터가 다르면 맞는 모양은 **합 타입**이다. `sealed interface BirthDate permits SolarDate, LunarDate`로 두고 `switch` 패턴 매칭으로 나눈다.
+    - 태그 필드, 불가능한 조합 검사, `IllegalStateException`이 모두 사라진다.
+    - 빠진 경우는 컴파일러가 잡는다 → [switch 식 exhaustiveness](../basics/switch-expression-exhaustiveness.md).
+    - 그래도 종류별 분기가 한 곳뿐이면 타입만 늘어나니 보류한다.
 - **`require`를 공용 유틸로 뺄까?** 흔한 패턴이긴 하다(Guava `Preconditions`, Spring `Assert`, 사내 `BizAssert.isTrue(cond, ErrorCode)`). 판단 기준은 **같은 지식이 반복되나**다. 클래스마다 던지는 예외가 다르면(업무 예외 / 명식 입력 예외 / 내부 버그용 `IllegalArgumentException`) 겉모양만 같은 3줄짜리라 공용화하면 오히려 호출마다 예외 인자가 붙어 시끄러워진다. 같은 종류(`ErrorCode` 기반 업무 예외) 가드가 여러 클래스에 쌓이면 그때 `require(boolean, ErrorCode)` 하나로 모은다.
   - 놓을 곳: 도메인이 쓸 수 있는 패키지여야 한다. **예외 클래스 안(업무 예외의 정적 메서드)에는 두지 않는다** — 예외 타입은 "어떤 오류인가"만 나타내는 곳이라, 검사 로직이 섞이면 역할이 흐려지고 찾기도 어렵다. 검사 도구 전용 패키지(`shared/validation`의 `Validations.requireNonNull(value, ErrorCode)`·`isBetween(value, min, max)`)에 모으고, 도메인 의존 규칙(ArchUnit 허용 목록)이 막고 있으면 **"JDK만 쓰는 순수 검사 도구"라는 약속과 함께 그 패키지를 허용 목록에 추가**한다. 규칙을 피하려고 엉뚱한 패키지에 숨기지 않는다.
   - 검사 함수의 이름은 검사 내용을 말해야 한다. 범용 `require(boolean)`은 호출부만 봐서는 필수값 검사인지 범위 비교인지 알 수 없다 → null은 `requireNonNull`, 범위는 `isBetween`, 나머지 규칙은 `validateYear` 같은 이름 붙은 함수.
