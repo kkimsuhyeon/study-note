@@ -63,6 +63,34 @@ page.hasNext();           // 다음 페이지 있나
 ```
 > ⚠️ `Page`는 **count 쿼리를 추가로** 날린다(전체 개수 계산). 개수가 필요 없으면 `Slice`(다음 페이지 유무만, count 안 함)가 가볍다.
 
+### 3-1. 파생 쿼리 — 메서드 이름을 조각내서 WHERE·ORDER BY·LIMIT를 만든다
+
+```java
+Optional<ReportEntity> findFirstByStatusAndExpiresAtAfterOrderByCreatedAtAsc(String status, Instant now);
+//   find | First | By | Status | And | ExpiresAt After | OrderBy CreatedAt Asc
+//        LIMIT 1   WHERE status = ?1  AND expires_at > ?2   ORDER BY created_at ASC
+```
+```sql
+-- 만들어지는 JPQL
+select r from ReportEntity r where r.status = ?1 and r.expiresAt > ?2 order by r.createdAt asc   -- + 결과 1건만(setMaxResults(1))
+-- PostgreSQL SQL (모양은 Hibernate 방언에 따라 limit ? 또는 fetch first ? rows only)
+select ... from reports where status = ? and expires_at > ? order by created_at asc limit 1
+```
+
+| 키워드 | 조건 | 키워드 | 조건 |
+|---|---|---|---|
+| `Status` (키워드 없음) | `= ?` | `After` / `GreaterThan` | `> ?` (**같으면 제외**) |
+| `Before` / `LessThan` | `< ?` | `GreaterThanEqual` / `LessThanEqual` | `>= ?` / `<= ?` |
+| `Between` | `between ? and ?` | `IsNull` / `IsNotNull` | `is null` / `is not null` |
+| `In` | `in (?)` | `Containing` / `StartingWith` | `like %?%` / `like ?%` |
+| `First` / `Top` / `Top10` | 결과 1건 / 10건 | `OrderBy…Asc/Desc` | 정렬 |
+
+- 인자는 이름에 나온 **순서대로** 대응된다(`status`, `now`). 이름이 아니라 위치로 맞추므로 매개변수 순서를 바꾸면 조건이 뒤바뀐다.
+- 애플리케이션 시작 때 이름을 해석한다. 없는 속성 이름(`findByStatuss`)은 시작이 실패해서 오타를 일찍 잡는다. 속성 이름은 DB 열이 아니라 **엔티티 필드 이름**(`expiresAt`)이다.
+- `After`·`Before`는 날짜용 이름일 뿐, 의미는 `GreaterThan`·`LessThan`과 같다. "만료 시각이 지금보다 뒤 = 아직 안 만료"처럼 경계 값이 정확히 같을 때 제외된다는 점을 의도에 맞춰 고른다.
+- 이름이 너무 길어지거나 `OR` 괄호·조인 조건이 필요하면 `@Query`로 JPQL을 직접 쓴다(아래 7절).
+- 조건과 정렬에 맞는 인덱스가 있는지 함께 본다. 예: `(status, created_at)` 인덱스에 `WHERE status IN ('pending', …)` 부분 인덱스라면, "상태가 pending인 것 중 가장 오래된 1건"을 인덱스 순서대로 바로 꺼낸다.
+
 ---
 
 ## 4. Specification — 동적 조건 (Spring Data JPA)
