@@ -121,6 +121,9 @@ private static boolean isValidName(String name) {
   - **반환 모양은 이름이 정한다.** `isXxx`는 질문이다. boolean만 돌려주고 던지지 않는다. `requireXxx`와 `validateXxx`는 가드다. 조건이 틀리면 던지고, 아무것도 돌려주지 않는다(`void`).
     - JDK `Objects.requireNonNull`이 값을 돌려주는 이유는 `this.name = Objects.requireNonNull(name)`처럼 대입과 한 줄로 쓰기 위해서다.
     - record compact 생성자는 필드에 직접 대입하지 않으니 돌려받은 값을 쓸 곳이 없다. 반환값을 쓰는 호출이 없으면 `void`로 둔다.
+    - 질문과 가드를 한 클래스에 둬도 된다. JDK `java.util.Objects`도 `isNull`/`nonNull`(질문)과 `requireNonNull`/`checkIndex`(가드)를 함께 둔다.
+      - 클래스 이름은 다루는 대상이나 용도(`Objects`, `Validations`)를 말하고, 질문인지 가드인지는 메서드 접두어(`is`/`require`)가 말한다.
+      - 역할마다 클래스를 나누고 싶으면 같은 패키지 안에서 나눈다(`Validations` + `Ranges`). static import를 쓰면 호출부는 import 한 줄만 바뀐다. 도메인 의존 허용 목록도 건드리지 않는다.
   - **범위 비교를 가드로 바꾸지 않는 이유:** `requireBetween(value, min, max, ErrorCode)`처럼 만들 수도 있지만, 클래스마다 던지는 예외 *타입*이 다르다.
     - `ErrorCode`만 받으면 상위 타입 `BusinessException`이 던져진다. 코드는 같아도 타입이 달라서, 하위 타입(`InvalidLunarDateException`, 상위 `ChartException`)을 잡던 `catch`와 테스트가 조용히 빗나간다.
     - 그래서 공용 도구는 질문(`isBetween`)만 맡고, 무엇을 던질지는 규칙 주인의 `validateXxx`가 정한다.
