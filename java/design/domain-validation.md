@@ -375,6 +375,14 @@ entity:  if (command.isEmailExists()) throw ...
 - 차이: Application Service는 "이 작업을 위해 **조율한다**", Domain Service는 "**도메인 규칙을 표현한다**".
 - 현실: 작은 프로젝트는 Domain Service를 **안 만들고** 그 로직을 Application Service에 합치기도 함(예: 인증 서비스 `AuthService`가 중복 검증까지 들고 있는 경우) — 실용적 선택, 틀린 것 아님.
 - 📖 UseCase(교차 도메인)와 Application Service(단일 애그리거트)를 **별도 클래스로 나누는 건 한 가지 관례**다. 헥사고날 교과서에서 UseCase는 보통 in port **인터페이스**(`CreateUserUseCase`)이고 Application Service가 그걸 구현한다 → [포트와 어댑터 §3](./ports-and-adapters.md).
+- ⚠️ **"여러 도메인을 합치면 application, 한 도메인이면 domain service"가 기준은 아니다.**
+  - 기준은 **규칙이냐 조율이냐**다. 조율은 대개 여러 모듈을 엮다 보니 "여러 도메인"이 결과로 자주 따라올 뿐이다.
+  - 반례 1. 한 모듈만 쓰는데 application인 경우: "AI를 부르고 → 응답을 검사하고 → 실패하면 한 번 더 부른다"는 해석 모듈 하나만 다루지만, 호출·재시도 정책이라 application이다. 로그·시간 예산·외부 상태 확인 콜백도 붙는다.
+  - 반례 2. 여러 엔티티를 다루는데 domain인 경우: "두 계좌 사이 이체"는 엔티티 둘이 나오지만, 잔액 규칙이라 domain service다.
+- **application 안의 이름 관례도 두 가지가 있다.** 한 프로젝트 안에서는 하나로 맞춘다.
+  - 관례 A: 교차 도메인 흐름은 `XxxUseCase`, 단일 도메인 흐름은 `XxxService`.
+  - 관례 B: 바깥에서 들어오는 **진입점**(컨트롤러·스케줄러가 부르는 것)만 `XxxUseCase`로 짓고, 그 안의 한 단계를 맡는 협력 객체는 하는 일 이름(`RateLimiter`, `ReportHashes`, `ChartInterpreter`)으로 짓는다.
+  - 관례 B에서는 단일 도메인 조회도 진입점이면 `GetReportUseCase`가 된다.
 
 ### 호출 흐름 — 직선이 아니라 트리 (signup 예시)
 
