@@ -79,6 +79,11 @@ public class BusinessException extends RuntimeException {
 - 인자 없는 생성자에 `ErrorCode` 하나를 박아 둔 하위 클래스는 **enum 상수의 별칭**일 뿐이다. 오류 하나가 생길 때마다 클래스와 enum 상수가 같이 늘어난다.
 - 별칭 클래스는 공용 가드와도 잘 맞지 않는다. `requireNonNull(value, ErrorCode)` 같은 가드는 상위 `BusinessException`만 던질 수 있어서, 타입을 지키려면 `Supplier` 오버로드를 따로 두거나 한 줄짜리 검사 함수를 모듈마다 둬야 한다.
 - 실제로 흔히 보는 모양: 한 모듈(계산 어댑터 등)을 먼저 만들 때 예외를 타입으로 정의했다. 나중에 `ErrorCode` 체계를 들이면서 그 모듈만 `extends BusinessException`으로 이어 붙여 두 방식이 섞인다. 섞여 있으면 git 기록으로 이런 사정을 먼저 확인한다.
+- **오류 응답의 `retryable`·`retryAfterSeconds`는 서버가 알아서 다시 실행한다는 뜻이 아니다.** 클라이언트에게 주는 안내다.
+  - `retryable`(ErrorCode의 성질): 같은 요청을 다시 보내 볼 의미가 있는가. 입력 오류는 `false`(고치지 않으면 또 실패), 외부 서비스 일시 장애나 요청 제한은 `true`.
+  - `retryAfterSeconds`(그때그때 계산한 값): 언제 다시 보내면 되는가. HTTP 표준 `Retry-After` 헤더로도 함께 보낸다. 브라우저가 이 헤더를 보고 자동으로 다시 보내지는 않는다. 다시 보낼지는 클라이언트 코드가 정한다.
+  - 서버 내부의 자동 재시도(외부 API 일시 실패 시 한 번 더 호출하기 등)는 어댑터 안에서 따로 처리하는 일이고, 이 두 값과는 상관없다.
+  - 사용자가 직접 누르는 "재시도" API를 만든다면, 서버는 `retryable`을 허용 조건으로 쓸 수 있다.
 - 타입으로 단언하는 테스트(`isInstanceOf(XxxException.class)`)는 `errorCode()` 비교로 바꿔도 같은 것을 검증한다. 다만 오류 코드가 같고 출처만 다른 경우(같은 `INVALID_INPUT`을 다른 모듈이 던질 때)는 구분하지 못한다.
 
 ---
