@@ -47,6 +47,40 @@ int result = switch (grade) {
 
 - Java 21의 패턴 매칭 switch(JEP 441, sealed 타입/패턴 case)부터는 **문(statement)도** 패턴을 쓰면 exhaustiveness가 강제된다.
 
+### sealed 인터페이스 — "이 중 하나"를 타입으로 (Java 17, JEP 409)
+
+enum은 "정해진 상수 중 하나"를 표현하지만, 상수마다 담는 데이터의 모양이 같다. **경우마다 데이터 모양이 다르면** sealed 인터페이스와 record로 표현한다.
+
+```java
+sealed interface Result permits Passed, Failed { }        // 구현 가능한 타입을 Passed·Failed로 닫는다
+record Passed(String text) implements Result { }           // record는 자동으로 final
+record Failed(List<String> violations) implements Result { }
+
+String describe(Result result) {
+    return switch (result) {                                // default 없음
+        case Passed passed -> "통과: " + passed.text();      // 타입 패턴
+        case Failed(List<String> violations) -> "실패 " + violations.size() + "건";  // 레코드 분해 패턴(Java 21)
+    };
+}
+```
+
+JDK 25에서 직접 컴파일해 본 결과:
+- 위 코드는 `default` 없이 컴파일되고 실행된다.
+- `Failed` 경우를 빼면: `error: the switch expression does not cover all possible input values`
+- `permits`에 없는 `record Retry() implements Result`를 만들면: `error: class is not allowed to extend sealed class: Result (as it is not listed in its 'permits' clause)`
+
+규칙:
+- 허용된 하위 타입은 `final`, `sealed`, `non-sealed` 중 하나여야 한다(record는 자동 final).
+- 하위 타입은 같은 모듈에 있어야 한다. 이름 없는 모듈이면 같은 패키지다.
+- 한 파일 안에 함께 선언하면 `permits`를 생략할 수 있다.
+
+| 표현 | 경우마다 다른 데이터 | 경우를 빠뜨리면 | 쓰임 |
+|---|---|---|---|
+| enum | ✗ (모양이 같음) | switch 식에서 컴파일 에러 | 상태·종류 값 |
+| abstract class + 하위 클래스 | ○ | 못 잡는다. 누구나 상속할 수 있어 `default`가 필요하다 | 확장이 열려 있어야 할 때 |
+| 종류 필드 + nullable 필드를 가진 record | △ (불가능한 조합이 생긴다) | 못 잡는다 | 피한다 |
+| **sealed + record** | ○ | 컴파일 에러 | "통과 또는 실패" 같은 결과 타입 |
+
 ## ⚠️ 함정/메커니즘
 
 ### 1. enum에 상수를 추가하면 default 없는 switch 식들이 일제히 컴파일 에러
