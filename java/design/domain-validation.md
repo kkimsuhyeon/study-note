@@ -219,6 +219,20 @@ public static Payment of(String id, PaymentStatus status, BigDecimal amount, Str
 
 > 💡 **입력 검증은 "복원 팩토리(`of`/`toModel` 경로)"가 아니라 "생성 팩토리(`create`) 경로"에 둔다.** `of`가 영속성 복원에 쓰이면 거기서 던지는 `INVALID_INPUT`은 "DB 읽다가 400" 식 의미 충돌 + `nullable` 제약과 중복이다. 생성 팩토리가 여러 개거나 늘어날 거면, 검증은 **복원과 분리된 private 생성 통로**에 모아 모든 신규 객체가 거치게 한다. (강제까지 원하면 §7 — 무검증 생성자를 private으로 닫아 "유효하지 않은 객체는 존재 불가"로.)
 
+### 정적 팩토리 이름 관례 — 이름은 입력이 어떤 모양인지를 말한다
+
+| 이름 | 입력 | JDK 예 |
+|---|---|---|
+| `of(...)` | 이미 타입이 있는 부품을 조립 | `LocalDate.of(2024, 2, 29)`, `List.of(a, b)` |
+| `from(x)` | 다른 객체 하나를 변환 | `LocalDate.from(temporal)`, `Instant.from(...)` |
+| `parse(text, …)` | 텍스트를 해석. 형식이 틀리면 예외 | `LocalDate.parse("2024-02-29")`, `Duration.parse("PT1H")` |
+| `valueOf(x)` | `of`/`from`의 옛 이름(캐시 가능) | `Integer.valueOf(1)`, `String.valueOf(obj)` |
+| `create(...)` | 새 도메인 객체를 만들고 기본값 부여(위 표) | — |
+
+- 텍스트를 잘라 만드는 팩토리는 다른 인자가 함께 와도 `parse`가 맞다. `LocalDate.parse(text, formatter)`처럼 인자가 더 있어도 핵심 입력이 텍스트이면 `parse`다.
+- 같은 메서드를 `of`로 부르면 읽는 사람은 연·월·일처럼 이미 쪼개진 값을 받는다고 기대한다. 그런 `of`는 대개 생성자와 같은 일을 해서 따로 만들 이유도 없다.
+- `parse`도 `of`도 검사는 한다(`LocalDate.parse("2024-02-30")`와 `LocalDate.of(2024, 2, 30)` 둘 다 예외). 둘을 가르는 건 검사 여부가 아니라 입력의 모양이다.
+
 ---
 
 ## 4. ⭐ 핵심 구분 — 규칙(결정) vs 데이터 조회
