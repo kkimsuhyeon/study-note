@@ -115,6 +115,9 @@ private static boolean isValidName(String name) {
 - **`require`를 공용 유틸로 뺄까?** 흔한 패턴이긴 하다(Guava `Preconditions`, Spring `Assert`, 사내 `BizAssert.isTrue(cond, ErrorCode)`). 판단 기준은 **같은 지식이 반복되나**다. 클래스마다 던지는 예외가 다르면(업무 예외 / 명식 입력 예외 / 내부 버그용 `IllegalArgumentException`) 겉모양만 같은 3줄짜리라 공용화하면 오히려 호출마다 예외 인자가 붙어 시끄러워진다. 같은 종류(`ErrorCode` 기반 업무 예외) 가드가 여러 클래스에 쌓이면 그때 `require(boolean, ErrorCode)` 하나로 모은다.
   - 놓을 곳: 도메인이 쓸 수 있는 패키지여야 한다. **예외 클래스 안(업무 예외의 정적 메서드)에는 두지 않는다** — 예외 타입은 "어떤 오류인가"만 나타내는 곳이라, 검사 로직이 섞이면 역할이 흐려지고 찾기도 어렵다. 검사 도구 전용 패키지(`shared/validation`의 `Validations.requireNonNull(value, ErrorCode)`·`isBetween(value, min, max)`)에 모으고, 도메인 의존 규칙(ArchUnit 허용 목록)이 막고 있으면 **"JDK만 쓰는 순수 검사 도구"라는 약속과 함께 그 패키지를 허용 목록에 추가**한다. 규칙을 피하려고 엉뚱한 패키지에 숨기지 않는다.
   - 검사 함수의 이름은 검사 내용을 말해야 한다. 범용 `require(boolean)`은 호출부만 봐서는 필수값 검사인지 범위 비교인지 알 수 없다 → null은 `requireNonNull`, 범위는 `isBetween`, 나머지 규칙은 `validateYear` 같은 이름 붙은 함수.
+    - 그냥 `validate`도 같은 문제가 있다. 이름에는 언제 부르는지가 아니라 무슨 규칙을 보는지를 담는다.
+    - `validateCreate`의 "생성할 때"는 생성자 검사라면 다 해당돼서 정보가 없다.
+    - `validateRange`는 "범위만 보고 실제로 있는 날인지는 보지 않는다"는, 호출부가 꼭 알아야 할 한계까지 이름으로 말해 준다.
   - **반환 모양은 이름이 정한다.** `isXxx`는 질문이다. boolean만 돌려주고 던지지 않는다. `requireXxx`와 `validateXxx`는 가드다. 조건이 틀리면 던지고, 아무것도 돌려주지 않는다(`void`).
     - JDK `Objects.requireNonNull`이 값을 돌려주는 이유는 `this.name = Objects.requireNonNull(name)`처럼 대입과 한 줄로 쓰기 위해서다.
     - record compact 생성자는 필드에 직접 대입하지 않으니 돌려받은 값을 쓸 곳이 없다. 반환값을 쓰는 호출이 없으면 `void`로 둔다.
