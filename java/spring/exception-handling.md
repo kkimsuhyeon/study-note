@@ -66,6 +66,21 @@ public class BusinessException extends RuntimeException {
 }
 ```
 
+### 2-1. 하위 예외 클래스를 따로 만들 때 vs `ErrorCode` 하나로 충분할 때
+
+`BusinessException` + `ErrorCode`가 있으면 오류의 종류(코드·상태·메시지·재시도 여부)는 enum 상수가 이미 말해 준다. 하위 클래스(`InvalidLunarDateException extends ChartException extends BusinessException`)는 **enum이 못 하는 일이 있을 때만** 만든다.
+
+| 하위 클래스가 필요한 경우 | 예 |
+|---|---|
+| 오류에 **추가 데이터**가 붙는다 | `AiUnavailableException(reason, retryAt)`, `InvalidAiOutputException(violations)` |
+| 누군가 **타입으로 잡아서** 다르게 처리한다 | 일시 장애만 골라 재시도. 단, `errorCode().retryable()` 같은 플래그로 갈 수 있으면 타입은 필요 없다 |
+| 라이브러리 경계에서 실패 계약을 타입으로 공개한다 | `IOException` 계열 |
+
+- 인자 없는 생성자에 `ErrorCode` 하나를 박아 둔 하위 클래스는 **enum 상수의 별칭**일 뿐이다. 오류 하나가 생길 때마다 클래스와 enum 상수가 같이 늘어난다.
+- 별칭 클래스는 공용 가드와도 잘 맞지 않는다. `requireNonNull(value, ErrorCode)` 같은 가드는 상위 `BusinessException`만 던질 수 있어서, 타입을 지키려면 `Supplier` 오버로드를 따로 두거나 한 줄짜리 검사 함수를 모듈마다 둬야 한다.
+- 실제로 흔히 보는 모양: 한 모듈(계산 어댑터 등)을 먼저 만들 때 예외를 타입으로 정의했다. 나중에 `ErrorCode` 체계를 들이면서 그 모듈만 `extends BusinessException`으로 이어 붙여 두 방식이 섞인다. 섞여 있으면 git 기록으로 이런 사정을 먼저 확인한다.
+- 타입으로 단언하는 테스트(`isInstanceOf(XxxException.class)`)는 `errorCode()` 비교로 바꿔도 같은 것을 검증한다. 다만 오류 코드가 같고 출처만 다른 경우(같은 `INVALID_INPUT`을 다른 모듈이 던질 때)는 구분하지 못한다.
+
 ---
 
 ## 3. @ControllerAdvice
