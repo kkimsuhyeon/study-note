@@ -125,6 +125,13 @@ private static boolean isValidName(String name) {
     - `ErrorCode`만 받으면 상위 타입 `BusinessException`이 던져진다. 코드는 같아도 타입이 달라서, 하위 타입(`InvalidLunarDateException`, 상위 `ChartException`)을 잡던 `catch`와 테스트가 조용히 빗나간다.
     - 그래서 공용 도구는 질문(`isBetween`)만 맡고, 무엇을 던질지는 규칙 주인의 `validateXxx`가 정한다.
     - 꼭 가드로 만들려면 예외 생성자를 받아야 한다: `requireBetween(year, 1, 9999, InvalidLunarDateException::new)`.
+  - **null 가드도 같은 문제가 있다.** `requireNonNull(value, ErrorCode)`는 상위 `BusinessException`만 던진다.
+    - 그래서 하위 예외 타입을 쓰는 모듈(명식 쪽)은 `validateCalendarType` 같은 한 줄짜리 함수를 따로 두게 된다.
+    - `Supplier<? extends RuntimeException>`를 받는 오버로드를 두면 타입을 지키면서 모양을 통일할 수 있다: `requireNonNull(calendarType, InvalidChartInputException::new)`.
+    - `ErrorCode`처럼 추상 메서드가 여러 개인 인터페이스는 람다나 메서드 참조의 대상이 될 수 없어서, 두 오버로드가 모호해지지 않는다.
+  - **공용 가드와 이름 붙은 함수를 가르는 기준:**
+    - 규칙이 "값이 있어야 한다"처럼 함수 이름 하나로 다 설명되면 공용 가드(`requireNonNull`)를 쓴다.
+    - 규칙에 도메인 값(음력 연 1~9999)이 들어 있으면 모델의 이름 붙은 함수(`validateYear`)에 `isBetween` 질문을 넣어 쓴다.
   - Spring `Assert`는 도메인에 Spring 의존을 들이고, 메시지 있는 `IllegalArgumentException`을 던져 업무 예외 형식·로그 정책과도 맞지 않는다.
 - **업무 규칙(지식) 중복은 "유틸"보다 그 규칙의 주인에게 모은다.** 예: "있는 날짜인지, 시각과 미상 여부가 맞는지"는 출생 정보 타입의 규칙이다. 다른 타입(요청 원문)도 같은 검사가 필요해 보이면, 그 검사가 정말 그 타입의 일인지부터 묻는다.
   - 모델의 검증은 그 모델을 만들거나 쓸 때 생기는 문제를 막는 것이지, 입력 검사기가 아니다.
