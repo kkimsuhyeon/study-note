@@ -18,6 +18,17 @@ HTTP 인터페이스 프록시(@GetExchange 메서드)   ← 어노테이션을 
 
 각 층의 역할과 `@Bean` 조립은 [@Bean 등록과 타입 기반 주입](./bean-registration-and-injection.md)에 있다. 이 노트는 맨 아래 층만 다룬다.
 
+> 💡 **"`@GetExchange`는 설정이 거의 없다"는 인상은 맨 위 층만 본 것이다.** 선언 자체는 짧고, 아래 층 설정은 요구사항 수만큼 늘어난다.
+> - 최소 모양은 `builder.baseUrl(…).build()` + `HttpServiceProxyFactory…createClient(X.class)` 몇 줄이다.
+> - Spring Framework 7 / Boot 4에는 `@ImportHttpServices`와 `spring.http.serviceclient.<그룹>.*` 속성으로 프록시를 자동 등록하는 기능이 있어서, 코드가 거의 없어진다. 실제 jar(`spring-web-7.0.9`, `spring-boot-http-client-4.1.1`)에 해당 클래스와 속성이 있음을 확인했다. 그룹 하위 키 이름은 문서로 확인할 것.
+> - 설정이 길어지는 건 타임아웃·리다이렉트, 전용 변환기(XML 보안·크기 제한), 상태별 처리(오류 본문 drain 방지) 같은 요구가 붙을 때다. 줄마다 어떤 요구에 대응하는지 주석으로 남겨 두면, 나중에 지워도 되는 설정인지 판단할 수 있다.
+>
+> **WebClient(WebFlux)와 모양이 비슷한 건 의도된 것이다.**
+> - `RestClient`(6.1+)는 `WebClient`의 연쇄 API(`post().uri().body()…retrieve()/exchange()`)를 본뜬 **동기(블로킹)** 짝이다.
+> - HTTP 인터페이스도 처음엔 WebClient 위에서 시작해 나중에 RestClient·RestTemplate 어댑터가 붙었다.
+> - 차이는 실행 모델이다. WebClient는 `Mono`/`Flux`를 돌려주고 이벤트 루프에서 기다리지 않는다. RestClient는 호출한 스레드가 응답을 기다린다.
+> - 서블릿(MVC) 앱에서 동기 호출이면 RestClient가 맞다. WebClient를 들이고 `.block()`으로 기다리면 WebFlux·Reactor 의존만 늘고 얻는 게 없다(→ [Flux·Mono 기초](../reactive/flux-mono-basics.md)).
+
 ## 사용 예시
 
 ### 1) Spring Framework만으로 직접 조립
