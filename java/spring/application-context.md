@@ -176,6 +176,36 @@ boolean enabled = environment.getProperty(key, Boolean.class, true);
 
 > ⚠️ **완전한 완화 바인딩은 `Binder`(=`@ConfigurationProperties`) 기능**이고, `@Value`는 Boot 문서상 "제한적(Limited)"이다. **표준형(소문자 kebab-case)으로 조회해야** 다른 표기도 찾는다 — `@Value("${batch.pool-size}")`는 `batch.poolSize`·환경변수 `BATCH_POOLSIZE`도 잡지만, `@Value("${batch.poolSize}")`는 yml의 `pool-size`를 못 찾는다. `@Value`가 `Environment`를 거쳐 해석되므로 `environment.getProperty(...)`도 같은 규칙으로 보면 된다(확인 필요: `Environment` 직접 호출은 문서에 별도 언급이 없음).
 
+### 4-1. 설정 값으로 빈 자체를 켜고 끄기 — `@ConditionalOnProperty`
+
+```java
+@Component
+@ConditionalOnProperty(name = "report.worker.enabled", havingValue = "true")   // 이 값이 "true"일 때만 빈을 만든다
+public class CompleteReportUseCase { @Scheduled(fixedDelay = 1000) void completeNextPending() { … } }
+
+@Configuration
+@ConditionalOnProperty(name = "report.worker.enabled", havingValue = "true")
+@EnableScheduling                                                              // 스케줄러 자체도 같은 조건으로
+class ReportWorkerConfig { }
+```
+```yaml
+report.worker.enabled: ${REPORT_WORKER_ENABLED:false}   # application.yaml: 기본 꺼짐, 환경변수로 켤 수 있음
+report.worker.enabled: true                              # application-local.yaml: 로컬에서만 켬
+```
+
+- 컨텍스트를 시작할 때 조건을 한 번 평가한다. 거짓이면 빈 정의 자체를 등록하지 않는다. 실행 중에 설정을 바꿔도 켜지거나 꺼지지 않는다.
+- 속성이 없으면 기본은 "안 만든다"(`matchIfMissing = false`). 키 이름에 오타가 있어도 오류 없이 꺼진 상태가 되니 주의한다.
+- `havingValue`를 생략하면 값이 `false`가 아닐 때 모두 참이다. 대소문자는 구분하지 않는 것으로 알고 있다(Boot 소스 기억 기준, 미확인).
+
+| 방법 | 꺼졌을 때 | 쓸 때 |
+|---|---|---|
+| `@ConditionalOnProperty` | 빈·스케줄러가 아예 없다 | 기능 단위 스위치. 환경변수 하나로 운영 중 켜고 끈다 |
+| `@Profile("local")` | 같다 | 환경 이름에 묶인 차이. 프로필 이름이 늘수록 조건이 흩어진다 |
+| 메서드 안 `if (!enabled) return;` | 빈은 있고 스케줄러도 매초 깨어난다 | 실행 중에 바꿀 값(`@RefreshScope` 등)일 때만 |
+
+- ⚠️ 꺼질 수 있는 빈을 다른 빈이 주입받으면, 꺼진 환경에서 시작이 실패한다(`NoSuchBeanDefinitionException`). 주입받는 쪽도 같은 조건을 걸거나 `ObjectProvider`로 받는다(→ 6-c).
+- 테스트에서 쓰는 이유: 백그라운드 워커가 켜진 채 `@SpringBootTest`가 돌면, 테스트가 만든 데이터를 워커가 동시에 처리해서 결과가 흔들린다. 기본은 꺼 두고, 워커 테스트는 처리 메서드를 직접 불러 결정적으로 검사한다.
+
 ---
 
 ## 5. 서비스 로케이터 안티패턴 — 이렇게 쓰면 잘못 쓰는 것
