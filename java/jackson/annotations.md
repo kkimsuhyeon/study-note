@@ -44,6 +44,26 @@ public class User {
 // → {"name": "kim", "age": 30}
 ```
 
+### ⚠️ 변환 메서드에 `get`을 붙이면 JSON 필드가 된다 (record 포함)
+`getXxx()`는 필드든 계산이든 가리지 않고 **프로퍼티로 직렬화**된다. record도 구성 요소 외에 `getXxx()`가 있으면 그것까지 나간다. Jackson 3.1.5로 직접 실행해 확인했다.
+
+```java
+record WithGet(String birthDate) {
+    public Info getBirthInfo() { return new Info(...); }   // 새 객체를 만드는 변환
+}
+record WithTo(String birthDate) {
+    public Info toBirthInfo() { return new Info(...); }
+}
+// WithGet → {"birthDate":"1995-03-16","birthInfo":{"year":1995}}   ← 저장 JSON·API 응답 모양이 바뀜
+// WithTo  → {"birthDate":"1995-03-16"}
+// WithGet에 변환이 실패하는 값이 들어 있으면 직렬화 자체가 DatabindException
+```
+
+- 도메인 객체를 그대로 저장 JSON이나 응답에 쓰는 구조라면 피해가 크다. 키가 하나 늘어서 옛 데이터를 읽을 때 "모르는 필드" 오류가 날 수 있고, 변환 실패가 저장 실패로 번진다.
+- 새 객체를 만드는 변환은 `toXxx()`로 쓴다(`LocalDateTime.toLocalDate()`, `String.toUpperCase()`와 같은 관례). 이름에서 "만든다"가 드러나고 Jackson도 프로퍼티로 보지 않는다.
+- `@JsonIgnore`로 막는 방법도 있지만, 도메인에 Jackson 의존이 들어온다.
+- `get`은 "들고 있는 값을 돌려준다"는 JavaBeans 관례라서, 계산하거나 새로 만드는 메서드에 붙이면 사람도 Jackson도 오해한다.
+
 ---
 
 ## 2. @JsonProperty
