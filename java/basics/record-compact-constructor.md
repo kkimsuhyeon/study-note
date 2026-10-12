@@ -56,6 +56,12 @@ public record Order(String date, int qty) {
 
 - **접근자로 읽은 값이 기대와 다르다** — 위 3절. NPE로 터지면 원인을 찾기 어렵다.
 - **헬퍼 이름이 하는 일과 맞지 않기 쉽다.** 생성자에서 결과를 버리는 쓰임 때문에 `validateXxx`라고 짓기 쉽지만, 실제로 값을 **만들어 반환**하면 `toXxx`/`parseXxx`가 맞다. 버리는 호출에는 "만들 수 있는지 미리 확인" 주석을 한 줄 남긴다.
+- **record 접근자에는 `get`이 붙지 않는다.**
+  - `record Bucket(String subject, boolean leapMonth)`는 `subject()`, `leapMonth()`를 만든다. boolean도 `isLeapMonth()`가 아니다. 필드는 `private final`이라 바깥에서는 항상 메서드로 부른다.
+  - 그래서 record에서 이름만 있는 메서드(`birthInfo()`)는 저장된 값을 꺼내는 접근자로 읽힌다. 새로 만드는 변환이면 `toXxx()`로 구분한다.
+  - 반대로 `getXxx()`를 덧붙이면 Jackson이 그것까지 JSON 필드로 내보낸다 → [Jackson 어노테이션](../jackson/annotations.md) 1절.
+  - 일반 클래스도 record 관례를 따라 `errorCode()`처럼 짓는 코드베이스가 있다. 같은 프로젝트에서 Lombok `@Getter`(`getX()`)와 섞이면 호출부 모양이 갈린다.
+  - JavaBeans의 `getX()`/`isX()` 관례만 찾는 오래된 도구는 record 값을 못 읽을 수 있으니, 새 라이브러리를 붙일 때 record 지원 여부를 확인한다. Jackson은 2.12부터 지원한다. Hibernate는 6.2부터 record를 `@Embeddable` 값으로 쓸 수 있지만, 엔티티 자체로는 못 쓴다(final이고 기본 생성자가 없다).
 - record에는 구성 요소 외의 인스턴스 필드를 둘 수 없다. "한 번 계산해 저장"이 필요하면 그 값을 구성 요소로 올리거나(직렬화 모양이 바뀜), 매번 계산한다.
 
 ## 5. 💡 판단 기준
