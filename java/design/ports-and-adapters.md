@@ -152,6 +152,17 @@ public record PageResult<T>(List<T> content, long totalElements, int totalPages)
 - **호출 위치를 그대로 둔다.** 예: 멱등 재전송 확인 **뒤**, 비싼 작업 **앞**. 옮기다 순서가 바뀌면 재전송도 한도를 소비한다.
 - 동작이 같으니 기존 테스트를 고치지 않고 통과하는 것이 성공 기준이다.
 
+### 5-5. 도메인 모듈끼리의 의존 방향 — 기능이 기반을 안다, 반대는 아니다
+
+같은 도메인 계층 안에서도 모듈끼리 방향이 있다. 예: 보고서(report)는 명식(chart)을 쓴다 → `report → chart`. 명식 계산은 보고서가 없어도 성립하고 다른 기능(궁합, 오늘의 운세 등)도 쓸 수 있는 **기반**이고, 보고서는 그걸 쓰는 **기능**이다.
+
+- 판단 질문은 "이 모듈이 저 모듈 없이도 성립하나?"이다. 성립하는 쪽이 아래(기반)이고, 화살표는 위(기능)에서 아래로 향한다. 주문(order)이 상품(product)을 참조하지만, 상품은 주문을 모르는 것과 같은 구조다.
+- 거꾸로(`BirthInfo.from(ReportInput)`처럼 기반이 기능 타입을 받게) 만들면 문제가 생긴다.
+  - 보고서 쪽 변경(입력 필드 이름, 저장 모양)이 명식 계산과 명식 테스트까지 번진다.
+  - 이미 `report → chart`가 있으니 순환이 생긴다.
+- 그래서 변환 함수는 기능 쪽에 둔다(`ReportInput.toBirthInfo()`). 기반 쪽 서비스 호출도 기능 쪽 유스케이스가 한다(`CreateReportUseCase → ChartService`).
+- ⚠️ ArchUnit 순환 검사를 최상위 패키지 단위(`com.app.(*)..` → domain/application/infrastructure…)로만 걸면, 같은 `domain` 안의 `domain.chart ↔ domain.report` 순환은 잡지 못한다. 모듈 간 방향을 지키려면 `slices().matching("com.app.domain.(*)..").should().beFreeOfCycles()` 같은 규칙이나 "chart는 report에 의존하지 않는다" 규칙을 따로 둔다.
+
 ---
 
 ## 6. 💡 판단 기준
