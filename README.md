@@ -112,7 +112,7 @@
 ### Spring
 - [ ] [HttpSession - getSession(false)·생성·속성 저장/조회·무효화 / 세션과 로그인 구분](./java/spring/http-session.md)
 - [ ] [Spring Session JDBC - HttpSession 저장소를 PostgreSQL로 교체 / SESSION 쿠키·자동 구성·Flyway·만료 / 프록시 뒤 Secure(X-Forwarded-Proto)](./java/spring/spring-session-jdbc.md)
-- [ ] [@Bean 등록과 타입 기반 주입 - 매개변수는 의존성·반환 객체는 Bean / RestClient·RequestFactory·HttpClient 역할 / Qualifier는 타입 후보를 좁힘 / ⚠️같은 타입이 여럿이면 주입 지점 이름=빈 이름으로 매칭](./java/spring/bean-registration-and-injection.md)
+- [ ] [@Bean 등록과 타입 기반 주입 - 매개변수는 의존성·반환 객체는 Bean / RestClient·RequestFactory·HttpClient 역할 / Qualifier는 타입 후보를 좁힘 / ⚠️같은 타입이 여럿이면 주입 지점 이름=빈 이름으로 매칭 / ⚠️키 박힌 RestClient를 범용 타입 Bean으로 내놓으면 누구나 주입·절대 주소면 base URL 무시하고 키는 붙어 나감(실행 확인) → 용도 타입으로 감싸기](./java/spring/bean-registration-and-injection.md)
 - [ ] [HTTP 클라이언트 구현체 비교 - RestClient 아래 통신 라이브러리 5종(JDK/Apache/Jetty/Reactor/Simple) / Boot 자동 감지 순서·spring.http.clients·ClientHttpRequestFactoryBuilder / ⚠️JDK는 멱등 요청을 알아서 1회 재시도→"최대 1회" 루프 얹으면 4회 / read timeout=요청 시작부터 총 시간 / 오류 본문은 close 때 drain](./java/spring/http-client-transports.md)
 - [ ] [@Transactional - 선언적 트랜잭션·전파(propagation)·롤백 규칙·프록시 함정 / 부수 작업 격리(REQUIRES_NEW+try-catch) → 스프링 이벤트(AFTER_COMMIT+@Async)와 ⚠️트랜잭션 없으면 조용히 안 도는 함정 / 커넥션(창구)≠트랜잭션(전표 묶음) / 트랜잭션 밖≠비동기(A~D 4조합)·외부 호출은 창구에서 일어나서 / ⚠️JPA+OSIV면 tx 밖에서도 커넥션 보유 / 6.0+ CGLIB는 non-public에도 적용 / 6.1+ 리스너 @Transactional은 REQUIRES_NEW만 (워커·reaper·DB 큐는 → DB를 작업 큐로)](./java/spring/transactional.md)
 - [ ] [예제로 보는 트랜잭션 전파·롤백 - a→b→c 워크스루](./java/spring/transaction-rollback-example.md)
@@ -225,6 +225,9 @@
 - [ ] [실시간 통신 기법 비교 - Polling/Long Polling/SSE/WebSocket 진화 / relay(중계) 패턴 / "양방향 필요한가"가 갈림길](./infra/network/realtime-communication.md)
 - [ ] [SSE - text/event-stream 포맷 / EventSource(GET 전용·네트워크 오류만 자동 재연결, 비-200이면 종료) vs POST fetch 스트리밍 / heartbeat·프록시 버퍼링·UTF-8 함정](./infra/network/sse.md)
 - [ ] [WebSocket - Upgrade 핸드셰이크(101) / STOMP / 재연결·스케일아웃 세션 공유가 내 숙제](./infra/network/websocket.md)
+
+## AI 연동 (LLM API)
+- [ ] [Chat Completions 응답 다루기 - 두 겹 응답(봉투 choices·finish_reason / content는 문자열·nullable) / finish_reason 5종 / 받는 쪽 4단계(상태·크기·봉투·내용) / 다시 묻기=대화 전체 재전송(stateless, 직전 답은 assistant 역할) / ⚠️strict 스키마도 refusal·length로 벗어남 / 💡AI 응답은 신뢰하지 않는 입력](./ai/chat-completions-api.md)
 
 ## Algorithm (코딩테스트)
 - [ ] [코테 로드맵 - 프로그래머스 STEP 1~7 문제 목록 · 체크박스로 진행 추적 · 복습 큐(3일 뒤 재풀이)](./algorithm/roadmap.md)

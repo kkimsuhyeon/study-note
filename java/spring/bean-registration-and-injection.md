@@ -79,6 +79,31 @@ public RemoteCatalogClient remoteCatalogClient(
 - 클래스에 필드만 선언하거나 직접 `new`로 생성했다고 자동 주입되지 않는다. Spring이 처리하는 생성자·주입 지점이어야 한다.
 - `@Bean` 메서드가 사용하는 모든 지역 객체가 Bean으로 등록되지는 않는다.
 - 반환 타입을 필요 이상으로 넓게 선언하면 생성 전 타입 예측이 제한된다. 소비자가 주입받을 계약을 표현하는 타입을 선언한다.
+- **범용 타입(`RestClient`)을 그대로 Bean으로 내놓으면, 나중에 `RestClient`를 주입받는 아무 코드가 그 클라이언트를 받아 간다 — 기본 헤더(인증 키)까지 함께.** 아래처럼 외부 API 전용으로 base URL과 키를 넣어 만든 클라이언트를 생각해 보자.
+
+  ```java
+  @Bean
+  public RestClient partnerRestClient(RestClient.Builder builder) {
+      return builder.baseUrl("https://api.partner.example/v1")
+              .defaultHeaders(h -> h.setBearerAuth(partnerKey))
+              .build();
+  }
+
+  // 몇 달 뒤 다른 기능
+  public WebhookSender(RestClient client) { ... }      // 후보가 하나라 위 Bean이 그대로 주입된다
+  client.post().uri("https://hooks.other.example/x")... // 절대 주소 → base URL은 무시, Bearer 키는 붙어서 나간다
+  ```
+
+  Spring Framework 7.0.9에서 가짜 서버 두 개로 실행해 확인했다: 상대 경로 요청은 base URL 서버로 가고, 절대 주소 요청은 다른 서버로 가는데 두 요청 모두 `Authorization: Bearer …`가 붙어 있었다. `baseUrl`은 상대 경로에만 적용되는 기본값이고, `defaultHeaders`는 목적지와 관계없이 모든 요청에 붙기 때문이다.
+
+  막는 방법은 **용도 타입으로 감싸 내놓는 것**이다. 그러면 범용 `RestClient`를 주입받는 쪽에 이 클라이언트가 들어갈 길이 없다.
+
+  | 방식 | 모양 | 맞는 경우 |
+  |---|---|---|
+  | HTTP Interface 프록시 | `PartnerApi` 인터페이스 + `@GetExchange`/`@PostExchange`, config가 프록시를 Bean으로 | 응답을 DTO·문자열로 전부 읽어도 되는 일반 호출 |
+  | 얇은 클래스 | `PartnerHttpClient(RestClient)`가 `exchange()`로 직접 처리, config가 `new`로 감싸 Bean으로 | 본문을 N바이트까지만 읽기, 오류 본문을 읽지 않고 닫기처럼 스트림을 직접 다뤄야 할 때 ([HTTP 클라이언트 구현체 비교](./http-client-transports.md)의 drain 함정) |
+
+  어느 쪽이든 `RestClient`는 `@Bean` 메서드 안의 지역 변수로만 두고, 테스트에서는 `doesNotHaveBean(RestClient.class)`로 "범용 타입이 새어 나가지 않음"을 계약으로 고정할 수 있다.
 - `@Configuration(proxyBeanMethods = false)`에서는 다른 Bean이 필요할 때 설정 메서드를 직접 호출하지 않고 매개변수로 주입받으면 명확하다.
 
 Bean 초기화와 프록시 교체 과정은 [빈 후처리기](../design/bean-post-processor.md), 동적 구현체의 원리는 [동적 프록시](../design/dynamic-proxy.md)를 참고한다.
@@ -86,6 +111,8 @@ Bean 초기화와 프록시 교체 과정은 [빈 후처리기](../design/bean-p
 ## 판단 기준 💡
 
 HTTP 클라이언트 설정에서 무엇이 주입되는지 헷갈리면 **매개변수는 재료, 반환 타입은 제공할 계약, 반환 객체는 등록 대상**으로 나눠 읽는다. 통신에 사용하는 객체와 업무 코드가 호출하는 인터페이스를 같은 타입으로 취급하지 않는다.
+
+**외부 연동 하나에 용도 타입 하나.** 키·주소가 박힌 클라이언트를 `RestClient`처럼 범용 타입으로 내놓으면, "이 Bean을 누가 받아 갈 수 있나"의 답이 "누구나"가 된다. 반환 타입을 용도 이름으로 좁히면 주입 범위와 이름이 함께 정리된다.
 
 ## 참고
 
@@ -98,4 +125,4 @@ HTTP 클라이언트 설정에서 무엇이 주입되는지 헷갈리면 **매�
 
 학습 날짜: 2026-09-19. 계기: HTTP 인터페이스 Bean을 등록하면 내부에서 사용한 JDK HttpClient 타입의 주입 지점에도 그 프록시가 들어가는지에 대한 질문. 공식 문서와 코드 구조로 확인했으며, 예시를 별도로 실행하지는 않았다.
 
-보강 날짜: 2026-09-19. RestClient·RequestFactory·HttpClient의 역할 구분 추가(Spring Framework 7.0.9 문서 기준). 2026-10-02: 자동 선택·직접 지정 설명은 [HTTP 클라이언트 구현체 비교](./http-client-transports.md)로 넘기고, 주입 지점 이름 매칭·destroy 추론 추가.
+보강 날짜: 2026-09-19. RestClient·RequestFactory·HttpClient의 역할 구분 추가(Spring Framework 7.0.9 문서 기준). 2026-10-02: 자동 선택·직접 지정 설명은 [HTTP 클라이언트 구현체 비교](./http-client-transports.md)로 넘기고, 주입 지점 이름 매칭·destroy 추론 추가. 2026-10-13: 키가 박힌 `RestClient`를 범용 타입 Bean으로 내놓으면 생기는 주입 범위·키 유출 문제(spring-web 7.0.9로 절대 주소 + 기본 헤더 동작 실행 확인)와 용도 타입으로 감싸는 두 방식.
