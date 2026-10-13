@@ -120,6 +120,21 @@ try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCh
 // 결과: 사주 프롬프트⏎두 번째 줄⏎
 ```
 
+### 문자셋에 안 맞는 바이트가 있을 때 — 방법마다 반응이 다르다
+
+UTF-8로 해석할 수 없는 바이트(`ab\xffcd`)가 든 파일을 각 방법으로 읽은 결과 (JDK 25):
+
+| 방법 | 결과 | 성격 |
+|---|---|---|
+| `new String(bytes, UTF_8)` | `ab�cd` | 깨진 자리를 �로 바꾸고 조용히 진행 |
+| `InputStreamReader` + `BufferedReader` | `ab�cd` | 같음 |
+| `Files.readString` / `readAllLines` / `newBufferedReader` | `MalformedInputException` | 깨진 바이트가 있으면 예외 (엄격) |
+| `Scanner.nextLine()` | `NoSuchElementException: No line found` | 읽기 오류를 "입력 끝"으로 취급해 원인이 가려짐 |
+
+없는 파일도 다르다: `new FileInputStream("nope.txt")` → `FileNotFoundException: nope.txt (No such file or directory)`, `Files.newInputStream(Path.of("nope.txt"))` → `NoSuchFileException: nope.txt`(예외 타입만으로 원인 구분).
+
+데이터가 깨졌다는 사실을 알아야 하는 곳(업로드 파일 검증, 정산 파일)은 엄격한 `Files` 쪽이, 일단 끝까지 보여 주는 게 나은 곳(로그 뷰어)은 관대한 쪽이 맞다.
+
 실수 B는 버퍼가 8192바이트여도 생긴다 — 파일이 8192바이트를 넘으면 경계에 걸린 한 글자가 깨진다. 작은 테스트 파일에서는 안 보이다가 큰 파일에서만 나타난다. 텍스트는 ① 바이트를 전부 모은 뒤 한 번에 변환하거나 ② Reader로 읽는다.
 
 ## 그 밖의 방법
