@@ -36,6 +36,12 @@ int result = switch (grade) {
 };
 ```
 
+- **`yield`는 `return`이 아니다.** `return`은 메서드를 끝내지만, `yield`는 **switch 식만** 끝내고 그 값을 식의 결과로 넘긴다. 블록 안에서 `return`을 쓰면 컴파일 에러다.
+- 화살표 뒤가 값 하나면(`case A -> 100;`) `yield` 없이 그 값이 결과다. `{ }` 블록일 때만 `yield`가 필요하다.
+- 블록을 `yield` 대신 `throw`로 끝내도 된다. 그 경우는 값을 내지 않고 예외로 빠져나간다.
+- switch 식 안에 switch 식을 넣으면, 안쪽 `yield`는 안쪽 식의 값이 되고 바깥 블록은 `yield switch (…) { … };`로 그 값을 다시 넘긴다.
+- Python·JavaScript의 `yield`(제너레이터에서 값을 하나씩 내보내고 멈추기)와 이름만 같고 전혀 다른 기능이다.
+
 ## 문 vs 식 비교
 
 | | switch 문 | switch 식 |
