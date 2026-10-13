@@ -17,6 +17,113 @@
 | **클래스패스** (Spring) | `new ClassPathResource("a/b.txt").getContentAsString(UTF_8)` (6.0.5+), `getContentAsByteArray()` | `resource.getInputStream()` |
 | **위치를 설정으로** (Spring) | `@Value("classpath:a/b.txt") Resource r` → `r.getContentAsString(UTF_8)` | `r.getInputStream()` |
 
+## java.io 스트림 쌓기 — `FileInputStream` 사용법
+
+`java.io`(Java 1.0부터)는 **관(stream)을 겹쳐 끼우는** 방식이다. 바깥 관이 안쪽 관에 기능을 하나씩 더한다(데코레이터 패턴).
+
+```text
+FileInputStream       파일에서 바이트를 꺼냄      read() → 0~255, 끝이면 -1
+  └ InputStreamReader 바이트 → 문자 (문자셋 필요)  read() → 문자 하나, 끝이면 -1
+     └ BufferedReader 버퍼 + 줄 단위 읽기         readLine() → 한 줄, 끝이면 null
+```
+
+| 계열 | 단위 | 대표 클래스 | 쓰는 곳 |
+|---|---|---|---|
+| `InputStream` | 바이트 | `FileInputStream`, `ByteArrayInputStream`, `BufferedInputStream` | 이미지·엑셀·zip 같은 바이너리, 다른 라이브러리에 넘길 때 |
+| `Reader` | 문자 | `InputStreamReader`, `FileReader`, `BufferedReader` | 텍스트 |
+
+```java
+// ① 버퍼 배열로 반복 — 가장 흔한 FileInputStream 모양
+try (FileInputStream in = new FileInputStream(file)) {
+    ByteArrayOutputStream collected = new ByteArrayOutputStream();
+    byte[] buffer = new byte[8192];
+    int n;                                   // 이번에 실제로 읽은 바이트 수
+    while ((n = in.read(buffer)) != -1) {    // -1 = 파일 끝
+        collected.write(buffer, 0, n);       // buffer 전체가 아니라 0~n만
+    }
+    String text = collected.toString(StandardCharsets.UTF_8);
+}
+
+// ② 한 번에 (Java 9+)
+try (FileInputStream in = new FileInputStream(file)) {
+    String text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+}
+
+// ③ 텍스트를 줄 단위로 — 관 세 겹
+try (BufferedReader reader = new BufferedReader(
+        new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
+    String line;
+    while ((line = reader.readLine()) != null) { ... }   // 줄바꿈 문자는 빠진 채로 옴
+}
+
+// ④ 다른 곳으로 그대로 흘려보내기 (Java 9+) — 파일 다운로드 응답 등
+try (InputStream in = new FileInputStream(file)) {
+    in.transferTo(response.getOutputStream());
+}
+```
+
+- 바깥 관(`BufferedReader`)을 닫으면 안쪽 관까지 차례로 닫힌다.
+- `Files.newInputStream(path)`·`Files.newBufferedReader(path, UTF_8)`는 같은 관을 NIO(`Path`) 쪽에서 만들어 주는 방법이다. 없는 파일이면 `NoSuchFileException`처럼 원인이 드러나는 예외를 준다.
+
+### 옛 코드의 close 모양 → try-with-resources
+
+Java 7 전 코드는 이렇게 닫는다. 지금 보면 길지만 하는 일은 "끝나면 반드시 닫기" 하나다.
+
+```java
+FileInputStream fis = null;
+try {
+    fis = new FileInputStream(file);
+    ...
+} catch (IOException e) {
+    ...
+} finally {
+    if (fis != null) {
+        try { fis.close(); } catch (IOException ignored) { }
+    }
+}
+```
+
+```java
+try (FileInputStream fis = new FileInputStream(file)) {   // Java 7+: 블록이 끝나면 자동 close
+    ...
+}
+```
+
+닫지 않으면 OS가 열린 파일마다 내주는 번호(파일 디스크립터)가 반납되지 않는다. 쌓이면 `Too many open files`로 새 파일·소켓을 못 연다.
+
+### 실행으로 확인한 흔한 실수 두 개
+
+파일 내용 `사주 프롬프트⏎두 번째 줄⏎` (UTF-8, 35바이트, 한글 한 글자 = 3바이트).
+
+```java
+// 실수 A — 읽은 개수 n을 무시하고 buffer 전체를 문자열로
+while (in.read(buffer) != -1) {                       // buffer = 16바이트
+    sb.append(new String(buffer, StandardCharsets.UTF_8));
+}
+// 결과: 사주 프롬프트⏎두 번째 ���⏎⏎두 번째 �
+// 마지막 회차는 3바이트만 새로 읽었는데, 나머지 13바이트는 직전 회차 내용이 그대로 남아 있다
+```
+
+```java
+// 실수 B — 바이트 덩어리마다 따로 문자로 바꿈
+while ((n = in.read(buffer)) != -1) {                 // buffer = 4바이트
+    sb.append(new String(buffer, 0, n, StandardCharsets.UTF_8));
+}
+// 결과: 사��� �����프트⏎두 번��� ���⏎
+// 3바이트짜리 한글이 4바이트 경계에서 잘려, 반쪽 글자가 각각 깨진다
+
+// 고침 — 문자 변환은 Reader에 맡긴다 (덩어리 경계를 넘어 이어 붙여 줌)
+try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+    char[] chars = new char[4];
+    while ((n = reader.read(chars)) != -1) sb.append(chars, 0, n);
+}
+// 결과: 사주 프롬프트⏎두 번째 줄⏎
+```
+
+실수 B는 버퍼가 8192바이트여도 생긴다 — 파일이 8192바이트를 넘으면 경계에 걸린 한 글자가 깨진다. 작은 테스트 파일에서는 안 보이다가 큰 파일에서만 나타난다. 텍스트는 ① 바이트를 전부 모은 뒤 한 번에 변환하거나 ② Reader로 읽는다.
+
+## 그 밖의 방법
+
 - 옛 방식 `new FileReader(file)`·`new FileInputStream(file)`은 디스크 파일 전용이다. `FileReader`는 Java 18 전에는 OS 기본 문자셋을 썼다(JEP 400으로 18부터 기본 UTF-8). 어느 버전이든 문자셋은 명시한다.
 - Spring의 `Resource`는 위치를 문자열 접두사로 바꿔 끼운다: `classpath:`(앱 안), `file:`(디스크), `https:`(URL). 읽는 코드는 같다.
 
@@ -89,3 +196,4 @@
 - 컨테이너에서 `getResource("classpath:...")`·`classpath*:`로 여러 개 찾기는 [ApplicationContext](../spring/application-context.md)
 
 학습 날짜: 2026-10-13 · 계기: 설정 클래스에서 프롬프트·스키마 파일을 `new ClassPathResource(...).getContentAsString(UTF_8)`로 읽는 코드를 보고 "파일 읽는 방법이 엄청 많던데 이건 뭔가" 질문. 폴더/jar 두 클래스패스로 직접 실행해 비교.
+보강: 2026-10-13 — `FileInputStream` 사용법(관 쌓기·read 반복·readAllBytes·transferTo), 옛 finally close와 try-with-resources, 실수 두 개(읽은 개수 무시·바이트 덩어리별 변환으로 한글 깨짐)를 JDK 25로 실행해 결과 첨부.
