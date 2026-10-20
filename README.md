@@ -159,7 +159,7 @@
 ### Test (테스트 도구 사용법)
 - [ ] [AssertJ 사용법 - assertThat / isEqualByComparingTo / assertThatThrownBy](./java/test/assertj.md)
 - [ ] [테스트 방법론 핵심 요약 - 판단 공식 + 막힌 케이스 누적](./java/test/test-writing-guide.md)
-- [ ] [테스트 픽스처(Object Mother) - 변하는 값만 받기 / static 픽스처 vs 인스턴스 헬퍼](./java/test/test-fixtures.md)
+- [ ] [테스트 픽스처(Object Mother) - 변하는 값만 받기 / static 픽스처 vs 인스턴스 헬퍼 / ⚠️통합 테스트에서 저장할 땐 기본 id·unique 기본값·서비스 셋업 함정 / Fixture Monkey·Gradle java-test-fixtures](./java/test/test-fixtures.md)
 - [ ] [JPA repository 테스트 - @DataJpaTest / persist≠INSERT / flush·clear 왕복 / H2·Testcontainers](./java/test/jpa-repository-test.md)
 - [ ] [JUnit 5 라이프사이클 - @BeforeEach·@BeforeAll·@Nested / 테스트 전 데이터 셋업](./java/test/junit-lifecycle.md)
 - [ ] [파라미터화 테스트 - @ParameterizedTest / ValueSource·EnumSource·CsvSource·MethodSource / 검증 같을 때만](./java/test/parameterized-test.md)

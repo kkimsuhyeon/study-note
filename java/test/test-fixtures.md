@@ -133,6 +133,31 @@ private User persistedUser(String email) {                   // 인스턴스 헬
 
 ---
 
+### 통합 테스트에서 객체 픽스처를 저장까지 쓸 때 ⚠️
+
+통합 테스트(`@SpringBootTest`)는 픽스처로 만든 객체를 **실제 DB에 저장**한다. 단위 테스트에서는 문제없던 기본값이 여기서 깨진다.
+
+```java
+// 통합 테스트 안의 적재 헬퍼 — 객체는 픽스처, 저장은 테스트 클래스(리포지토리 필요)
+private User savedUser(BigDecimal balance) {
+    return userRepository.save(UserFixture.aUser()
+            .id(null)                                         // DB가 id를 만들게
+            .email("u" + System.nanoTime() + "@test.com")     // unique 컬럼은 매번 다르게
+            .balance(balance)                                 // 이 테스트가 바꾸는 값
+            .build());
+}
+```
+
+| 함정 | 왜 | 대응 |
+|---|---|---|
+| 기본 id가 채워진 픽스처를 그대로 저장 | id가 있으면 JPA가 "이미 있는 행"으로 보고 `merge`(SELECT 후 INSERT/UPDATE)로 처리하거나, 다른 테스트가 넣은 같은 id 행을 덮어쓸 수 있다 | 저장용은 id를 비우거나, 저장 전용 팩토리를 따로 둔다 |
+| unique 컬럼 기본값(`test@test.com`) | 롤백하지 않는 통합 테스트·동시성 테스트에서 두 번째 저장부터 제약 위반 | 테스트마다 유일한 값 생성 |
+| 셋업을 production 서비스로(`reservationService.create(...)`) | 아래 5-1과 같은 문제 + "만료된 예약"처럼 서비스로는 못 만드는 상태가 있다 | 원하는 상태를 리포지토리로 직접 저장 |
+
+"Fixture"라는 이름은 두 가지를 섞어 부르는 경우가 많다 — **객체를 만들기만 하는 픽스처**(static/builder, 스프링 없음)와 **DB에 적재까지 하는 헬퍼**(리포지토리 필요, 통합 테스트용). 여러 통합 테스트 클래스가 같은 적재를 반복하면 적재 헬퍼를 테스트 소스의 `@Component`로 빼서 주입받기도 한다.
+
+---
+
 ## 5-1. 💡 셋업을 production 메서드에 의존시키지 않기 (관점)
 
 상태를 만들 때 production 로직을 타면, 그 로직이 깨질 때 **무관한 테스트가 같이 실패**한다(실패 지점이 번짐).
@@ -173,6 +198,7 @@ assertThat(user.getRole()).isEqualTo(UserRole.USER);
 |---|---|
 | **Instancio** | 모든 필드 자동 채움 + 일부만 지정: `Instancio.of(User.class).set(field(User::getEmail), "a@test.com").create()` |
 | **EasyRandom** | 객체 그래프를 랜덤 값으로 채움 |
+| **Fixture Monkey** (Naver) | `FixtureMonkey.create().giveMeOne(Product.class)` 한 줄로 랜덤 객체, `giveMeBuilder(Product.class).set("price", 29_900L).sample()`로 일부만 지정. 국내 회사 코드에서 자주 보인다 |
 
 > 도메인 의미가 중요한 테스트(잔액 0 vs 1000)는 수작업 픽스처가 더 명확. 대량/무의미 데이터엔 자동 생성이 편함.
 
@@ -181,14 +207,18 @@ assertThat(user.getRole()).isEqualTo(UserRole.USER);
 ## 8. 위치
 - `src/test`에 둔다 (`src/main` 아님 — 배포물에 테스트 코드 섞이면 안 됨).
 - 대상 도메인 경로 미러링: `src/test/.../domain/user/UserFixture.java`.
+- 멀티 모듈에서 다른 모듈의 테스트가 같은 픽스처를 써야 하면 Gradle `java-test-fixtures` 플러그인을 쓴다. `src/testFixtures/java` 소스 세트가 생기고(main 클래스를 볼 수 있음, 그 모듈의 test가 볼 수 있음), 다른 모듈은 `testImplementation(testFixtures(project(":lib")))`로 가져다 쓴다. 단일 모듈이면 `src/test`로 충분하다.
 
 ---
 
 ## 9. 참고
 - 관련 노트: [JPA repository 테스트](./jpa-repository-test.md) · [테스트 작성 가이드](./test-writing-guide.md)
 - [Martin Fowler - Object Mother](https://martinfowler.com/bliki/ObjectMother.html)
+- [Gradle: Using test fixtures](https://docs.gradle.org/current/userguide/java_testing.html#sec:java_test_fixtures)
+- [Fixture Monkey](https://naver.github.io/fixture-monkey/)
 
 ---
 
 **학습 날짜**: 2026-06-05
 **계기**: User 테스트 리팩토링 중 `UserFixture`를 만들며 — Object Mother/Test Data Builder 두 형태, "변하는 축만 받기" 원칙, static 픽스처 vs em 필요한 인스턴스 헬퍼 구분을 정리.
+**보강**: 2026-10-20 — 회사 코드에서 `createUser` 같은 헬퍼를 Fixture로 빼는 걸 보고 "그게 일반적인가" 질문. 통합 테스트에서 객체 픽스처를 저장할 때의 함정(기본 id·unique 기본값·서비스로 셋업), "Fixture" 두 의미, Fixture Monkey, Gradle `java-test-fixtures`(공식 문서 확인) 추가.
