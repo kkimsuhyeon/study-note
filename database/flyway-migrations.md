@@ -93,9 +93,26 @@ Flyway는 실행한 SQL 마이그레이션의 **체크섬(checksum)**을 이력�
 
 일반적인 SQL 마이그레이션에서는 개발자가 파일을 작성·검토한다. 도구로 변경 스크립트를 생성하는 흐름도 있지만, **Flyway를 추가하면 Entity 수정으로 올바른 SQL이 자동 생성된다고 생각하면 안 된다.** SQL 생성 도구의 존재와 Flyway의 적용 이력 관리 기능은 구분한다. [마이그레이션 기반 접근](https://documentation.red-gate.com/fd/migrations-based-approach-168984769.html)
 
+## 7. 이미 JPA `ddl-auto`로 돌던 프로젝트에 붙일 때
+
+**의존성.** Spring Boot 3.4 문서 기준, 메모리·파일 DB(H2 등)는 `org.flywaydb:flyway-core`로 충분하지만 그 밖의 DB는 **DB별 모듈이 따로 필요하다** — MySQL은 `org.flywaydb:flyway-mysql`, PostgreSQL은 `org.flywaydb:flyway-database-postgresql`. 빠뜨리면 MySQL에 붙는 순간 지원하지 않는 DB라는 오류가 난다.
+
+**첫 파일(V1)은 지금 테이블 전체.** 이미 엔티티로 테이블을 만들어 오던 프로젝트라면 `V1__init.sql`에 현재 스키마 전체를 적고, 그다음 변경부터 `V2__...`로 이어 간다. JPA 표준 속성(`jakarta.persistence.schema-generation.scripts.*`)으로 엔티티 기준 DDL을 뽑아 출발점으로 삼을 수 있지만, 타입·인덱스·제약을 사람이 검토해서 다듬는다(6절 — 자동 생성이 정답은 아니다). 이후에는 `ddl-auto`를 `validate`로 두어 엔티티와 SQL이 어긋나면 기동 시점에 알게 한다.
+
+**H2로 테스트하고 MySQL로 운영하면 SQL 문법이 갈린다.** MySQL용으로 쓴 마이그레이션이 H2에서 실패할 수 있다.
+
+| 방법 | 장점 | 비용 |
+|---|---|---|
+| 테스트도 실제 MySQL(Testcontainers) | 스키마 출처가 SQL 하나, 운영과 같은 DB로 락·제약까지 검증 | 테스트가 느려지고 Docker 필요 |
+| H2 프로필에선 Flyway 끄고 `ddl-auto` 유지 | 빠르고 간단 | 스키마 출처가 둘(엔티티와 SQL)이라 어긋날 수 있음 — `validate`가 MySQL 프로필에서만 잡아 줌 |
+| `classpath:db/migration/{vendor}`로 DB별 스크립트 | 둘 다 SQL로 관리 | 같은 변경을 두 번 써야 함 |
+
+동시성·락 검증이 중요한 프로젝트라면 첫 번째가 맞다 — H2의 락 동작은 MySQL InnoDB와 다르다.
+
 ## 참고·학습 기록
 
 - 위 절별 공식 문서 링크 참고. 학습일: 2026-09-22 (2026-10-02 브랜치 번호 충돌·실패 뒷정리 보강).
+- 2026-10-21 보강: `ddl-auto`로 돌던 프로젝트에 붙일 때 — DB별 모듈(`flyway-mysql`, [Spring Boot 3.4 How-to: Execute Flyway Database Migrations on Startup](https://docs.spring.io/spring-boot/3.4/how-to/data-initialization.html)에서 확인), V1 기준선, H2 테스트와 MySQL 문법 차이 선택지. 계기: 다른 프로젝트에서 본 "쿼리 버전 관리"를 H2 테스트·MySQL dev 구성의 프로젝트에 적용할 수 있는지 질문.
 - 계기: SQL 직접 실행과 Flyway의 차이, 새 파일·변경 파일 감지, 로컬과 운영의 마이그레이션 처리 질문. 예시 SQL·설정은 학습용으로 일반화했으며 실제 DB에는 실행하지 않았다.
 
 💡 **여러 환경에 같은 구조 변경을 반복 적용해야 한다면, SQL 내용뿐 아니라 실행 이력도 관리한다. 이미 공유된 버전은 새 마이그레이션으로 이어 간다.**

@@ -199,7 +199,7 @@
 - [ ] [Jackson 어노테이션 종합 정리 · LocalTime과 JsonFormat · enum 소문자 바인딩 · DTO→도메인 저장 JSON 호환성](./java/jackson/annotations.md)
 
 ## Database
-- [ ] [Flyway - SQL 적용 이력·체크섬 / 실행 시점·새 파일 감지 / JPA 역할 분리 · 적용된 SQL 수정과 repair](./database/flyway-migrations.md)
+- [ ] [Flyway - SQL 적용 이력·체크섬 / 실행 시점·새 파일 감지 / JPA 역할 분리 · 적용된 SQL 수정과 repair / ddl-auto 프로젝트에 붙이기(MySQL은 flyway-mysql 모듈 필요·V1 기준선·H2 테스트와 MySQL 문법 차이 → Testcontainers)](./database/flyway-migrations.md)
 - [ ] [SQL 케이스 쿡북 - 상황별 해법 (날짜 범위 조회, 인덱스/sargable 등)](./database/sql-cookbook.md)
 - [ ] [PostgreSQL 날짜 함수 - to_date/make_date/EXTRACT/date_trunc](./database/postgresql-date-functions.md)
 - [ ] [인덱스와 실행 계획 - EXPLAIN, range scan, full scan, sargable 조건](./database/index-explain.md)
