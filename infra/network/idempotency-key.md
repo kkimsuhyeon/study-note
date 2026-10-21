@@ -56,6 +56,20 @@ IETF 초안 `Idempotency-Key` 헤더(draft-ietf-httpapi-idempotency-key-header, 
 | 유니크 제약에 먼저 넣기 | 키 행을 먼저 INSERT, 중복이면 기존 결과 조회 | MySQL InnoDB는 중복 오류 시 그 문장만 되돌린다. 하지만 **JPA/Hibernate는 제약 위반 예외가 나면 그 트랜잭션을 롤백 전용으로 만들고 영속성 컨텍스트를 더 쓸 수 없게 된다** — 별도 트랜잭션이나 네이티브 쿼리로 처리해야 한다 |
 | Redis 분산락 | 서버가 여러 대이고 Redis가 이미 있을 때 | 락 해제와 DB 커밋 순서 |
 
+## 재전송에 무엇을 돌려주나 — 키 기록의 "결과" 칸
+
+| 방법 | 기록에 남기는 것 | 재전송 응답 | 비용 |
+|---|---|---|---|
+| A. 결과 없음 | 키·종류·지문만 | "성공"만 다시 | 돌려줄 본문이 있는 API엔 부족 |
+| B. 결과 아이디 | 만들어진 행의 id (특정 테이블 FK면 그 기능 전용 장부가 됨) | 그 id로 **현재** 상태를 조회해 응답 | FK 없이 두면 다용도지만 무결성·정리는 직접 |
+| C. 응답 통째로 | 상태 코드 + 본문 | **처음 응답 그대로** — 업무 로직을 다시 돌리지 않음 | 저장량, 응답 속 민감 정보까지 저장 |
+
+C의 대표 사례가 Stripe다. 공식 API 문서(2026-10-21 확인) 기준 API v1은 **엔드포인트 실행이 시작된 뒤 첫 요청의 상태 코드와 본문을 저장하고, 같은 키의 재시도에는 저장된 응답을 그대로 돌려준다 — 500 오류까지 포함해서.** 들어온 파라미터가 처음 요청과 다르면 오류를 내고, 키는 24시간 이상 지나면 정리될 수 있다. 반면 API v2는 실패했거나 일부만 된 작업을 가능하면 끝까지 다시 시도한다 — 같은 회사 안에서도 "실패를 저장해 돌려줄지, 다시 시도할지"가 갈린다.
+
+B와 C의 차이는 **재전송 시점에 상태가 바뀌었을 때** 드러난다. 충전 직후 다른 결제로 잔액이 줄었다면, B는 지금 잔액을, C는 충전 직후 잔액을 돌려준다. "내 요청의 결과"를 보여 주는 게 목적이면 C, "지금 상태"를 보여 주면 되면 B.
+
+작업과 키 기록을 한 DB 트랜잭션에 넣는 구현에서는 C의 응답도 **같은 트랜잭션 안에서** 만들어 저장해야 한다. 그래서 HTTP 응답 객체가 아니라 유스케이스의 결과 객체를 직렬화해 두고, 재전송이면 그 결과로 같은 HTTP 응답을 다시 만드는 편이 계층을 섞지 않는다. 이 구현에서 실패는 롤백되어 기록이 남지 않으므로 "실패도 저장"하는 Stripe v1과 동작이 다르다(재시도하면 다시 실행된다).
+
 ## ⚠️ 함정
 
 - **키를 서버가 만들면 의미가 없다.** 재전송을 알아보는 정보는 클라이언트만 갖고 있다. 서버가 요청마다 새 키를 만들면 매번 다른 요청이 된다.
@@ -72,6 +86,7 @@ IETF 초안 `Idempotency-Key` 헤더(draft-ietf-httpapi-idempotency-key-header, 
 
 - [RFC 9110 §9.2.2 Idempotent Methods](https://www.rfc-editor.org/rfc/rfc9110#section-9.2.2)
 - [IETF draft: The Idempotency-Key HTTP Header Field](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-idempotency-key-header) — 400/422/409 권장(2026-10-21 확인, draft-07)
+- [Stripe API: Idempotent requests](https://docs.stripe.com/api/idempotent_requests) — v1은 첫 응답(상태+본문, 500 포함) 저장 후 재사용, 24시간 이후 정리 가능, v2는 실패 작업을 끝까지 재시도(2026-10-21 확인)
 - 같은 (주체, 키) 직렬화 → [PostgreSQL Advisory Lock](../../database/postgres-advisory-lock.md), 행 락 → [SELECT FOR UPDATE](../../database/select-for-update.md)
 - 재전송이 일어나는 쪽 → [HTTP 클라이언트 구현체 비교](../../java/spring/http-client-transports.md)(JDK 클라이언트 자동 재시도)
 
