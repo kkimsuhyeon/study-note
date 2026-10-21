@@ -121,6 +121,18 @@ UUID 기반 중복 방지 키와도 다르다. UUID는 클라이언트가 **같�
 
 JSON 객체로는 같은 내용이어도 문자열 순서가 다르다. 해시 입력에서는 키 순서·공백·null 처리·enum 표기·시간 표기를 통일해야 한다. 예를 들어 `TreeMap`으로 키 순서를 고정해도 중첩 객체나 숫자 표현까지 자동으로 정규화되는 것은 아니다.
 
+숫자 표현의 대표 함정은 `BigDecimal`이다. JDK 25로 실행해 확인한 결과:
+
+```java
+new BigDecimal("100").equals(new BigDecimal("100.00"))     // false — scale(소수 자릿수)까지 비교
+new BigDecimal("100").compareTo(new BigDecimal("100.00"))  // 0     — 값만 비교
+sha256("CHARGE|" + new BigDecimal("100"))                   // toString이 "100"
+sha256("CHARGE|" + new BigDecimal("100.00"))                // toString이 "100.00" → 해시가 다름
+new BigDecimal("100.00").stripTrailingZeros().toPlainString() // "100" → 정규화 후엔 같은 해시
+```
+
+클라이언트가 `100`과 `100.00`처럼 같은 금액을 다르게 보내면, 정규화 없이 해시하면 "같은 키에 다른 내용"으로 오판해 정상 재전송을 실패시킨다. `toPlainString()`을 붙이는 이유는 `stripTrailingZeros()`만 하면 `100`이 `1E+2`로 바뀌기 때문이다.
+
 타입을 `String`에서 enum으로 바꿀 때도 `"female"`이 `"FEMALE"`로 바뀌면 해시가 달라진다. 리팩터링 전후의 고정 입력에 대해 **기존 해시 값과 같은지** 테스트하면 이런 변화를 발견할 수 있다.
 
 **복호화할 수 없다는 말이 모든 정보를 숨겨 준다는 뜻은 아니다.** 일반 해시는 생일처럼 후보가 적은 값을 대입해 추측할 수 있다. HMAC은 키를 모르는 사람의 계산을 어렵게 하지만, 키가 노출되거나 같은 값의 반복이 보이는 문제까지 없애 주지는 않는다. 비밀번호 저장 목적은 별도의 [PasswordEncoder 노트](./password-encoding.md)를 따른다.
