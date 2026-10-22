@@ -97,6 +97,29 @@ public class BusinessException extends RuntimeException {
   - 사용자가 직접 누르는 "재시도" API를 만든다면, 서버는 `retryable`을 허용 조건으로 쓸 수 있다.
 - 타입으로 단언하는 테스트(`isInstanceOf(XxxException.class)`)는 `errorCode()` 비교로 바꿔도 같은 것을 검증한다. 다만 오류 코드가 같고 출처만 다른 경우(같은 `INVALID_INPUT`을 다른 모듈이 던질 때)는 구분하지 못한다.
 
+### 2-2. 업무 예외 vs 표준 예외 — "요청을 고치면 해결되나?"
+
+| 질문 | 예 | 던지는 것 | 응답 |
+|---|---|---|---|
+| **클라이언트가 요청을 바꾸면 해결된다** | 잔액 부족, 좌석 매진, 금액 0 이하 | `BusinessException(ErrorCode)` | 4xx + 오류 코드 |
+| **우리 코드·데이터가 꼬였다** (일어나면 안 되는 상태) | 결제 대기가 아닌 예약이 결제 단계까지 옴, 내부에서 만든 요청이 상한을 넘음 | JDK 표준 예외 | fallback이 500 + ERROR 로그 |
+
+자주 쓰는 표준 예외 (Effective Java 3판 아이템 72 "표준 예외를 사용하라"):
+
+| 예외 | 뜻 |
+|---|---|
+| `IllegalArgumentException` | 인자 값이 잘못됨 |
+| `IllegalStateException` | 객체가 지금 그 작업을 할 수 없는 상태 |
+| `NullPointerException` | null이면 안 되는 곳에 null (`Objects.requireNonNull`) |
+| `UnsupportedOperationException` | 지원하지 않는 작업 |
+
+라이브러리도 같은 관례를 따른다 — Spring `Assert.state()`는 `IllegalStateException`, `Assert.notNull()`·`isTrue()`는 `IllegalArgumentException`, Guava `Preconditions.checkState()`/`checkArgument()`도 같은 짝이다.
+
+- **버그 신호용 커스텀 예외는 대개 필요 없다.** "서버 내부 오류" 클래스를 만들어 `BusinessException`의 하위로 두면 버그가 업무 오류로 분류되고, 설명 문자열을 응답에 실으면 내부 정보가 새어 나간다. 별도 알림·처리처럼 표준 예외에 **더할 것이 있을 때만** 만든다(그때도 `RuntimeException` 하위로, 설명은 로그에만).
+- **같은 이름 주의.** Spring에 이미 `org.springframework.web.server.ServerErrorException`(500, 실패한 컨트롤러 메서드·인자 정보를 담는 프레임워크용)이 있다. 같은 이름으로 직접 만들면 import 하나로 다른 클래스가 되고, `ResponseEntityExceptionHandler`를 상속한 advice에서는 처리 경로까지 바뀐다.
+- ⚠️ **`IllegalArgumentException`을 전역에서 400으로 매핑하지 않는다.** 사용자 입력 오류를 IAE로 던지고 advice에서 400으로 바꾸면, 라이브러리·우리 코드의 진짜 버그로 난 IAE까지 400이 되어 장애가 "클라이언트 잘못"으로 숨는다. 입력 오류는 Bean Validation이나 `BusinessException(INVALID_INPUT)`으로 따로 표현한다.
+- 메시지에는 원인 추적용 값(아이디·상태)을 넣는다. 표준 예외는 fallback에서 로그로만 남고 응답에는 `SERVER_ERROR` 코드만 나가므로, 메시지가 자세해도 노출되지 않는다.
+
 ---
 
 ## 3. @ControllerAdvice
@@ -297,5 +320,5 @@ void c() { throw new RuntimeException(); }
 
 ---
 
-**학습 날짜**: 2026-06-08 (보강 2026-06-26 · 2026-10-02)
+**학습 날짜**: 2026-06-08 (보강 2026-06-26 · 2026-10-02 · 2026-10-22 업무 예외 vs 표준 예외, Spring 동명 클래스 `ServerErrorException` — spring-web 6.2.1 jar로 확인)
 **계기**: `@ControllerAdvice`·ErrorCode 기반 공통 예외 응답 구조를 정리하다, 검증 예외와 필터 예외가 같은 흐름을 타지 않는 이유를 파고듦
