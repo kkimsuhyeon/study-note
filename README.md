@@ -170,6 +170,7 @@
 
 ### 설계 (DDD / 도메인 모델)
 - [ ] [도메인 검증 위치 - 엔티티(불변식) vs 집합 규칙(유니크)=결과·체커 주입, 무거우면 도메인 서비스 / 규칙=도메인·조회=인프라](./java/design/domain-validation.md)
+- [ ] [같음 판정 - `equals`=정체성(엔티티는 id·값 객체는 전 필드) vs 업무 규칙은 이름 붙인 메서드(`isSameRequest`) / ⚠️ 일부 필드 equals는 다른 기록을 같다고 말하고 HashSet·AssertJ `isEqualTo`·Mockito `verify`까지 그 규칙을 따라감(빠진 필드 버그를 테스트가 숨김) / equals만 고치고 hashCode 누락 / 검증은 ArgumentCaptor·argThat·usingRecursiveComparison](./java/design/equals-vs-named-comparison.md)
 - [ ] [변환 계층 - Factory(생성)/Mapper(web→Command)/Assembler(Command→Model) + Command/Query · Request→Command→Domain의 enum·시간 타입 유지](./java/design/transform-layers.md)
 - [ ] [애그리거트 소유권 & 참조 방향 - source of truth / 자기 사실만 판정 / 1:1 FK는 나중 생긴 쪽이 단방향](./java/design/aggregate-ownership.md)
 - [ ] [포트와 어댑터 - 콘센트(규격)/플러그(구현) 비유 / 인터페이스는 의존 역전 필요할 때만 / 포트 소유권](./java/design/ports-and-adapters.md)
