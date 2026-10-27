@@ -105,6 +105,11 @@ class UserRepositoryAdapterTest {
 - **롤백이 없는 테스트는 `@AfterEach`로 치운다** — `@Transactional` 없는 `@SpringBootTest`(동시성 테스트 등)는 commit된 데이터가 그대로 쌓인다 → `@AfterEach`에서 `deleteAll()`/truncate로 정리해 테스트 순서에 따라 결과가 바뀌지 않게 한다. ([동시성 테스트 §4](./concurrency-test.md))
 - **`@BeforeEach` 범위** — 클래스 최상단에 두면 그 클래스 **모든 테스트**에 셋업이 적용됨. 일부 테스트엔 노이즈(개수 세기 등)가 될 수 있음 → **셋업 필요한 것만 `@Nested`로 묶고 그 안에 `@BeforeEach`**.
 - **`@BeforeAll`을 non-static으로 쓰고 싶다** → 클래스에 `@TestInstance(Lifecycle.PER_CLASS)`를 붙이면 인스턴스를 클래스당 1개로 유지해 가능(상태 공유도 됨). 단 테스트 간 격리가 약해지니 주의.
+- **`import org.junit.Test`(JUnit 4)를 잘못 고르면 테스트가 아예 안 돈다.** IDE 자동 import에서 `org.junit.Test`와 `org.junit.jupiter.api.Test`가 둘 다 뜰 때 생긴다.
+  - 컴파일은 된다. JUnit 4 jar가 다른 의존성을 타고 클래스패스에 들어와 있기 때문이다. 예: Testcontainers 1.x는 `junit:junit:4.13.2`를 compile 스코프로 끌고 온다(1.20.4 pom 확인, 2.x에서는 빠짐).
+  - Gradle `useJUnitPlatform()` + Jupiter 엔진만 있으면, Jupiter는 JUnit 4 `@Test`를 테스트로 인식하지 않는다. 그 메서드는 실행 대상에서 빠지고, 실패가 아니라 **"아무것도 안 돌았는데 빌드 성공"**으로 끝난다. JUnit 4 테스트를 돌리려면 `junit-vintage-engine`이 따로 있어야 한다.
+  - TDD에서 특히 위험하다. RED를 보려고 실행했는데 빨간불이 안 뜨니 "벌써 통과하나?"로 착각한다. 그리고 `@ExtendWith(MockitoExtension.class)` 같은 JUnit 5 확장도 적용되지 않는다.
+  - 확인법: 테스트 리포트나 IDE 실행 결과의 **실행 개수**를 본다(0개면 의심). 예방하려면 import를 `org.junit.jupiter.api.*`로 통일한다.
 
 ---
 

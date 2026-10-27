@@ -162,7 +162,7 @@
 - [ ] [테스트 방법론 핵심 요약 - 판단 공식 + 막힌 케이스 누적](./java/test/test-writing-guide.md)
 - [ ] [테스트 픽스처(Object Mother) - 변하는 값만 받기 / static 픽스처 vs 인스턴스 헬퍼 / ⚠️통합 테스트에서 저장할 땐 기본 id·unique 기본값·서비스 셋업 함정 / Fixture Monkey·Gradle java-test-fixtures](./java/test/test-fixtures.md)
 - [ ] [JPA repository 테스트 - @DataJpaTest / persist≠INSERT / flush·clear 왕복 / H2·Testcontainers](./java/test/jpa-repository-test.md)
-- [ ] [JUnit 5 라이프사이클 - @BeforeEach·@BeforeAll·@Nested / 테스트 전 데이터 셋업](./java/test/junit-lifecycle.md)
+- [ ] [JUnit 5 라이프사이클 - @BeforeEach·@BeforeAll·@Nested / 테스트 전 데이터 셋업 / ⚠️ `org.junit.Test`(JUnit 4) import는 컴파일되지만 Jupiter가 무시 → 0개 실행·빌드 성공](./java/test/junit-lifecycle.md)
 - [ ] [파라미터화 테스트 - @ParameterizedTest / ValueSource·EnumSource·CsvSource·MethodSource / 검증 같을 때만](./java/test/parameterized-test.md)
 - [ ] [Mockito 서비스 테스트 - @Mock·@InjectMocks·given·verify·ArgumentCaptor / 분기·조합·상호작용 검증](./java/test/mockito-service-test.md)
 - [ ] [동시성 테스트 작성법 - ExecutorService·CountDownLatch 3개 / @Transactional 금지(워커는 다른 트랜잭션) / 비관(합계)·낙관(1성공) 검증 / 대조 실험(락 빼면 실패하나)](./java/test/concurrency-test.md)
