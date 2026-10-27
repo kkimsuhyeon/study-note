@@ -173,7 +173,7 @@
 - [ ] [같음 판정 - `equals`=정체성(엔티티는 id·값 객체는 전 필드) vs 업무 규칙은 이름 붙인 메서드(`isSameRequest`) / ⚠️ 일부 필드 equals는 다른 기록을 같다고 말하고 HashSet·AssertJ `isEqualTo`·Mockito `verify`까지 그 규칙을 따라감(빠진 필드 버그를 테스트가 숨김) / equals만 고치고 hashCode 누락 / 검증은 ArgumentCaptor·argThat·usingRecursiveComparison](./java/design/equals-vs-named-comparison.md)
 - [ ] [변환 계층 - Factory(생성)/Mapper(web→Command)/Assembler(Command→Model) + Command/Query · Request→Command→Domain의 enum·시간 타입 유지](./java/design/transform-layers.md)
 - [ ] [애그리거트 소유권 & 참조 방향 - source of truth / 자기 사실만 판정 / 1:1 FK는 나중 생긴 쪽이 단방향](./java/design/aggregate-ownership.md)
-- [ ] [포트와 어댑터 - 콘센트(규격)/플러그(구현) 비유 / 인터페이스는 의존 역전 필요할 때만 / 포트 소유권](./java/design/ports-and-adapters.md)
+- [ ] [포트와 어댑터 - 콘센트(규격)/플러그(구현) 비유 / 인터페이스는 의존 역전 필요할 때만 / 포트 소유권 / 유스케이스는 조합 기준·인바운드 어댑터는 URL 리소스 기준(멱등키 같은 보호 장치는 기능의 주인을 안 바꿈)](./java/design/ports-and-adapters.md)
 - [ ] [일급 컬렉션 - 컬렉션 하나만 감싼 클래스 / 응집·불변(방어적 복사) / vs 값 객체(Tell Don't Ask·널 객체)](./java/design/first-class-collection.md)
 - [ ] [계산 파이프라인 구조 - Pipes and Filters 변형(공유 Context) + supports-execute + Collecting Parameter / 불변 Factor·정책·순서 고정 / ⚠️순서가 곧 스펙·supports 스킵은 무음 / 조회는 밖에서·계산 코어에 I/O 금지](./java/design/calculation-pipeline.md)
 - [ ] [집계를 SQL vs 애플리케이션 - 판단 축은 건수와 유지보수성 / 수천 건 이하면 앱(테스트 가능·읽힘) / ⚠️"읽을 수 없는 SQL은 느려져도 아무도 못 고친다" — 성능 문제 방치의 진짜 원인 / 기간 오프바이원(N-1 시작·배타 상한 +1)](./java/design/aggregation-placement.md)

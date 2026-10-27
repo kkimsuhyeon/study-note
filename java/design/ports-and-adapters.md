@@ -163,6 +163,21 @@ public record PageResult<T>(List<T> content, long totalElements, int totalPages)
 - 그래서 변환 함수는 기능 쪽에 둔다(`ReportInput.toBirthInfo()`). 기반 쪽 서비스 호출도 기능 쪽 유스케이스가 한다(`CreateReportUseCase → ChartService`).
 - ⚠️ ArchUnit 순환 검사를 최상위 패키지 단위(`com.app.(*)..` → domain/application/infrastructure…)로만 걸면, 같은 `domain` 안의 `domain.chart ↔ domain.report` 순환은 잡지 못한다. 모듈 간 방향을 지키려면 `slices().matching("com.app.domain.(*)..").should().beFreeOfCycles()` 같은 규칙이나 "chart는 report에 의존하지 않는다" 규칙을 따로 둔다.
 
+### 5-6. 유스케이스가 여러 모듈을 쓰게 되면 컨트롤러도 옮겨야 하나 — 층마다 묶는 기준이 다르다
+
+예: "잔액 충전"에 멱등키 확인이 붙으면서, 충전 유스케이스가 `user` 서비스와 `requestkey` 서비스를 함께 쓰게 됐다. 그러면 "이제 user 기능이 아니니 컨트롤러와 매퍼도 user에서 빼야 하나?"라는 의문이 든다.
+
+| 층 | 무엇을 기준으로 묶나 | 이 예에서 |
+|---|---|---|
+| 유스케이스 | **무엇을 조합하나.** 모듈 여러 개를 쓰면 모듈 위(최상위 application)로 | 충전 유스케이스는 위로 (맞음) |
+| 인바운드 어댑터 (컨트롤러·Request·Request→Command 매퍼) | **어떤 URL 리소스의 입구인가** | `PATCH /users/balance` → 여전히 user |
+
+- **근거가 되는 비교.** 결제 유스케이스는 예약·좌석·유저·결제 네 모듈을 쓰지만, 결제 컨트롤러는 `/payments`의 입구라서 payment 모듈에 있다. "여러 모듈을 쓴다"는 이유로 어댑터를 옮긴다면 조합형 기능의 컨트롤러는 전부 갈 곳을 잃는다.
+- **멱등키·락 같은 보호 장치는 기능의 주인을 바꾸지 않는다.** 이런 장치는 "중복 실행을 막는" 기술적 관심사다. 결제에도 붙을 테고, 그렇다고 결제가 결제 기능이 아니게 되지는 않는다. 업무의 뜻("유저 잔액이 늘어난다")이 그대로면 리소스도 그대로다.
+- **진짜로 옮길 때는 리소스 자체가 바뀔 때다.** 예: 충전 내역을 따로 쌓는 `point` 모듈을 만들고 URL을 `/points/charges`로 바꾸면, 컨트롤러·Request·매퍼가 그 모듈로 가고 이름(`PointCommandMapper`)도 따라 바뀐다. 이건 멱등키 때문이 아니라 API를 다시 설계했기 때문이다.
+- **어댑터 모듈 → 최상위 유스케이스 → 모듈 서비스**로 패키지 덩어리 순환이 생기는 게 거슬린다면, 그건 위치 규칙 하나를 통째로 바꿀 문제다. 인바운드 어댑터를 모두 최상위 `web/`으로 빼는 식이다. 이때는 조합형 컨트롤러를 **한 번에** 옮긴다. 하나만 옮기면 규칙이 두 개가 된다.
+- 매퍼는 어느 쪽이든 **입력 타입(Request)을 아는 어댑터 쪽**에 둔다. application으로 올리면 application이 HTTP 모양을 알게 되어 방향이 거꾸로 된다.
+
 ---
 
 ## 6. 💡 판단 기준
