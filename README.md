@@ -129,6 +129,7 @@
 
 ### 기본 / 박싱 (Basics)
 - [ ] [record 컴팩트 생성자 - 고치는 건 매개변수, 필드는 맨 끝에 대입 / 본문 안 접근자는 아직 null / 그래서 검증 헬퍼는 static + 매개변수 / 값을 만들면 validateX가 아니라 toX](./java/basics/record-compact-constructor.md)
+- [ ] [Lombok 생성자 - `access`는 접근 수준·`staticName`은 private 생성자 + 정적 팩토리 / ⚠️ 둘을 같이 쓰면 `access`가 **팩토리**에 붙어 `of`까지 private(1.18.36 소스 확인) / staticName 팩토리엔 검증 불가 → 규칙 있으면 직접 쓴 팩토리 / ⚠️ `@Builder`는 다른 `@XxxArgsConstructor`가 있으면 생성자를 안 만듦](./java/basics/lombok-constructors.md)
 - [ ] [문자열 길이 - `length()`는 UTF-16 칸 수, 글자 수는 `codePointCount()` / 이모지·확장 한자는 2칸 / NFD 정규화로 같은 모양 다른 길이 / 사람 눈 글자는 BreakIterator](./java/basics/string-length-unicode.md)
 - [ ] [앞뒤 공백 제거 정규식 ReDoS - `^\s+|\s+$`는 O(n²)(실측: 공백 2배 → 시간 4배) / 정리가 길이 검사·요청 한도보다 먼저 돌면 못 막음 / trim·strip·직접 루프 비교 / 원문 길이 상한을 정리 전에](./java/basics/regex-trim-redos.md)
 - [ ] [파일 읽기 - 디스크 파일 vs 클래스패스 리소스 × 한 번에 vs 스트림 / resources는 jar 안 항목이라 File·Path 아님 / ⚠️getFile()은 IDE만 되고 jar에서 실패(실행 확인)·getResourceAsStream은 null·앞 `/` 규칙·상대 Path는 cwd 기준 / 문자셋 명시·시작 시 한 번 읽기(fail-fast) / FileInputStream 관 쌓기(→InputStreamReader→BufferedReader)·옛 finally close vs try-with-resources / ⚠️read(buf) 개수 n 무시·바이트 덩어리별 변환은 한글 깨짐(실행 확인)](./java/basics/reading-files-and-classpath-resources.md)
