@@ -95,6 +95,43 @@ public void outer() {
 - **REQUIRED**: inner가 outer에 **합류** → 하나의 트랜잭션. inner든 outer든 한 곳에서 실패하면 **전부 롤백**.
 - **REQUIRES_NEW**: outer를 **suspend**(커넥션을 옆에 치워둠) → inner가 **새 커넥션으로 독립 실행** → inner 커밋/롤백 → outer 재개. **같은 스레드의 동기 호출**(동시성 대기 아님).
 
+### ⚠️ 합류한 inner의 `readOnly`·`isolation`·`timeout`은 조용히 무시된다
+
+"안쪽 `@Transactional`은 바깥에 들어가면 안 먹고 최상위가 다 한다"는 **반만 맞다.**
+
+| 최상위(물리 트랜잭션 시작자)가 가져가는 것 | 안쪽 어노테이션이 여전히 하는 것 |
+|---|---|
+| 시작·커밋·롤백 실행 | 롤백 대상 예외가 경계를 빠져나가면 **rollback-only 마킹** (§4 ⚠️) |
+| `isolation`·`timeout`·`readOnly` — inner 값은 **경고 없이 버려짐** | `REQUIRES_NEW`·`MANDATORY`·`NOT_SUPPORTED` 같은 **전파 옵션 자체** |
+| | 바깥 트랜잭션이 **없을 때**는 inner가 곧 최상위 → 자기 설정 그대로 적용 |
+
+그래서 **같은 메서드가 호출자에 따라 다르게 동작한다.** 대표 사례가 `readOnly` 조회 서비스에 들어간 `SELECT ... FOR UPDATE`:
+
+```java
+@Service @Transactional(readOnly = true)
+class UserQueryService {
+    User getUserForUpdate(String id) { return repo.findByIdForUpdate(id).orElseThrow(); }
+}
+
+@Transactional                              // 호출자 A: 트랜잭션 있음
+void charge(...) {
+    queryService.getUserForUpdate(id);      // 합류 → readOnly 무시, 락은 charge 커밋까지 유지 ✅
+    ...
+}
+
+void someController(...) {                  // 호출자 B: 트랜잭션 없음
+    queryService.getUserForUpdate(id);      // 새 readOnly 트랜잭션 → 반환 즉시 커밋 → 락 해제 ❌ (예외 없음)
+    ...                                     // 락이 있다고 믿고 진행
+}
+```
+
+- 합류 여부 확인: `JpaTransactionManager` DEBUG 로그에서 "Creating new transaction" vs "Participating in existing transaction"(문구는 버전에 따라 다를 수 있음, 확인 필요).
+- `validateExistingTransaction=true`(트랜잭션 매니저 설정)는 isolation 불일치와 **"outer readOnly인데 inner가 쓰기"** 만 거부한다 — 위처럼 반대 방향(outer 쓰기, inner readOnly)은 못 잡는다.
+- "반드시 바깥 트랜잭션 안에서만 의미 있는 메서드"(락 잡는 조회 등)는 `@Transactional(propagation = MANDATORY)`로 계약을 코드에 박을 수 있다 — 단독 호출 시 조용히 풀리는 대신 즉시 `IllegalTransactionStateException`.
+- 이건 프록시를 아예 안 타서 무시되는 self-invocation·`private`(§6)과는 **다른 현상**이다 — 여기는 프록시를 타지만 "합류"라서 설정만 버려진다.
+
+> 💡 판단 질문: **"이 메서드가 트랜잭션 없이 단독으로 불려도 의미가 유지되나?"** 아니면 그 메서드의 속성(readOnly 서비스 배치 등)이 오해를 부른다 → Command 쪽으로 옮기거나 `MANDATORY`로 강제. (CQS 분류 기준은 [변환 계층 §5](../design/transform-layers.md))
+
 ---
 
 ## 4. REQUIRES_NEW에서 inner 에러 → outer는? (핵심 질문)
@@ -463,6 +500,7 @@ public void on(MemberJoined event) { mailSender.send(event); }
 
 ## 8. 참고
 - [Spring - Declarative Transaction Management](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative.html)
+- [Spring - Transaction Propagation](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/tx-propagation.html) (합류 시 inner의 isolation·timeout·read-only 무시, `validateExistingTransaction`)
 - [Spring - Understanding AOP Proxies](https://docs.spring.io/spring-framework/reference/core/aop/proxying.html#aop-understanding-aop-proxies) (self-invocation이 프록시를 우회하는 이유, 공식 그림)
 - [Baeldung - Transaction Propagation and Isolation in Spring @Transactional](https://www.baeldung.com/spring-transactional-propagation-isolation)
 - [Spring - TransactionalEventListener javadoc](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/transaction/event/TransactionalEventListener.html)
