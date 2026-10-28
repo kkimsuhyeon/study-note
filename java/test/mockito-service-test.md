@@ -65,6 +65,14 @@ any()  any(User.class)  anyString()  eq("u1")
 ```
 > ⚠️ **한 인자라도 matcher를 쓰면 모든 인자를 matcher로.** `update(eq("u1"), any())` ✅ / `update("u1", any())` ❌(에러).
 
+> ⚠️ **matcher는 mock 호출 안에서만 — 테스트 대상(SUT) 호출엔 실제 값.** `eq()`·`any()`는 값을 넘기는 함수가 아니라, **matcher를 내부 스택에 기록하고 더미 값(보통 `null`)을 반환**한다. 그래서 `service.isRetry(eq("u1"), eq(key), any(Req.class))`처럼 진짜 서비스에 쓰면:
+> ```
+> ① matcher 3개 기록, 서비스엔 null·null·null이 들어감
+> ② 서비스 안에서 mock repo.find("u1"?, key?)를 2개 인자로 호출
+> ③ mock: "matcher 3개 기록됐는데 인자는 2개" → InvalidUseOfMatchersException
+> ```
+> 스택트레이스가 테스트 줄이 아니라 **서비스 내부의 mock 호출 줄**을 가리키는 게 특징 — "다 eq/any 썼는데?" 싶으면 SUT 호출에 matcher를 넣었는지부터 본다. 규칙: `when(mock.m(...))`·`verify(mock).m(...)` = 조건·검사 자리라 matcher, `service.m(...)` = 실제로 실행하는 자리라 실제 값.
+
 ### ArgumentCaptor — 넘긴 인자를 붙잡아 검증
 
 ```java
@@ -155,7 +163,7 @@ void addBalance_notFound() {
 ## 6. ⚠️ 함정
 
 - **`UnnecessaryStubbingException`** — `MockitoExtension`은 기본 **strict**라, `given(...)` 해놓고 안 쓰면 에러. **쓸 것만 stub.**
-- **matcher 혼용 금지** — 한 인자에 matcher 쓰면 나머지도 matcher(§3).
+- **matcher 혼용 금지 · SUT 호출에 matcher 금지** — 한 인자에 matcher 쓰면 나머지도 matcher, 테스트 대상 호출엔 실제 값(§3).
 - **`@Mock`은 진짜 동작 안 함** — stub 안 한 메서드는 null/empty 반환. 그래서 흐름에 필요한 응답은 `given`으로 정해줘야 함.
 - **도메인 규칙을 서비스 테스트에서 또 검증하지 말 것** — 중복. 계층 책임 분리.
 - **`@InjectMocks`는 주입에 실패해도 조용하다** — 생성자 → setter → 필드 순으로 시도하고, 못 넣으면 **실패를 보고하지 않고** 해당 의존성을 null로 둔다(공식 Javadoc: "Mockito won't report failure"). 증상은 엉뚱한 줄의 NPE. 의존성이 늘었는데 `@Mock`을 안 추가한 경우가 대부분 → 의심되면 `new Service(mockA, mockB)`로 직접 생성하는 게 확실하다.
@@ -164,6 +172,7 @@ void addBalance_notFound() {
 ---
 
 ## 7. 참고
+- [Mockito - ArgumentMatchers Javadoc](https://javadoc.io/doc/org.mockito/mockito-core/latest/org/mockito/ArgumentMatchers.html) — matcher는 스택에 기록되고 더미 값을 반환
 - [Mockito 공식 - Getting Started](https://javadoc.io/doc/org.mockito/mockito-core/latest/org/mockito/Mockito.html) — §0.3 Explicitly setting up instrumentation for inline mocking (Java 21+)
 - [Mockito - @InjectMocks Javadoc](https://javadoc.io/doc/org.mockito/mockito-core/latest/org/mockito/InjectMocks.html) — 주입 순서와 "won't report failure"
 - 관련 노트: [JPA repository 테스트](./jpa-repository-test.md) · [테스트 작성 가이드](./test-writing-guide.md)
