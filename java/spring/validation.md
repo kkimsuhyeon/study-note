@@ -114,6 +114,41 @@ public class C {
 - ⚠️ **6.1+에서 한 메서드에 내장 메서드 검증이 적용되면**(파라미터 하나라도 제약이 직접 붙으면) 같은 메서드의 `@Valid @RequestBody` 오류도 `MethodArgumentNotValidException`이 아니라 `HandlerMethodValidationException`으로 보고된다. 공식 문서도 "메서드 시그니처에 따라 둘 중 하나가 날 수 있으니 둘 다 처리하라"고 한다.
 - **예외 타입이 다르므로** `@RestControllerAdvice`에서 쓰는 경로의 예외를 모두 핸들링해야 일관된 에러 응답이 나온다([Spring 예외 처리](./exception-handling.md)).
 
+### ⚠️ 제약 어노테이션은 이름표다 — 위 세 경로 밖에서는 아무도 읽지 않는다
+
+`@NotNull` 자체는 코드를 실행하지 않는다. 위 표의 처리 주체(MVC, AOP 프록시)가 호출을 가로챌 때만 읽힌다. 그래서 아래 경우에는 붙여도 조용히 무시된다.
+
+```java
+public final class HashUtils {
+    public static String sha256(@NotNull String value) { ... }   // static: 프록시가 끼어들 수 없음 → 검사 안 함
+}
+```
+
+- **static 메서드**, **`new`로 직접 만든 객체의 메서드**: 스프링 빈을 거치지 않는 호출이라 프록시가 없다.
+- **같은 빈 안에서 자기 메서드 호출(self-invocation)**: `this.foo()`는 프록시를 거치지 않는다. `@Transactional`이 self-invocation에서 안 먹는 것과 같은 이유다([@Transactional](./transactional.md)).
+
+이름이 비슷한 "not null" 어노테이션도 누가 읽느냐에 따라 효과가 전혀 다르다.
+
+| 어노테이션 | 누가 읽나 | static 메서드에서 |
+|---|---|---|
+| `jakarta.validation.constraints.NotNull` | 스프링이 런타임에 Validator 호출 | 무시 |
+| `lombok.NonNull` | Lombok이 **컴파일 때 null 검사 코드를 메서드 맨 앞에 삽입** | 동작 (NPE) |
+| `org.jetbrains.annotations.NotNull`, JSpecify `@NonNull` | IDE·정적 분석기 경고 | 런타임 효과 없음 |
+
+### 💡 Bean Validation은 "밖에서 들어온 입력" 검사용이다
+
+| | Bean Validation (`@Valid` + `@NotNull`) | `Objects.requireNonNull` 등 코드 검사 |
+|---|---|---|
+| 막는 대상 | 클라이언트가 보낸 잘못된 입력 | 개발자 실수(버그), 내부 계약 위반 |
+| 실패 결과 | 400 — 요청을 고치면 해결됨 | 500 — 코드를 고쳐야 해결됨 |
+| 위치 | 시스템 경계(요청 DTO, 컨트롤러) | 메서드 안쪽, 유틸, 도메인 |
+
+경계에서 이미 `amount`의 null을 400으로 걸렀다면, 안쪽 유틸에 null이 들어온 건 사용자 잘못이 아니라 버그다. 안쪽 메서드에까지 `@Valid`를 붙이려는 건 두 층을 섞는 것이다. 값 자체의 업무 규칙(금액 > 0 등)은 [도메인 검증](../design/domain-validation.md)이 맡는다.
+
+### ⚠️ 검증 구현체는 직접 선언한다
+
+`jakarta.validation-api`는 어노테이션(이름표) 정의뿐이고, 실제 검사는 구현체(Hibernate Validator)가 한다. Boot에서는 `spring-boot-starter-validation`이 구현체를 넣어 준다. 이 스타터를 선언하지 않았는데도 `@Valid`가 동작한다면, 다른 라이브러리가 간접 의존성으로 끌고 왔을 가능성이 있다. 예를 들어 springdoc 2.8.x는 `spring-boot-starter-validation`을 의존성으로 가지고 있다(`dependencyInsight`로 확인). 그 라이브러리를 빼거나 버전을 바꾸면 구현체도 함께 빠진다. 그러니 쓰는 기능의 의존성은 직접 선언한다. 확인 명령은 `./gradlew dependencyInsight --configuration runtimeClasspath --dependency hibernate-validator`.
+
 ---
 
 ## 5. 자주 쓰는 표준 제약 + 커스텀

@@ -116,7 +116,7 @@
 - [ ] [HTTP 클라이언트 구현체 비교 - RestClient 아래 통신 라이브러리 5종(JDK/Apache/Jetty/Reactor/Simple) / Boot 자동 감지 순서·spring.http.clients·ClientHttpRequestFactoryBuilder / ⚠️JDK는 멱등 요청을 알아서 1회 재시도→"최대 1회" 루프 얹으면 4회 / read timeout=요청 시작부터 총 시간 / 오류 본문은 close 때 drain](./java/spring/http-client-transports.md)
 - [ ] [@Transactional - 선언적 트랜잭션·전파(propagation)·롤백 규칙·프록시 함정 / 부수 작업 격리(REQUIRES_NEW+try-catch) → 스프링 이벤트(AFTER_COMMIT+@Async)와 ⚠️트랜잭션 없으면 조용히 안 도는 함정 / 커넥션(창구)≠트랜잭션(전표 묶음) / 트랜잭션 밖≠비동기(A~D 4조합)·외부 호출은 창구에서 일어나서 / ⚠️JPA+OSIV면 tx 밖에서도 커넥션 보유 / 6.0+ CGLIB는 non-public에도 적용 / 6.1+ 리스너 @Transactional은 REQUIRES_NEW만 (워커·reaper·DB 큐는 → DB를 작업 큐로)](./java/spring/transactional.md)
 - [ ] [예제로 보는 트랜잭션 전파·롤백 - a→b→c 워크스루](./java/spring/transaction-rollback-example.md)
-- [ ] [@Valid · @Validated - Bean Validation 동작·위치, 중첩 cascade 함정 / 6.1+ MVC 내장 메서드 검증(@Validated 없이 → HandlerMethodValidationException)](./java/spring/validation.md)
+- [ ] [@Valid · @Validated - Bean Validation 동작·위치, 중첩 cascade 함정 / 6.1+ MVC 내장 메서드 검증(@Validated 없이 → HandlerMethodValidationException) / ⚠️제약 어노테이션은 이름표(static·new·self-invocation은 무시, lombok.NonNull만 컴파일 삽입) / 💡경계 입력=Bean Validation(400) vs 내부 계약=requireNonNull(500) / 구현체 간접 의존 함정](./java/spring/validation.md)
 - [ ] [@AssertTrue 필드 조합 검증 - boolean getter에 붙는 cross-field 규칙 / get·is·has(원시 boolean) getter가 아니면 조용히 무시(Boolean 반환도) / null 가드 필수·Jackson 노출 / vs 클래스 레벨 제약](./java/spring/assert-true-cross-field.md)
 - [ ] [Spring 예외 처리 - @ControllerAdvice, ErrorCode, Validation 예외 흐름 / ⚠️Exception.class fallback이 MVC 4xx를 500으로 → ResponseEntityExceptionHandler](./java/spring/exception-handling.md)
 - [ ] ["배치"의 세 층위 - 쿼리 배치화(N+1→IN+groupingBy) / Spring Batch(스케줄러 없음!) / JDBC 쓰기 배치](./java/spring/batch-three-meanings.md)
