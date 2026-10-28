@@ -93,7 +93,7 @@
 - [ ] [@Lock 심화 개념 - @Version·공유/배타·FORCE_INCREMENT](./java/jpa/lock-concepts.md)
 - [ ] [@Lock 실무 패턴 - 프록시·네이밍·테스트·재시도·벌크/조건부 UPDATE](./java/jpa/lock-practical.md)
 - [ ] [Read-Modify-Write와 트랜잭션 경계 - 쓰기 서비스가 조회 서비스에 의존하면 안 되는 이유](./java/jpa/read-modify-write.md)
-- [ ] [Criteria · Specification · Pageable · Page - 출처(Spring Data/JPA/자작)와 동적 조회·페이징 / ⚠️파생 쿼리는 OR 괄호 표현 불가 → 조용히 틀린 결과](./java/jpa/spring-data-query.md)
+- [ ] [Criteria · Specification · Pageable · Page - 출처(Spring Data/JPA/자작)와 동적 조회·페이징 / ⚠️파생 쿼리는 OR 괄호 표현 불가 → 조용히 틀린 결과 / 파생 쿼리 접두어(find·exists·count·delete)·반환 타입은 선언자가 결정(유니크면 Optional, 2건↑ 예외) / ⚠️null 인자=IS NULL·deleteBy는 조회 후 1건씩](./java/jpa/spring-data-query.md)
 - [ ] [N+1과 fetch 전략 - fetch join, EntityGraph, batch size 판단 기준 / ⚠️"쿼리 1회=빠름"이 아니다 — 페이징 없어도 컬렉션 fetch join은 행×컬럼으로 비쌈(안 쓰는 연관이 전 행에 중복) / SQL은 55ms인데 fetch()가 2,553ms면 매핑 비용 → 프로젝션 + 직접 groupingBy](./java/jpa/n-plus-one-fetch.md)
 - [ ] [연관관계 매핑 - 연관관계 주인·mappedBy(양방향=단방향 2개, FK는 하나) / ⚠️역방향에만 값 넣으면 FK null / 편의 메서드 / 1:N 단방향·N:M 금지 / ToOne은 기본 EAGER→LAZY 명시](./java/jpa/relation-mapping.md)
 - [ ] [엔티티 설계 실무 규칙 - Setter 금지·모든 연관관계 LAZY·컬렉션 필드 초기화 후 교체 금지(PersistentBag)·@Enumerated STRING 강제 / @Entity 제약·hbm2ddl 환경별 규칙](./java/jpa/entity-design-rules.md)

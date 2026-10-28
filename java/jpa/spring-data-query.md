@@ -91,6 +91,32 @@ select ... from reports where status = ? and expires_at > ? order by created_at 
 - 이름이 너무 길어지거나 `OR` 괄호·조인 조건이 필요하면 `@Query`로 JPQL을 직접 쓴다(아래 7절).
 - 조건과 정렬에 맞는 인덱스가 있는지 함께 본다. 예: `(status, created_at)` 인덱스에 `WHERE status IN ('pending', …)` 부분 인덱스라면, "상태가 pending인 것 중 가장 오래된 1건"을 인덱스 순서대로 바로 꺼낸다.
 
+**`By` 앞(subject) — 무엇을 할지**
+
+| 접두어 | 하는 일 | 보통 반환 타입 |
+|---|---|---|
+| `find` / `get` / `read` / `query` | 엔티티 조회 (전부 같은 뜻) | `Optional<E>` / `List<E>` |
+| `exists` | 존재 여부 (id만 SELECT, 1건 제한) | `boolean` |
+| `count` | 개수 (`count()` 프로젝션) | `long` |
+| `delete` / `remove` | 조회 후 삭제 | `void` / `long` |
+| `Distinct` | `select distinct` | `List<E>` |
+
+**반환 타입은 선언하는 쪽이 고른다** — 이름은 WHERE만 만들고, 결과 모양은 반환 타입을 보고 정해진다.
+
+| 반환 타입 | 0건 | 2건 이상 |
+|---|---|---|
+| `Optional<E>` | `Optional.empty()` | **`IncorrectResultSizeDataAccessException`** |
+| `E` | `null` | 같은 예외 |
+| `List<E>` | 빈 리스트 | 전부 |
+| `Page<E>` / `Slice<E>` | 빈 페이지 | 페이지 단위 (마지막 인자 `Pageable`) |
+| `Stream<E>` | 빈 스트림 | 전부 — 트랜잭션 안에서 쓰고 반드시 close |
+
+- 💡 **유니크 제약으로 0~1건이 보장되면 `Optional`.** `List`로 두면 호출부가 "여러 개면?"이라는 일어날 수 없는 분기를 떠안는다. 반대로 단건 타입인데 실제로 여러 건이 나오면 하나를 골라 주지 않고 예외 — "유일할 것 같은" 조건이면 DB 제약이 그걸 보장하는지 확인하고, 아무거나 1건이면 `First`/`Top`으로 직접 자른다.
+- ⚠️ IDE의 "메서드 생성" 퀵픽스는 유일성을 모르니 **`List<E>`로 만들어 준다** — 생성 후 반환 타입을 의도대로 고친다.
+- ⚠️ **인자에 `null`을 넘기면 `= null`이 아니라 `IS NULL`** 조건이 된다(`Not`이면 `IS NOT NULL`). "필터 미지정"으로 null을 넘기면 엉뚱한 행을 찾는다 → 서비스에서 막거나 동적 조회(4절).
+- ⚠️ **`deleteBy…`는 SQL 한 줄이 아니다.** 대상 엔티티를 전부 조회해 메모리에 올린 뒤 하나씩 `delete` — `@PreRemove` 같은 생명주기 콜백을 지키려는 설계. 대량 삭제는 `@Modifying @Query("delete from …")` 벌크로(→ [JPQL 심화](./jpql-advanced.md) 벌크 연산은 영속성 컨텍스트 우회).
+- ⚠️ `IgnoreCase`는 `UPPER(col) = UPPER(?)`, `Containing`은 `like '%?%'` — 컬럼을 함수로 감싸거나 앞에 `%`가 붙으면 일반 인덱스를 못 탄다.
+
 ---
 
 ## 4. Specification — 동적 조건 (Spring Data JPA)
@@ -227,6 +253,8 @@ findByTeamAndMemberAndDateLessThanAndExpiredIsNullOrExpiredGreaterThanEqual(...)
 ## 9. 참고
 - [Spring Data JPA - Specifications](https://docs.spring.io/spring-data/jpa/reference/jpa/specifications.html)
 - [Spring Data - Paging and Sorting](https://docs.spring.io/spring-data/jpa/reference/repositories/core-concepts.html)
+- [Spring Data JPA - Query Methods (Supported keywords, Derived Delete Queries)](https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html)
+- [Spring Data - Repository query return types](https://docs.spring.io/spring-data/jpa/reference/repositories/query-return-types-reference.html)
 - [Spring Data JPA - Projections (파생 쿼리는 클래스·인터페이스 프로젝션 모두 지원)](https://docs.spring.io/spring-data/jpa/reference/repositories/projections.html)
 - 관련 노트: [JPA repository 테스트](../test/jpa-repository-test.md) · [영속성 컨텍스트·flush](./persistence-context.md)
 
