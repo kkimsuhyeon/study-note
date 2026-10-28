@@ -102,7 +102,7 @@
 - [ ] [프록시와 지연 로딩 - getReference 동작 원리 / ⚠️3대 함정: == 비교·find/getReference 순서별 동일성·LazyInitializationException(트랜잭션 밖 지연 로딩의 근본 원인)](./java/jpa/proxy.md)
 - [ ] [영속성 전이와 고아 객체 - cascade·orphanRemoval은 "소유자 하나+수명 동일"일 때만 / ALL+orphanRemoval=애그리거트 루트 구현 / 정적 생성 메서드 패턴](./java/jpa/cascade-orphan-removal.md)
 - [ ] [값 타입 - @Embeddable/@Embedded / 공유 참조 부작용→불변 설계 / ⚠️값 타입 컬렉션(List/bag)은 변경 시 전체 DELETE+재INSERT→일대다 엔티티로 대체](./java/jpa/value-types.md)
-- [ ] [준영속 엔티티 수정: 변경 감지 vs merge - ⚠️merge는 전체 교체(폼에 없는 필드 null 덮어쓰기) / save()의 정체=id 있으면 merge / "id+DTO 넘겨 변경 감지"가 정답](./java/jpa/merge-vs-dirty-checking.md)
+- [ ] [준영속 엔티티 수정: 변경 감지 vs merge - ⚠️merge는 전체 교체(폼에 없는 필드 null 덮어쓰기) / save()의 정체=id 있으면 merge / "id+DTO 넘겨 변경 감지"가 정답 / ⚠️직접 할당 키+save()는 중복 시 에러 대신 UPDATE(유니크 방어선 소실) → 대리키+유니크 vs 복합키+persist](./java/jpa/merge-vs-dirty-checking.md)
 - [ ] [JPQL 심화 - ⚠️벌크 연산은 영속성 컨텍스트 우회(@Modifying clearAutomatically) / 묵시적 조인 금지 / fetch join 한계 3종(별칭·컬렉션은 하나만·페이징) / getSingleResult 예외](./java/jpa/jpql-advanced.md)
 - [ ] [OSIV - 기본 ON: 응답 완료까지 영속성 컨텍스트+커넥션 유지→실시간 트래픽에서 커넥션 고갈 / "고객 API는 OFF, ADMIN은 ON" / OFF 대응=커맨드·쿼리 서비스 분리](./java/jpa/osiv.md)
 
