@@ -158,7 +158,7 @@
 - [ ] [Stream API 종합 - 파이프라인(소스→중간lazy→최종) / 중간·최종·Collectors 연산 지도 / 1회용·peek=디버깅용·toMap 중복키 예외 / map vs flatMap(1:N은 Stream 반환 강제·Optional·thenCompose와 한 형제) / 필드 기준 중복제거는 distinct 아님→groupingBy+toSet / ⚠️lazy가 try-catch 무력화·CompletableFuture를 순차로 / "for문의 목적을 말로 하면 연산 이름"](./java/functional/stream-api.md)
 
 ### Test (테스트 도구 사용법)
-- [ ] [AssertJ 사용법 - assertThat / isEqualByComparingTo / assertThatThrownBy](./java/test/assertj.md)
+- [ ] [AssertJ 사용법 - assertThat / isEqualByComparingTo / assertThatThrownBy(⚠️람다 빠지면 인자가 먼저 실행됨)](./java/test/assertj.md)
 - [ ] [테스트 방법론 핵심 요약 - 판단 공식 + 막힌 케이스 누적](./java/test/test-writing-guide.md)
 - [ ] [테스트 픽스처(Object Mother) - 변하는 값만 받기 / static 픽스처 vs 인스턴스 헬퍼 / ⚠️통합 테스트에서 저장할 땐 기본 id·unique 기본값·서비스 셋업 함정 / Fixture Monkey·Gradle java-test-fixtures](./java/test/test-fixtures.md)
 - [ ] [JPA repository 테스트 - @DataJpaTest / persist≠INSERT / flush·clear 왕복 / H2·Testcontainers](./java/test/jpa-repository-test.md)

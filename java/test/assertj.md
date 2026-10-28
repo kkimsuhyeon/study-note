@@ -63,6 +63,17 @@ assertThatCode(() -> user.deductBalance(BigDecimal.TEN))
 
 > JUnit의 `assertThrows`도 가능하지만, AssertJ는 메시지·원인까지 체이닝으로 검증해 더 풍부하다.
 
+### ⚠️ 람다(`() ->`)를 빼고 호출 결과를 넘기면 안 된다
+
+```java
+assertThatThrownBy(service.charge(null))          // ❌
+assertThatThrownBy(() -> service.charge(null))    // ✅
+```
+
+- Java는 메서드를 부르기 전에 **인자부터 계산**한다. 람다가 없으면 `service.charge(null)`이 그 자리에서 실행되어 예외가 터지고, `assertThatThrownBy`는 불리지도 않는다.
+- 람다로 넘기면 "나중에 실행할 코드"만 전달된다. AssertJ가 자기 try-catch 안에서 실행해야 예외를 잡아 검사할 수 있다. 예외를 잡는 쪽이 실행 시점을 쥐어야 한다.
+- 실제로는 컴파일에서 먼저 막힌다. 인자 타입이 `ThrowingCallable`인데, 반환값이 있는 호출은 그 타입이 아니다. JUnit `assertThrows(Type.class, () -> ...)`도 같은 이유로 람다(`Executable`)를 받는다.
+
 ### 메시지 단언 — `hasMessage` vs `hasMessageContaining`
 
 | 단언 | 의미 |
