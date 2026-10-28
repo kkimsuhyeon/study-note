@@ -52,6 +52,18 @@ public static User toModel(CreateUserCommand command) {
 | **Command** | 상태 바꾸는 **쓰기** | `@Transactional` | `UserCommandService` |
 | **Query** | 상태 안 바꾸는 **읽기** | `readOnly = true` | `UserQueryService` |
 
+### ⚠️ 기준은 "값을 돌려주나"가 아니라 "부작용이 있나" — `findByIdForUpdate`는 Command
+
+CQS(Command-Query Separation) 정의: Query는 값을 돌려주고 **아무것도 바꾸지 않는다**. `SELECT ... FOR UPDATE`는 데이터를 돌려주지만 커밋까지 행을 잠가서 **다른 트랜잭션의 동작을 바꾼다**. 그러니 Command 쪽이다. JDK의 `Queue.poll()`(꺼내면서 반환)과 `peek()`(들여다보기만)의 차이와 같다.
+
+잠금 메서드를 `readOnly = true` Query 서비스에 두면 이렇게 깨진다.
+
+- **이름표를 믿고 부른다.** "Query는 어디서 불러도 안전하다"고 보고 읽기 API나 반복문에서 부르면, 읽기 요청이 쓰기 요청을 줄 세우는 잠금을 건다.
+- **혼자 불리면 잠금이 즉시 풀린다.** 바깥 `@Transactional` 안에서 불리면 그 트랜잭션에 합류해 커밋까지 잠금이 유지된다. 트랜잭션 없는 곳에서 불리면 자기 readOnly 트랜잭션을 열고 메서드가 끝날 때 커밋하면서 잠금을 바로 놓는다. 에러가 없어서 조용히 아무것도 보호하지 않는다.
+- **읽기 전용 복제 DB로 라우팅하는 구성이면 잠금이 엉뚱한 서버에 걸린다.** `readOnly` 트랜잭션을 replica로 보내는 구성(`AbstractRoutingDataSource` 등)에서는 `FOR UPDATE`가 원본이 아닌 복제본에서 실행돼, 원본의 쓰기를 막지 못한다.
+
+💡 판단 질문: **"실수로 두 번 부르거나 읽기 API에서 불러도 아무 일 없나?"** 아니면 Command다. 이름에 `ForUpdate`·`Exclusive`·`Lock`이 붙은 메서드는 Command 서비스로 간다. 잠금 노트: [@Lock 실무](../jpa/lock-practical.md)
+
 ---
 
 ## 5-1. ⚠️ 왜 엔티티를 API로 직접 반환하면 안 되나 — 설계 이유 + JPA 기술 근거
