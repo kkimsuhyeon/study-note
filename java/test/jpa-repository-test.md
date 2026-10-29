@@ -35,6 +35,8 @@ class UserRepositoryAdapterTest {
 
 > 어댑터(`@Repository` 컴포넌트)는 슬라이스 스캔 대상이 아니므로 **`@Import`로 직접 등록**해야 주입된다.
 
+> ⚠️ **직접 만든 `@Configuration`도 안 올라온다 — `@EnableJpaAuditing`이 대표 피해자.** 슬라이스 테스트는 `@Configuration` 클래스를 스캔에서 제외한다(Spring Boot 문서 "User Configuration and Slicing"). 그래서 `@EnableJpaAuditing`을 별도 `JpaConfig`에 두면 `@DataJpaTest`에선 Auditing이 꺼져 `@CreatedDate` 필드가 null인 채 INSERT된다 → 컬럼이 NOT NULL이면 `NULL not allowed for column "CREATED_AT"`. 해결은 **`@Import({XxxAdapter.class, JpaConfig.class})`**. 실제 설정을 그대로 쓰므로 운영과 같은 조건으로 테스트된다. `createdAt`이 없는 엔티티만 테스트하던 동안엔 드러나지 않다가, Auditing 필드가 있는 엔티티의 첫 어댑터 테스트에서 터지는 게 전형적인 패턴. (메인 클래스에 `@EnableJpaAuditing`을 붙이면 슬라이스에도 올라가지만, 공식 문서는 영역별 설정을 메인 클래스에 두지 말라고 권한다 — 모든 슬라이스가 그 설정을 떠안게 되기 때문)
+
 ---
 
 ## 3. `@AutoConfigureTestDatabase(replace = ...)` 옵션
