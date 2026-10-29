@@ -170,6 +170,14 @@ assertThat(optName).get(as(STRING)).startsWith("kim");
 
 > 💡 단순 값 일치 → `contains`/`hasValue` / 값으로 내려가 여러 검증 → `.get().satisfies(...)` 또는 `hasValueSatisfying`. `isPresent()` 없이 `.get()`만 써도 존재 검증이 포함된다.
 
+> ⚠️ **`satisfies` 안에는 `assertThat`이 있어야 한다 — boolean을 계산만 하면 아무것도 검증하지 않는다.** `satisfies`가 받는 건 `Consumer`(반환값 없음)라, 람다 안에서 예외가 나야만 실패한다.
+> ```java
+> .satisfies(k -> { k.isSameRequest(expected); })              // ❌ true/false를 버림 → 항상 통과
+> .satisfies(k -> assertThat(k.isSameRequest(expected)).isTrue()) // ✅ 단, 실패 메시지는 "expected true"뿐
+> .satisfies(k -> assertThat(k.getPayloadHash()).isEqualTo("efg")) // ✅ 실패 시 실제 값이 보임 — 권장
+> ```
+> 컴파일도 되고 테스트도 초록이라 눈치채기 어렵다. 새 테스트는 기대값을 일부러 틀리게 바꿔 **RED가 나는지 한 번 확인**하면 이런 "검증 없는 테스트"가 드러난다.
+
 ### ⚠️ 별도 `isPresent()` 줄은 중복
 
 ```java
